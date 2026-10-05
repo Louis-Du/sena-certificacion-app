@@ -15,13 +15,14 @@
     <div class="app-layout">
       <nav class="sidebar" aria-label="Navegacion principal">
         <div class="sidebar-brand"><div class="brand-mark" aria-hidden="true">SC</div><strong>Sena<br>Certificacion</strong></div>
-        <a class="sidebar-link active" href="#carga">↑ <span>Cargar informacion</span></a>
-        <a class="sidebar-link" href="#historial">▤ <span>Historial</span></a>
-        <a class="sidebar-link disabled" href="#aprendices" aria-disabled="true">♙ <span>Aprendices</span></a>
+        <a class="sidebar-link active" href="#carga" data-view="carga">↑ <span>Cargar informacion</span></a>
+        <a class="sidebar-link" href="#historial" data-view="carga">▤ <span>Historial</span></a>
+        <a class="sidebar-link" href="#aprendices" data-view="aprendices">♙ <span>Aprendices</span></a>
         <a class="sidebar-link disabled" href="#indicadores" aria-disabled="true">◌ <span>Indicadores</span></a>
         <div class="sidebar-footer">Prototipo inicial<br><small>Reglas por confirmar</small></div>
       </nav>
       <section class="page-content">
+      <div id="carga-view" class="app-view">
     <header class="topbar" id="carga">
       <div class="brand-mark" aria-hidden="true">SC</div>
       <div><p class="eyebrow">Sena Certificacion</p><h1>Cargar informacion</h1><p class="subtitle">Importa archivos utilizados para el seguimiento del proceso de certificacion.</p></div>
@@ -47,6 +48,18 @@
       </section>
       <aside class="side-column"><article class="panel guidance-panel"><h2>Antes de cargar</h2><p>Verifica el archivo antes de continuar</p><ul><li>Los documentos deben ser ficticios en este prototipo.</li><li>La primera fila debe contener encabezados.</li><li>No se conecta con SOFIA Plus ni con sistemas externos.</li><li>La importacion podra cancelarse antes de confirmar.</li></ul></article><article class="panel history-panel" id="historial"><div class="panel-heading"><div><h2>Ultimas importaciones</h2><p>Archivos confirmados en este equipo</p></div></div><div id="history-list" class="history-list"><small>Aun no hay importaciones.</small></div></article></aside>
     </div>
+      </div>
+      <div id="aprendices-view" class="app-view" hidden>
+        <header class="topbar">
+          <div class="brand-mark" aria-hidden="true">♙</div>
+          <div><p class="eyebrow">Sena Certificacion</p><h1>Listado de aprendices</h1><p class="subtitle">Consulta los aprendices almacenados en la base de datos SQLite.</p></div>
+          <button id="refresh-learners" class="primary-button refresh-button" type="button">↻ Actualizar</button>
+        </header>
+        <section class="panel learners-frame">
+          <div class="panel-heading"><div><h2>Aprendices registrados</h2><p id="learners-summary">Consultando SQLite...</p></div></div>
+          <div id="learners-list" class="learners-table"><small>Aun no hay aprendices cargados.</small></div>
+        </section>
+      </div>
       </section>
     </div>
   </main>
