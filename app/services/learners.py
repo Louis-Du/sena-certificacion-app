@@ -5,18 +5,46 @@ import hashlib
 from unicodedata import normalize
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import ImportedRecord, Learner
 
 
-def list_learners(session: Session, limit: int = 50) -> list[dict[str, Any]]:
+def list_learners(
+    session: Session,
+    search: str = "",
+    page: int = 1,
+    page_size: int = 25,
+) -> dict[str, Any]:
     sync_learners_from_imports(session)
+    filters = []
+    if search.strip():
+        term = f"%{search.strip()}%"
+        filters.append(
+            or_(
+                Learner.name.ilike(term),
+                Learner.identification.ilike(term),
+                Learner.group_code.ilike(term),
+                Learner.program.ilike(term),
+            )
+        )
+    query = select(Learner).order_by(Learner.name.asc(), Learner.id.asc())
+    count_query = select(func.count()).select_from(Learner)
+    if filters:
+        query = query.where(*filters)
+        count_query = count_query.where(*filters)
+    total = session.scalar(count_query) or 0
     learners = session.scalars(
-        select(Learner).order_by(Learner.name.asc(), Learner.id.asc()).limit(limit)
+        query.offset((page - 1) * page_size).limit(page_size)
     ).all()
-    return [learner_result(learner) for learner in learners]
+    return {
+        "items": [learner_result(learner) for learner in learners],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": (total + page_size - 1) // page_size,
+    }
 
 
 def learner_result(learner: Learner) -> dict[str, Any]:
