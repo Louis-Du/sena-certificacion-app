@@ -17,7 +17,10 @@ def list_learners(
     page: int = 1,
     page_size: int = 25,
 ) -> dict[str, Any]:
-    sync_learners_from_imports(session)
+    learner_count = session.scalar(select(func.count()).select_from(Learner)) or 0
+    if learner_count == 0:
+        sync_learners_from_imports(session)
+        session.commit()
     filters = []
     if search.strip():
         term = f"%{search.strip()}%"
