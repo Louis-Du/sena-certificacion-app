@@ -10,6 +10,25 @@ Primer vertical del sistema de informacion para cargar y validar archivos usados
 - La validacion reconoce `XLSX`, `XLS`, `CSV`, `PDF` y `DOCX` segun el tipo seleccionado.
 - El analisis de filas y encabezados se realiza para archivos tabulares cuando el formato puede abrirse.
 
+## Modelo inicial de datos
+
+La base de datos ya separa la informacion de negocio de los registros genericos de
+una importacion:
+
+- `Learner`: identificacion, nombre, programa, ficha, tipo de formacion, estado de
+	certificacion, fechas y notas de seguimiento.
+- `Requirement`: requisitos asociados a un aprendiz, incluyendo resultado de
+	aprendizaje, documentacion, etapa productiva, paz y salvo, Saber TyT y estado.
+- `Act`: numero, fecha, tipo, archivo original, estado de revision y observaciones.
+- `ActLearner`: relacion entre actas y aprendices, porque un acta puede relacionar
+	varios aprendices y un aprendiz puede aparecer en varias actas.
+- `ImportHistory`: archivo, tipo, fecha, cantidades, advertencias, errores, estado
+	y usuario opcional.
+
+Los campos de dominio se mantienen opcionales cuando su formato o regla todavía no
+ha sido confirmado. La importacion continua guardando el registro original como JSON
+hasta revisar archivos reales y definir el mapeo de columnas del DF14A y de las actas.
+
 ## Ejecutar en desarrollo
 
 ```powershell

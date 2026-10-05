@@ -113,6 +113,8 @@ def import_result(history: ImportHistory) -> dict[str, Any]:
         "new_records": history.new_records,
         "updated_records": history.updated_records,
         "warning_count": history.warning_count,
+        "error_count": history.error_count,
+        "user_name": history.user_name,
         "status": history.status,
         "message": history.message,
     }
