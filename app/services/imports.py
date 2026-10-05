@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import ImportHistory, ImportedRecord, Learner
+from app.services.learners import upsert_learners_from_records
 from app.services.validation import TYPE_LABELS, ValidationResult, validate_file
 
 
@@ -100,7 +101,7 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
             current.payload = payload
 
     if staged.information_type == "df14a":
-        _upsert_learners(records, session)
+        upsert_learners_from_records(session, records)
 
     session.commit()
     _staged_imports.pop(validation_id, None)
