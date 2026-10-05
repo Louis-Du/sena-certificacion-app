@@ -45,6 +45,7 @@ button { font: inherit; }
 .sidebar-footer { padding: 10px; margin-top: auto; color: #a7c2b6; border-top: 1px solid rgba(255,255,255,.15); font-size: 10px; line-height: 1.5; }
 .sidebar-footer small { color: #7f9f90; }
 .page-content { min-width: 0; width: 100%; }
+.app-view[hidden] { display: none; }
 
 .topbar {
 	display: flex;
@@ -224,6 +225,18 @@ h1 { margin-bottom: 2px; font: 700 22px/1.15 "Space Grotesk", sans-serif; }
 .history-item strong, .history-item small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .history-item strong { font-size: 11px; }
 .history-item small { margin-top: 3px; color: var(--muted); font-size: 9px; }
+.learners-list { display: grid; gap: 8px; }
+.learners-list > small { color: var(--muted); font-size: 10px; }
+.learner-item { padding: 8px; background: #f7faf8; border-radius: 6px; }
+.learner-item strong, .learner-item small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.learner-item strong { font-size: 11px; }
+.learner-item small { margin-top: 3px; color: var(--muted); font-size: 9px; }
+.refresh-button { margin-left: auto; white-space: nowrap; }
+.learners-frame { min-height: 260px; }
+.learners-table { display: grid; gap: 8px; }
+.learners-table .learner-item { padding: 13px 14px; border: 1px solid var(--line); }
+.learners-table .learner-item strong { font-size: 13px; }
+.learners-table .learner-item small { font-size: 11px; }
 @keyframes reveal { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
 @media (max-width: 980px) {

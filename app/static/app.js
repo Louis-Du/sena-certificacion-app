@@ -21,6 +21,11 @@ const confirmNew = document.querySelector("#confirm-new");
 const confirmUpdated = document.querySelector("#confirm-updated");
 const confirmWarnings = document.querySelector("#confirm-warnings");
 const historyList = document.querySelector("#history-list");
+const learnersList = document.querySelector("#learners-list");
+const learnersSummary = document.querySelector("#learners-summary");
+const refreshLearnersButton = document.querySelector("#refresh-learners");
+const viewLinks = document.querySelectorAll("[data-view]");
+const views = document.querySelectorAll(".app-view");
 const maxFileSize = 20 * 1024 * 1024;
 
 const extensionsByType = {
@@ -167,6 +172,7 @@ async function confirmImport() {
     showFeedback(`${result.message} ${result.records_count} registros procesados.`);
     confirmButton.hidden = true;
     await loadHistory();
+    await loadLearners();
   } catch (error) {
     showFeedback(error.message, true);
   } finally {
@@ -189,6 +195,47 @@ async function loadHistory() {
   }
 }
 
+function renderLearnerItem(item) {
+  const element = document.createElement("div");
+  element.className = "learner-item";
+  element.innerHTML = `
+    <strong>${item.name}</strong>
+    <small>${item.identification} · ${item.program || "Sin programa"} · ${item.certification_status || "Sin estado"}</small>
+  `;
+  return element;
+}
+
+async function loadLearners() {
+  try {
+    const result = await readResponse(await fetch("/api/learners"));
+    learnersSummary.textContent = `${result.items.length} ${result.items.length === 1 ? "aprendiz" : "aprendices"} registrados`;
+    if (!result.items.length) {
+      learnersList.innerHTML = "<small>Aun no hay aprendices cargados. Confirma una importacion DF14A para empezar.</small>";
+      return;
+    }
+    learnersList.replaceChildren(...result.items.slice(0, 8).map(renderLearnerItem));
+  } catch (error) {
+    learnersSummary.textContent = "No fue posible consultar SQLite";
+    learnersList.textContent = "No fue posible cargar los aprendices.";
+  }
+}
+
+function showView(viewName, updateHash = true) {
+  const target = viewName === "aprendices" ? "aprendices" : "carga";
+  views.forEach((view) => {
+    view.hidden = view.id !== `${target}-view`;
+  });
+  viewLinks.forEach((link) => link.classList.toggle("active", link.dataset.view === target));
+  if (updateHash) history.replaceState(null, "", target === "aprendices" ? "#aprendices" : "#carga");
+  if (target === "aprendices") loadLearners();
+}
+
+viewLinks.forEach((link) => link.addEventListener("click", (event) => {
+  event.preventDefault();
+  showView(link.dataset.view);
+}));
+refreshLearnersButton.addEventListener("click", loadLearners);
+
 typeOptions.forEach((option) => option.addEventListener("click", () => setType(option.dataset.type)));
 selectButton.addEventListener("click", (event) => { event.stopPropagation(); fileInput.click(); });
 dropZone.addEventListener("click", () => fileInput.click());
@@ -203,3 +250,5 @@ validateButton.addEventListener("click", validateFile);
 confirmButton.addEventListener("click", confirmImport);
 updateAcceptedFormats();
 loadHistory();
+loadLearners();
+showView(window.location.hash === "#aprendices" ? "aprendices" : "carga", false);

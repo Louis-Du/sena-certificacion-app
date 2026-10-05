@@ -6,6 +6,7 @@ Primer vertical del sistema de informacion para cargar y validar archivos usados
 
 - FastAPI sirve la interfaz HTML/CSS/JavaScript desde el mismo proceso.
 - `POST /api/files/validate` valida un archivo en memoria y no modifica la base de datos.
+- `GET /api/learners` devuelve el listado de aprendices guardados en SQLite.
 - Se admiten `DF14A`, `Acta de certificacion`, `Requisitos / pendientes` y `Otro archivo`.
 - La validacion reconoce `XLSX`, `XLS`, `CSV`, `PDF` y `DOCX` segun el tipo seleccionado.
 - El analisis de filas y encabezados se realiza para archivos tabulares cuando el formato puede abrirse.
@@ -25,9 +26,9 @@ una importacion:
 - `ImportHistory`: archivo, tipo, fecha, cantidades, advertencias, errores, estado
 	y usuario opcional.
 
-Los campos de dominio se mantienen opcionales cuando su formato o regla todavía no
+Los campos de dominio se mantienen opcionales cuando su formato o regla todavia no
 ha sido confirmado. La importacion continua guardando el registro original como JSON
-hasta revisar archivos reales y definir el mapeo de columnas del DF14A y de las actas.
+y, para archivos DF14A, actualiza el listado base de aprendices en SQLite.
 
 ## Ejecutar en desarrollo
 

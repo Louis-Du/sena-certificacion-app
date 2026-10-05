@@ -89,3 +89,19 @@ def test_confirm_creates_history_and_updates_existing_records(client: TestClient
     assert second_preview.json()["updated_records"] == 2
     assert second_import.json()["updated_records"] == 2
     assert len(client.get("/api/imports/history").json()["items"]) == 2
+
+
+def test_confirm_updates_learners_list_in_sqlite(client: TestClient):
+    validation_id = upload(
+        client,
+        b"identificacion,nombre,programa,estado\n1001,Ana,Analisis y Desarrollo,Por certificar\n",
+    )
+
+    confirmed = client.post(f"/api/imports/{validation_id}/confirm")
+    learners = client.get("/api/learners")
+
+    assert confirmed.status_code == 200
+    assert learners.status_code == 200
+    assert len(learners.json()["items"]) == 1
+    assert learners.json()["items"][0]["identification"] == "1001"
+    assert learners.json()["items"][0]["name"] == "Ana"

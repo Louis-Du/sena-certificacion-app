@@ -13,6 +13,7 @@ from app.services.imports import (
     list_imports,
     stage_file,
 )
+from app.services.learners import list_learners
 from app.services.validation import TYPE_LABELS
 
 
@@ -77,3 +78,8 @@ async def confirm_import_endpoint(
 @app.get("/api/imports/history")
 async def import_history(session: Session = Depends(get_db)) -> dict:
     return {"items": list_imports(session)}
+
+
+@app.get("/api/learners")
+async def learners(session: Session = Depends(get_db)) -> dict:
+    return {"items": list_learners(session)}
