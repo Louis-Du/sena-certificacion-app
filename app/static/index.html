@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cargar informacion | Sena Certificacion</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="/static/styles.css" rel="stylesheet">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand-mark" aria-hidden="true">SC</div>
+      <div><p class="eyebrow">Sena Certificacion</p><h1>Cargar informacion</h1><p class="subtitle">Importa archivos utilizados para el seguimiento del proceso de certificacion.</p></div>
+      <span class="prototype-note">◈ Prototipo - reglas por confirmar</span>
+    </header>
+    <nav class="steps" aria-label="Progreso de carga"><span class="step active"><b>1</b> Seleccionar</span><i></i><span class="step"><b>2</b> Validar</span><i></i><span class="step"><b>3</b> Confirmar</span></nav>
+    <div id="feedback" class="feedback" role="status" aria-live="polite"></div>
+    <div class="workspace-grid">
+      <section class="main-column">
+        <article class="panel type-panel"><div class="panel-heading"><div><h2>Tipo de informacion</h2><p>Selecciona el contenido que deseas importar</p></div></div><div class="type-options" id="type-options">
+          <button class="type-option selected" data-type="df14a" type="button"><span class="option-icon">▦</span><strong>DF14A</strong><small>Lista base de aprendices y novedades</small><span class="check">✓</span></button>
+          <button class="type-option" data-type="acta" type="button"><span class="option-icon">♧</span><strong>Acta de certificacion</strong><small>Documento de acta para revision</small><span class="check">✓</span></button>
+          <button class="type-option" data-type="requisitos" type="button"><span class="option-icon">☷</span><strong>Requisitos / pendientes</strong><small>Matriz de requisitos por aprendiz</small><span class="check">✓</span></button>
+          <button class="type-option" data-type="otro" type="button"><span class="option-icon">□</span><strong>Otro archivo</strong><small>Documento de apoyo para consulta</small><span class="check">✓</span></button>
+        </div></article>
+        <article class="panel upload-panel"><div class="panel-heading"><div><h2>Archivo</h2><p>Tamano maximo recomendado: 20 MB</p></div></div><div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="Seleccionar archivo">
+          <div class="upload-icon">↑</div><h3>Arrastra el archivo aqui</h3><p>o selecciona un archivo desde tu equipo</p><button id="select-button" class="select-button" type="button">▣ &nbsp; Seleccionar archivo</button><small>Formatos admitidos: XLSX, XLS, CSV, PDF y DOCX</small><input id="file-input" type="file" hidden accept=".xlsx,.xls,.csv,.pdf,.docx">
+        </div></article>
+        <article class="panel file-panel" id="file-panel" hidden><div class="file-badge">▦</div><div class="file-meta"><strong id="file-name"></strong><small id="file-details"></small></div><span class="file-status" id="file-status">LISTO PARA VALIDAR</span><button id="remove-file" class="remove-button" type="button" aria-label="Quitar archivo">×</button></article>
+        <div class="actions"><button id="cancel-button" class="cancel-button" type="button">Cancelar</button><button id="validate-button" class="primary-button" type="button" disabled>→ &nbsp; Validar informacion</button></div>
+      </section>
+      <aside class="side-column"><article class="panel guidance-panel"><h2>Antes de cargar</h2><p>Verifica el archivo antes de continuar</p><ul><li>Los documentos deben ser ficticios en este prototipo.</li><li>La primera fila debe contener encabezados.</li><li>No se conecta con SOFIA Plus ni con sistemas externos.</li><li>La importacion podra cancelarse antes de confirmar.</li></ul></article></aside>
+    </div>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
