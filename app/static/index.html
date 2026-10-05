@@ -56,8 +56,24 @@
           <button id="refresh-learners" class="primary-button refresh-button" type="button">↻ Actualizar</button>
         </header>
         <section class="panel learners-frame">
+          <div class="learner-toolbar">
+            <label class="search-field" for="learner-search">Buscar aprendiz
+              <input id="learner-search" type="search" placeholder="Nombre, documento, ficha o programa">
+            </label>
+            <button id="clear-learner-search" class="cancel-button" type="button">Limpiar</button>
+          </div>
           <div class="panel-heading"><div><h2>Aprendices registrados</h2><p id="learners-summary">Consultando SQLite...</p></div></div>
-          <div id="learners-list" class="learners-table"><small>Aun no hay aprendices cargados.</small></div>
+          <div class="learners-table-wrap">
+            <table class="learners-data">
+              <thead><tr><th>Nombre</th><th>Documento</th><th>Programa</th><th>Ficha</th><th>Estado</th></tr></thead>
+              <tbody id="learners-list"><tr><td colspan="5">Aun no hay aprendices cargados.</td></tr></tbody>
+            </table>
+          </div>
+          <div class="pagination" aria-label="Paginacion de aprendices">
+            <button id="learners-prev" class="cancel-button" type="button">← Anterior</button>
+            <span id="learners-page">Pagina 1 de 1</span>
+            <button id="learners-next" class="cancel-button" type="button">Siguiente →</button>
+          </div>
         </section>
       </div>
       </section>

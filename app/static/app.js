@@ -24,6 +24,11 @@ const historyList = document.querySelector("#history-list");
 const learnersList = document.querySelector("#learners-list");
 const learnersSummary = document.querySelector("#learners-summary");
 const refreshLearnersButton = document.querySelector("#refresh-learners");
+const learnerSearch = document.querySelector("#learner-search");
+const clearLearnerSearch = document.querySelector("#clear-learner-search");
+const learnersPrev = document.querySelector("#learners-prev");
+const learnersNext = document.querySelector("#learners-next");
+const learnersPage = document.querySelector("#learners-page");
 const viewLinks = document.querySelectorAll("[data-view]");
 const views = document.querySelectorAll(".app-view");
 const maxFileSize = 20 * 1024 * 1024;
@@ -195,29 +200,61 @@ async function loadHistory() {
   }
 }
 
-function renderLearnerItem(item) {
-  const element = document.createElement("div");
-  element.className = "learner-item";
-  element.innerHTML = `
-    <strong>${item.name}</strong>
-    <small>${item.identification} · ${item.program || "Sin programa"} · ${item.certification_status || "Sin estado"}</small>
-  `;
-  return element;
+let learnerPageNumber = 1;
+const learnerPageSize = 25;
+
+function renderLearnerRow(item) {
+  const row = document.createElement("tr");
+  [item.name, item.identification, item.program || "Sin programa", item.group_code || "Sin ficha", item.certification_status || "Sin estado"]
+    .forEach((value) => {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      row.appendChild(cell);
+    });
+  return row;
 }
 
 async function loadLearners() {
   try {
-    const result = await readResponse(await fetch("/api/learners"));
-    learnersSummary.textContent = `${result.items.length} ${result.items.length === 1 ? "aprendiz" : "aprendices"} registrados`;
+    const params = new URLSearchParams({
+      search: learnerSearch.value.trim(),
+      page: learnerPageNumber,
+      page_size: learnerPageSize,
+    });
+    const result = await readResponse(await fetch(`/api/learners?${params}`));
+    learnersSummary.textContent = `${result.total} ${result.total === 1 ? "aprendiz" : "aprendices"} registrados`;
+    learnersPage.textContent = `Pagina ${result.page} de ${Math.max(result.pages, 1)}`;
+    learnersPrev.disabled = result.page <= 1;
+    learnersNext.disabled = result.page >= result.pages;
     if (!result.items.length) {
-      learnersList.innerHTML = "<small>Aun no hay aprendices cargados. Confirma una importacion DF14A para empezar.</small>";
+      learnersList.innerHTML = `<tr><td colspan="5">${learnerSearch.value ? "No se encontraron aprendices." : "Aun no hay aprendices cargados. Confirma una importacion DF14A para empezar."}</td></tr>`;
       return;
     }
-    learnersList.replaceChildren(...result.items.slice(0, 8).map(renderLearnerItem));
+    learnersList.replaceChildren(...result.items.map(renderLearnerRow));
   } catch (error) {
     learnersSummary.textContent = "No fue posible consultar SQLite";
     learnersList.textContent = "No fue posible cargar los aprendices.";
   }
+
+  learnerSearch.addEventListener("input", () => {
+    learnerPageNumber = 1;
+    loadLearners();
+  });
+  clearLearnerSearch.addEventListener("click", () => {
+    learnerSearch.value = "";
+    learnerPageNumber = 1;
+    loadLearners();
+  });
+  learnersPrev.addEventListener("click", () => {
+    if (learnerPageNumber > 1) {
+      learnerPageNumber -= 1;
+      loadLearners();
+    }
+  });
+  learnersNext.addEventListener("click", () => {
+    learnerPageNumber += 1;
+    loadLearners();
+  });
 }
 
 function showView(viewName, updateHash = true) {

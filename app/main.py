@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -81,5 +81,10 @@ async def import_history(session: Session = Depends(get_db)) -> dict:
 
 
 @app.get("/api/learners")
-async def learners(session: Session = Depends(get_db)) -> dict:
-    return {"items": list_learners(session)}
+async def learners(
+    search: str = Query(default="", max_length=100),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+    session: Session = Depends(get_db),
+) -> dict:
+    return list_learners(session, search=search, page=page, page_size=page_size)
