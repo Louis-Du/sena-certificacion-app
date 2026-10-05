@@ -21,6 +21,31 @@ uvicorn app.main:app --reload
 
 Luego abre `http://127.0.0.1:8000`.
 
+## Ejecutar con Docker
+
+Requiere Docker Desktop con el motor Docker activo. Desde la raiz del proyecto:
+
+```powershell
+docker compose up --build
+```
+
+Luego abre `http://127.0.0.1:8000`. El codigo local se monta dentro del contenedor y
+Uvicorn recarga la aplicacion cuando detecta cambios.
+
+Para detener el servicio:
+
+```powershell
+docker compose down
+```
+
+Para ejecutar las pruebas dentro del mismo entorno:
+
+```powershell
+docker compose run --rm backend pytest
+```
+
+El volumen `app_data` queda reservado para conservar la futura base de datos SQLite.
+
 ## Pruebas
 
 ```powershell
