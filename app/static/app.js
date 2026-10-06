@@ -215,47 +215,63 @@ function renderLearnerRow(item) {
 }
 
 async function loadLearners() {
+  learnersSummary.textContent = "Consultando SQLite...";
   try {
     const params = new URLSearchParams({
       search: learnerSearch.value.trim(),
       page: learnerPageNumber,
       page_size: learnerPageSize,
     });
-    const result = await readResponse(await fetch(`/api/learners?${params}`));
+    const response = await fetch(`/api/learners?${params}`);
+    if (!response.ok) {
+      const errorPayload = await response.json().catch(() => ({ detail: `Error HTTP ${response.status}` }));
+      throw new Error(errorPayload.detail || `Error HTTP ${response.status}`);
+    }
+    const result = await response.json();
     learnersSummary.textContent = `${result.total} ${result.total === 1 ? "aprendiz" : "aprendices"} registrados`;
     learnersPage.textContent = `Pagina ${result.page} de ${Math.max(result.pages, 1)}`;
     learnersPrev.disabled = result.page <= 1;
-    learnersNext.disabled = result.page >= result.pages;
+    learnersNext.disabled = result.page >= Math.max(result.pages, 1);
     if (!result.items.length) {
-      learnersList.innerHTML = `<tr><td colspan="5">${learnerSearch.value ? "No se encontraron aprendices." : "Aun no hay aprendices cargados. Confirma una importacion DF14A para empezar."}</td></tr>`;
+      const cell = document.createElement("td");
+      cell.colSpan = 5;
+      cell.textContent = learnerSearch.value ? "No se encontraron aprendices." : "Aun no hay aprendices cargados. Confirma una importacion DF14A para empezar.";
+      const emptyRow = document.createElement("tr");
+      emptyRow.appendChild(cell);
+      learnersList.replaceChildren(emptyRow);
       return;
     }
     learnersList.replaceChildren(...result.items.map(renderLearnerRow));
   } catch (error) {
-    learnersSummary.textContent = "No fue posible consultar SQLite";
-    learnersList.textContent = "No fue posible cargar los aprendices.";
+    learnersSummary.textContent = error.message;
+    const cell = document.createElement("td");
+    cell.colSpan = 5;
+    cell.textContent = `No fue posible cargar los aprendices: ${error.message}`;
+    const errorRow = document.createElement("tr");
+    errorRow.appendChild(cell);
+    learnersList.replaceChildren(errorRow);
   }
-
-  learnerSearch.addEventListener("input", () => {
-    learnerPageNumber = 1;
-    loadLearners();
-  });
-  clearLearnerSearch.addEventListener("click", () => {
-    learnerSearch.value = "";
-    learnerPageNumber = 1;
-    loadLearners();
-  });
-  learnersPrev.addEventListener("click", () => {
-    if (learnerPageNumber > 1) {
-      learnerPageNumber -= 1;
-      loadLearners();
-    }
-  });
-  learnersNext.addEventListener("click", () => {
-    learnerPageNumber += 1;
-    loadLearners();
-  });
 }
+
+learnerSearch.addEventListener("input", () => {
+  learnerPageNumber = 1;
+  loadLearners();
+});
+clearLearnerSearch.addEventListener("click", () => {
+  learnerSearch.value = "";
+  learnerPageNumber = 1;
+  loadLearners();
+});
+learnersPrev.addEventListener("click", () => {
+  if (learnerPageNumber > 1) {
+    learnerPageNumber -= 1;
+    loadLearners();
+  }
+});
+learnersNext.addEventListener("click", () => {
+  learnerPageNumber += 1;
+  loadLearners();
+});
 
 function showView(viewName, updateHash = true) {
   const target = viewName === "aprendices" ? "aprendices" : "carga";

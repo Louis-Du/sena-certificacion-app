@@ -100,12 +100,22 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
             current.row_number = row_number
             current.payload = payload
 
-    if staged.information_type == "df14a":
-        upsert_learners_from_records(session, records)
+    normalized_information_type = (staged.information_type or "").strip().lower()
+    if normalized_information_type == "df14a":
+        learners_processed = upsert_learners_from_records(session, records)
+        history.new_records = history.new_records or 0
+        history.warning_count = history.warning_count or 0
+        if not history.message:
+            history.message = "Importacion confirmada por el usuario."
+        if learners_processed:
+            history.message = f"{history.message} Se procesaron {learners_processed} aprendices."
 
     session.commit()
     _staged_imports.pop(validation_id, None)
-    return import_result(history)
+    result = import_result(history)
+    if normalized_information_type == "df14a":
+        result["learners_processed"] = learners_processed or 0
+    return result
 
 
 def import_result(history: ImportHistory) -> dict[str, Any]:
