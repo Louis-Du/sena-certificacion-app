@@ -1,0 +1,176 @@
+[33mcommit 09e0c0a7d9b5842cf3f05ac31c8000b40a642c1c[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mfeatures/listado-aprendiz[m[33m, [m[1;31morigin/features/listado-aprendiz[m[33m)[m
+Author: Louis-Du <Luis.a.d.f.beto@gmail.com>
+Date:   Mon Oct 5 17:00:45 2026 -0500
+
+    test: realizar pruebas de integración, regreción y unitaria
+
+[1mdiff --git a/app/services/__pycache__/learners.cpython-314.pyc b/app/services/__pycache__/learners.cpython-314.pyc[m
+[1mindex 5afb13e..8881f5d 100644[m
+Binary files a/app/services/__pycache__/learners.cpython-314.pyc and b/app/services/__pycache__/learners.cpython-314.pyc differ
+[1mdiff --git a/app/services/learners.py b/app/services/learners.py[m
+[1mindex 7050a1c..be4b6cb 100644[m
+[1m--- a/app/services/learners.py[m
+[1m+++ b/app/services/learners.py[m
+[36m@@ -17,7 +17,10 @@[m [mdef list_learners([m
+     page: int = 1,[m
+     page_size: int = 25,[m
+ ) -> dict[str, Any]:[m
+[31m-    sync_learners_from_imports(session)[m
+[32m+[m[32m    learner_count = session.scalar(select(func.count()).select_from(Learner)) or 0[m
+[32m+[m[32m    if learner_count == 0:[m
+[32m+[m[32m        sync_learners_from_imports(session)[m
+[32m+[m[32m        session.commit()[m
+     filters = [][m
+     if search.strip():[m
+         term = f"%{search.strip()}%"[m
+[1mdiff --git a/data/sena_certificacion.db b/data/sena_certificacion.db[m
+[1mindex 5696d58..e63b093 100644[m
+Binary files a/data/sena_certificacion.db and b/data/sena_certificacion.db differ
+[1mdiff --git a/tests/__pycache__/test_learners.cpython-314-pytest-8.4.2.pyc b/tests/__pycache__/test_learners.cpython-314-pytest-8.4.2.pyc[m
+[1mnew file mode 100644[m
+[1mindex 0000000..8b9285e[m
+Binary files /dev/null and b/tests/__pycache__/test_learners.cpython-314-pytest-8.4.2.pyc differ
+[1mdiff --git a/tests/test_learners.py b/tests/test_learners.py[m
+[1mnew file mode 100644[m
+[1mindex 0000000..ff960a4[m
+[1m--- /dev/null[m
+[1m+++ b/tests/test_learners.py[m
+[36m@@ -0,0 +1,138 @@[m
+[32m+[m[32mfrom collections.abc import Generator[m
+[32m+[m
+[32m+[m[32mimport pytest[m
+[32m+[m[32mfrom fastapi.testclient import TestClient[m
+[32m+[m[32mfrom sqlalchemy import create_engine[m
+[32m+[m[32mfrom sqlalchemy.orm import sessionmaker[m
+[32m+[m
+[32m+[m[32mfrom app.database import Base, get_db[m
+[32m+[m[32mfrom app.main import app[m
+[32m+[m[32mfrom app.models import ImportHistory, ImportedRecord, Learner[m
+[32m+[m[32mfrom app.services.learners import _prepare_learner_row[m
+[32m+[m
+[32m+[m
+[32m+[m[32m@pytest.fixture[m
+[32m+[m[32mdef client(tmp_path) -> Generator[TestClient, None, None]:[m
+[32m+[m[32m    engine = create_engine([m
+[32m+[m[32m        f"sqlite:///{tmp_path / 'learners.db'}",[m
+[32m+[m[32m        connect_args={"check_same_thread": False},[m
+[32m+[m[32m    )[m
+[32m+[m[32m    Base.metadata.create_all(bind=engine)[m
+[32m+[m[32m    session_factory = sessionmaker(bind=engine, autoflush=False, autocommit=False)[m
+[32m+[m
+[32m+[m[32m    def override_get_db():[m
+[32m+[m[32m        with session_factory() as session:[m
+[32m+[m[32m            yield session[m
+[32m+[m
+[32m+[m[32m    app.dependency_overrides[get_db] = override_get_db[m
+[32m+[m[32m    with TestClient(app) as test_client:[m
+[32m+[m[32m        test_client.session_factory = session_factory[m
+[32m+[m[32m        yield test_client[m
+[32m+[m[32m    app.dependency_overrides.clear()[m
+[32m+[m[32m    engine.dispose()[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef seed_learners(client: TestClient, count: int = 26) -> None:[m
+[32m+[m[32m    with client.session_factory() as session:[m
+[32m+[m[32m        session.add_all([m
+[32m+[m[32m            [[m
+[32m+[m[32m                Learner([m
+[32m+[m[32m                    identification=str(1000 + index),[m
+[32m+[m[32m                    name=f"Aprendiz {index:02d}",[m
+[32m+[m[32m                    program="Programa Logistico" if index % 2 else "Programa Software",[m
+[32m+[m[32m                    group_code=str(3000 + index),[m
+[32m+[m[32m                    certification_status="Por certificar",[m
+[32m+[m[32m                )[m
+[32m+[m[32m                for index in range(count)[m
+[32m+[m[32m            ][m
+[32m+[m[32m        )[m
+[32m+[m[32m        session.commit()[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef test_prepare_learner_row_supports_real_df14a_columns():[m
+[32m+[m[32m    row = _prepare_learner_row([m
+[32m+[m[32m        {[m
+[32m+[m[32m            "DOCUMENTO": "TI_1028865527",[m
+[32m+[m[32m            "NOMBRES": "SANTIAGO JIMENEZ ANGEL",[m
+[32m+[m[32m            "FICHA": 3466192,[m
+[32m+[m[32m            "PROGRAMA": "DESARROLLO PUBLICITARIO",[m
+[32m+[m[32m            "ESTADO_ASPIRANTE": 8,[m
+[32m+[m[32m        }[m
+[32m+[m[32m    )[m
+[32m+[m
+[32m+[m[32m    assert row == {[m
+[32m+[m[32m        "identification": "1028865527",[m
+[32m+[m[32m        "name": "SANTIAGO JIMENEZ ANGEL",[m
+[32m+[m[32m        "program": "DESARROLLO PUBLICITARIO",[m
+[32m+[m[32m        "group_code": "3466192",[m
+[32m+[m[32m        "training_type": None,[m
+[32m+[m[32m        "certification_status": "8",[m
+[32m+[m[32m        "tracking_notes": None,[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef test_learners_api_paginates_results(client: TestClient):[m
+[32m+[m[32m    seed_learners(client)[m
+[32m+[m
+[32m+[m[32m    response = client.get("/api/learners?page=2&page_size=5")[m
+[32m+[m
+[32m+[m[32m    assert response.status_code == 200[m
+[32m+[m[32m    body = response.json()[m
+[32m+[m[32m    assert body["total"] == 26[m
+[32m+[m[32m    assert body["page"] == 2[m
+[32m+[m[32m    assert body["pages"] == 6[m
+[32m+[m[32m    assert len(body["items"]) == 5[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef test_learners_api_searches_name_program_and_group(client: TestClient):[m
+[32m+[m[32m    seed_learners(client)[m
+[32m+[m
+[32m+[m[32m    expected_totals = {"Aprendiz 03": 1, "Software": 13, "3003": 1}[m
+[32m+[m[32m    for search, expected_total in expected_totals.items():[m
+[32m+[m[32m        response = client.get("/api/learners", params={"search": search})[m
+[32m+[m[32m        assert response.status_code == 200[m
+[32m+[m[32m        assert response.json()["total"] == expected_total[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef test_learners_api_rejects_invalid_pagination(client: TestClient):[m
+[32m+[m[32m    assert client.get("/api/learners?page=0").status_code == 422[m
+[32m+[m[32m    assert client.get("/api/learners?page_size=101").status_code == 422[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef test_learners_api_returns_empty_search_result(client: TestClient):[m
+[32m+[m[32m    seed_learners(client)[m
+[32m+[m
+[32m+[m[32m    response = client.get("/api/learners", params={"search": "No existe"})[m
+[32m+[m
+[32m+[m[32m    assert response.status_code == 200[m
+[32m+[m[32m    assert response.json()["items"] == [][m
+[32m+[m[32m    assert response.json()["total"] == 0[m
+[32m+[m[32m    assert response.json()["pages"] == 0[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef test_learners_api_migrates_existing_imported_records_when_table_is_empty(client: TestClient):[m
+[32m+[m[32m    with client.session_factory() as session:[m
+[32m+[m[32m        history = ImportHistory([m
+[32m+[m[32m            file_name="legacy.csv",[m
+[32m+[m[32m            information_type="DF14A",[m
+[32m+[m[32m            records_count=1,[m
+[32m+[m[32m            status="completed",[m
+[32m+[m[32m        )[m
+[32m+[m[32m        session.add(history)[m
+[32m+[m[32m        session.flush()[m
+[32m+[m[32m        session.add([m
+[32m+[m[32m            ImportedRecord([m
+[32m+[m[32m                import_id=history.id,[m
+[32m+[m[32m                information_type="df14a",[m
+[32m+[m[32m                record_key="legacy-row",[m
+[32m+[m[32m                row_number=2,[m
+[32m+[m[32m                payload='{"DOCUMENTO": "CC_12345", "NOMBRES": "Aprendiz legado", "FICHA": 4567}',[m
+[32m+[m[32m            )[m
+[32m+[m[32m        )[m
+[32m+[m[32m        session.commit()[m
+[32m+[m
+[32m+[m[32m    response = client.get("/api/learners")[m
+[32m+[m
+[32m+[m[32m    assert response.status_code == 200[m
+[32m+[m[32m    assert response.json()["total"] == 1[m
+[32m+[m[32m    assert response.json()["items"][0]["identification"] == "12345"[m
