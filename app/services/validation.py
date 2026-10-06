@@ -78,11 +78,15 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
         if extension == ".csv":
             frame = pd.read_csv(BytesIO(content))
             checks.append({"label": "Columnas leidas correctamente", "status": "ok"})
-            records_found, valid_records, inconsistencies = _tabular_summary(frame)
+            records_found, valid_records, inconsistencies, duplicate_rows = _tabular_summary(frame)
+            if duplicate_rows:
+                checks.append({"label": f"{duplicate_rows} registros duplicados detectados", "status": "warning"})
         elif extension in {".xlsx", ".xls"}:
             frame = pd.read_excel(BytesIO(content))
             checks.append({"label": "Columnas leidas correctamente", "status": "ok"})
-            records_found, valid_records, inconsistencies = _tabular_summary(frame)
+            records_found, valid_records, inconsistencies, duplicate_rows = _tabular_summary(frame)
+            if duplicate_rows:
+                checks.append({"label": f"{duplicate_rows} registros duplicados detectados", "status": "warning"})
         elif extension == ".pdf":
             import fitz
 
@@ -124,10 +128,11 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
     )
 
 
-def _tabular_summary(frame: pd.DataFrame) -> tuple[int, int, int]:
+def _tabular_summary(frame: pd.DataFrame) -> tuple[int, int, int, int]:
     records_found = len(frame.index)
     invalid_rows = int(frame.isna().all(axis=1).sum())
-    return records_found, records_found - invalid_rows, invalid_rows
+    duplicate_rows = int(frame.duplicated(keep="first").sum())
+    return records_found, records_found - invalid_rows, invalid_rows + duplicate_rows, duplicate_rows
 
 
 def _error(file_name: str, label: str, message: str) -> ValidationResult:

@@ -12,7 +12,18 @@
 </head>
 <body>
   <main class="shell">
-    <header class="topbar">
+    <div class="app-layout">
+      <nav class="sidebar" aria-label="Navegacion principal">
+        <div class="sidebar-brand"><div class="brand-mark" aria-hidden="true">SC</div><strong>Sena<br>Certificacion</strong></div>
+        <a class="sidebar-link active" href="#carga" data-view="carga">↑ <span>Cargar informacion</span></a>
+        <a class="sidebar-link" href="#historial" data-view="carga">▤ <span>Historial</span></a>
+        <a class="sidebar-link" href="#aprendices" data-view="aprendices">♙ <span>Aprendices</span></a>
+        <a class="sidebar-link disabled" href="#indicadores" aria-disabled="true">◌ <span>Indicadores</span></a>
+        <div class="sidebar-footer">Prototipo inicial<br><small>Reglas por confirmar</small></div>
+      </nav>
+      <section class="page-content">
+      <div id="carga-view" class="app-view">
+    <header class="topbar" id="carga">
       <div class="brand-mark" aria-hidden="true">SC</div>
       <div><p class="eyebrow">Sena Certificacion</p><h1>Cargar informacion</h1><p class="subtitle">Importa archivos utilizados para el seguimiento del proceso de certificacion.</p></div>
       <span class="prototype-note">◈ Prototipo - reglas por confirmar</span>
@@ -31,9 +42,41 @@
           <div class="upload-icon">↑</div><h3>Arrastra el archivo aqui</h3><p>o selecciona un archivo desde tu equipo</p><button id="select-button" class="select-button" type="button">▣ &nbsp; Seleccionar archivo</button><small>Formatos admitidos: XLSX, XLS, CSV, PDF y DOCX</small><input id="file-input" type="file" hidden accept=".xlsx,.xls,.csv,.pdf,.docx">
         </div></article>
         <article class="panel file-panel" id="file-panel" hidden><div class="file-badge">▦</div><div class="file-meta"><strong id="file-name"></strong><small id="file-details"></small></div><span class="file-status" id="file-status">LISTO PARA VALIDAR</span><button id="remove-file" class="remove-button" type="button" aria-label="Quitar archivo">×</button></article>
-        <div class="actions"><button id="cancel-button" class="cancel-button" type="button">Cancelar</button><button id="validate-button" class="primary-button" type="button" disabled>→ &nbsp; Validar informacion</button></div>
+        <article class="panel validation-panel" id="validation-panel" hidden><div class="panel-heading"><div><h2>Resultado de validacion</h2><p id="validation-message">La validacion es preliminar.</p></div><span class="result-badge" id="validation-status"></span></div><div class="validation-checks" id="validation-checks"></div></article>
+        <article class="panel confirmation-panel" id="confirmation-panel" hidden><div class="panel-heading"><div><h2>Revisar antes de importar</h2><p>Confirma que deseas guardar estos registros.</p></div></div><div class="confirmation-grid"><div><small>Archivo</small><strong id="confirm-file"></strong></div><div><small>Registros nuevos</small><strong id="confirm-new"></strong></div><div><small>Registros a actualizar</small><strong id="confirm-updated"></strong></div></div><div class="warning-list" id="confirm-warnings"></div></article>
+        <div class="actions"><button id="cancel-button" class="cancel-button" type="button">Cancelar</button><button id="validate-button" class="primary-button" type="button" disabled>→ &nbsp; Validar informacion</button><button id="confirm-button" class="primary-button" type="button" hidden>✓ &nbsp; Confirmar importacion</button></div>
       </section>
-      <aside class="side-column"><article class="panel guidance-panel"><h2>Antes de cargar</h2><p>Verifica el archivo antes de continuar</p><ul><li>Los documentos deben ser ficticios en este prototipo.</li><li>La primera fila debe contener encabezados.</li><li>No se conecta con SOFIA Plus ni con sistemas externos.</li><li>La importacion podra cancelarse antes de confirmar.</li></ul></article></aside>
+      <aside class="side-column"><article class="panel guidance-panel"><h2>Antes de cargar</h2><p>Verifica el archivo antes de continuar</p><ul><li>Los documentos deben ser ficticios en este prototipo.</li><li>La primera fila debe contener encabezados.</li><li>No se conecta con SOFIA Plus ni con sistemas externos.</li><li>La importacion podra cancelarse antes de confirmar.</li></ul></article><article class="panel history-panel" id="historial"><div class="panel-heading"><div><h2>Ultimas importaciones</h2><p>Archivos confirmados en este equipo</p></div></div><div id="history-list" class="history-list"><small>Aun no hay importaciones.</small></div></article></aside>
+    </div>
+      </div>
+      <div id="aprendices-view" class="app-view" hidden>
+        <header class="topbar">
+          <div class="brand-mark" aria-hidden="true">♙</div>
+          <div><p class="eyebrow">Sena Certificacion</p><h1>Listado de aprendices</h1><p class="subtitle">Consulta los aprendices almacenados en la base de datos SQLite.</p></div>
+          <button id="refresh-learners" class="primary-button refresh-button" type="button">↻ Actualizar</button>
+        </header>
+        <section class="panel learners-frame">
+          <div class="learner-toolbar">
+            <label class="search-field" for="learner-search">Buscar aprendiz
+              <input id="learner-search" type="search" placeholder="Nombre, documento, ficha o programa">
+            </label>
+            <button id="clear-learner-search" class="cancel-button" type="button">Limpiar</button>
+          </div>
+          <div class="panel-heading"><div><h2>Aprendices registrados</h2><p id="learners-summary">Consultando SQLite...</p></div></div>
+          <div class="learners-table-wrap">
+            <table class="learners-data">
+              <thead><tr><th>Nombre</th><th>Documento</th><th>Programa</th><th>Ficha</th><th>Estado</th></tr></thead>
+              <tbody id="learners-list"><tr><td colspan="5">Aun no hay aprendices cargados.</td></tr></tbody>
+            </table>
+          </div>
+          <div class="pagination" aria-label="Paginacion de aprendices">
+            <button id="learners-prev" class="cancel-button" type="button">← Anterior</button>
+            <span id="learners-page">Pagina 1 de 1</span>
+            <button id="learners-next" class="cancel-button" type="button">Siguiente →</button>
+          </div>
+        </section>
+      </div>
+      </section>
     </div>
   </main>
   <script src="/static/app.js"></script>
