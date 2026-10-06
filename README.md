@@ -6,9 +6,29 @@ Primer vertical del sistema de informacion para cargar y validar archivos usados
 
 - FastAPI sirve la interfaz HTML/CSS/JavaScript desde el mismo proceso.
 - `POST /api/files/validate` valida un archivo en memoria y no modifica la base de datos.
+- `GET /api/learners` devuelve el listado de aprendices guardados en SQLite.
 - Se admiten `DF14A`, `Acta de certificacion`, `Requisitos / pendientes` y `Otro archivo`.
 - La validacion reconoce `XLSX`, `XLS`, `CSV`, `PDF` y `DOCX` segun el tipo seleccionado.
 - El analisis de filas y encabezados se realiza para archivos tabulares cuando el formato puede abrirse.
+
+## Modelo inicial de datos
+
+La base de datos ya separa la informacion de negocio de los registros genericos de
+una importacion:
+
+- `Learner`: identificacion, nombre, programa, ficha, tipo de formacion, estado de
+	certificacion, fechas y notas de seguimiento.
+- `Requirement`: requisitos asociados a un aprendiz, incluyendo resultado de
+	aprendizaje, documentacion, etapa productiva, paz y salvo, Saber TyT y estado.
+- `Act`: numero, fecha, tipo, archivo original, estado de revision y observaciones.
+- `ActLearner`: relacion entre actas y aprendices, porque un acta puede relacionar
+	varios aprendices y un aprendiz puede aparecer en varias actas.
+- `ImportHistory`: archivo, tipo, fecha, cantidades, advertencias, errores, estado
+	y usuario opcional.
+
+Los campos de dominio se mantienen opcionales cuando su formato o regla todavia no
+ha sido confirmado. La importacion continua guardando el registro original como JSON
+y, para archivos DF14A, actualiza el listado base de aprendices en SQLite.
 
 ## Ejecutar en desarrollo
 
@@ -48,8 +68,84 @@ El volumen `app_data` queda reservado para conservar la futura base de datos SQL
 
 ## Pruebas
 
+### Ejecucion
+
+Las pruebas se ejecutan con el interprete del entorno virtual:
+
 ```powershell
-pytest
+.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-La persistencia en SQLite, las reglas definitivas de negocio y la extraccion de datos de actas quedan para cuando esten disponibles los archivos reales y sus estructuras.
+Tambien pueden ejecutarse por grupo:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q tests/test_learners.py
+.\.venv\Scripts\python.exe -m pytest -q tests/test_import_flow.py
+```
+
+### Pruebas realizadas
+
+#### Pruebas unitarias
+
+Archivo: [`tests/test_learners.py`](./tests/test_learners.py)
+
+| Caso | Resultado esperado | Resultado obtenido |
+|---|---|---|
+| Interpretar columnas reales de un DF14A (`DOCUMENTO`, `NOMBRES`, `FICHA`, `PROGRAMA`, `ESTADO_ASPIRANTE`) | Convertir la fila al modelo `Learner` con los valores correctos | Superado |
+| Normalizar identificaciones con prefijo, por ejemplo `TI_1028865527` | Guardar únicamente `1028865527` | Superado |
+| Buscar por nombre | Devolver únicamente los aprendices coincidentes | Superado |
+| Buscar por programa | Devolver todos los registros del programa buscado | Superado |
+| Buscar por ficha | Devolver los aprendices asociados a la ficha | Superado |
+
+#### Pruebas de integración
+
+| Caso | Resultado esperado | Resultado obtenido |
+|---|---|---|
+| Consultar `GET /api/learners` | Responder HTTP 200 con aprendices provenientes de SQLite | Superado |
+| Paginar aprendices | Devolver página, tamaño, total y número de páginas correctos | Superado |
+| Consultar una página de 5 registros | Devolver 5 registros y metadatos coherentes | Superado |
+| Sincronizar registros DF14A históricos cuando `learners` está vacío | Crear aprendices a partir de `ImportedRecord` | Superado |
+| Confirmar una importación DF14A | Guardar o actualizar aprendices en SQLite | Superado |
+| Confirmar una segunda importación con los mismos registros | Marcar registros como actualizados, sin duplicarlos | Superado |
+
+#### Pruebas de regresión
+
+Archivo: [`tests/test_import_flow.py`](./tests/test_import_flow.py)
+
+| Caso | Resultado esperado | Resultado obtenido |
+|---|---|---|
+| Validar un archivo sin confirmar | No crear registros en el historial | Superado |
+| Detectar filas duplicadas | Reportar estado `warning` y el número de duplicados | Superado |
+| Obtener vista previa de importación | Informar registros nuevos y actualizados | Superado |
+| Confirmar importación | Crear historial y registros importados | Superado |
+| Actualizar una importación existente | Reutilizar el registro y contar la actualización | Superado |
+| Actualizar el listado de aprendices después de confirmar | Reflejar los datos confirmados en `/api/learners` | Superado |
+
+### Resultado de la suite
+
+Última ejecución:
+
+```text
+10 passed, 1 warning
+```
+
+El resultado esperado era que todos los casos terminaran correctamente sin fallos.
+El resultado obtenido fue **10 pruebas superadas**.
+
+La única advertencia corresponde a la compatibilidad futura entre `Starlette
+TestClient` y la versión instalada de `httpx`; no afecta el resultado funcional de
+las pruebas.
+
+### Verificación manual de interfaz
+
+También se verificó la vista `/#aprendices` en el navegador:
+
+- Se cargaron 1.059 aprendices desde SQLite.
+- Se visualizaron 25 registros en la primera página.
+- Se calcularon 43 páginas.
+- El buscador devolvió resultados por nombre.
+- La tabla mostró nombre, documento, programa, ficha y estado.
+- Los botones de paginación y actualización respondieron correctamente.
+
+La persistencia en SQLite, las reglas definitivas de negocio y la extracción de datos
+de actas quedan sujetas a la disponibilidad de archivos reales y sus estructuras.
