@@ -1,6 +1,7 @@
 # Entornos virtuales de Python
 .venv/
 .venv_new/
+.venv_runtime/
 venv/
 env/
 ENV/
