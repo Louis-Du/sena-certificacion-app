@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db, init_db
@@ -13,7 +14,14 @@ from app.services.imports import (
     list_imports,
     stage_file,
 )
-from app.services.learners import list_learners
+from app.services.learners import get_learner_detail, list_learners
+from app.services.requirements import (
+    REQUIREMENT_STATUSES,
+    REQUIREMENT_TYPES,
+    list_requirements,
+    pending_learners,
+    save_requirement,
+)
 from app.services.validation import TYPE_LABELS
 
 
@@ -22,6 +30,12 @@ BASE_DIR = Path(__file__).resolve().parent
 app = FastAPI(title="Sena Certificacion App", version="0.1.0")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 init_db()
+
+
+class RequirementRequest(BaseModel):
+    requirement_type: str
+    status: str
+    observations: str | None = None
 
 
 @app.get("/", include_in_schema=False)
@@ -88,3 +102,64 @@ async def learners(
     session: Session = Depends(get_db),
 ) -> dict:
     return list_learners(session, search=search, page=page, page_size=page_size)
+
+
+@app.get("/api/learners/with-pending-requirements")
+async def learners_with_pending_requirements(session: Session = Depends(get_db)) -> dict:
+    return {"items": pending_learners(session)}
+
+
+@app.get("/api/learners/{learner_id}/requirements")
+async def learner_requirements(learner_id: int, session: Session = Depends(get_db)) -> dict:
+    items = list_requirements(session, learner_id)
+    if items is None:
+        raise HTTPException(status_code=404, detail="Aprendiz no encontrado.")
+    return {
+        "items": items,
+        "requirement_types": REQUIREMENT_TYPES,
+        "statuses": sorted(REQUIREMENT_STATUSES),
+    }
+
+
+@app.post("/api/learners/{learner_id}/requirements", status_code=201)
+async def create_learner_requirement(
+    learner_id: int,
+    request: RequirementRequest,
+    session: Session = Depends(get_db),
+) -> dict:
+    try:
+        return save_requirement(session, learner_id, request.requirement_type, request.status, request.observations)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.patch("/api/learners/{learner_id}/requirements/{requirement_id}")
+async def update_learner_requirement(
+    learner_id: int,
+    requirement_id: int,
+    request: RequirementRequest,
+    session: Session = Depends(get_db),
+) -> dict:
+    try:
+        return save_requirement(
+            session,
+            learner_id,
+            request.requirement_type,
+            request.status,
+            request.observations,
+            requirement_id,
+        )
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/learners/{learner_id}")
+async def learner_detail(learner_id: int, session: Session = Depends(get_db)) -> dict:
+    detail = get_learner_detail(session, learner_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Aprendiz no encontrado.")
+    return detail

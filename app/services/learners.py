@@ -9,6 +9,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import ImportedRecord, Learner
+from app.services.requirements import editor_requirements
 
 
 def list_learners(
@@ -59,6 +60,25 @@ def learner_result(learner: Learner) -> dict[str, Any]:
         "group_code": learner.group_code,
         "training_type": learner.training_type,
         "certification_status": learner.certification_status,
+    }
+
+
+def get_learner_detail(session: Session, learner_id: int) -> dict[str, Any] | None:
+    learner = session.get(Learner, learner_id)
+    if learner is None:
+        return None
+    requirements = editor_requirements(session, learner_id)
+    return {
+        "basic_info": learner_result(learner),
+        "requirements": requirements or [],
+        "acts": [],
+        "history": [],
+        "dates": {
+            "start_date": learner.start_date.isoformat() if learner.start_date else None,
+            "termination_date": learner.termination_date.isoformat()
+            if learner.termination_date
+            else None,
+        },
     }
 
 
