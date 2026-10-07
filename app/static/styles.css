@@ -247,9 +247,27 @@ h1 { margin-bottom: 2px; font: 700 22px/1.15 "Space Grotesk", sans-serif; }
 .learners-data th, .learners-data td { padding: 11px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .learners-data td { color: var(--ink); }
 .learners-data tbody tr:hover { background: #fbfdfc; }
+.learner-row { cursor: pointer; }
+.learner-row:focus { outline: 2px solid var(--green); outline-offset: -2px; }
+.detail-button { padding: 6px 9px; color: var(--green-dark); background: var(--green-soft); border: 1px solid var(--green); border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 700; }
+.detail-button:hover { background: var(--green); color: #fff; }
 .learners-data td[colspan] { color: var(--muted); text-align: center; }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 16px; color: var(--muted); font-size: 11px; }
 .pagination button:disabled { cursor: not-allowed; opacity: .45; }
+.learner-detail-frame { display: grid; gap: 18px; }
+.detail-heading { display: flex; align-items: center; gap: 18px; }
+.detail-heading h2 { margin: 2px 0 0; }
+.detail-feedback { color: var(--muted); min-height: 1.25em; margin: 0; }
+.detail-section { border-top: 1px solid var(--line); padding-top: 18px; }
+.detail-section h3 { margin: 0; }
+.detail-grid { display: grid; grid-template-columns: minmax(160px, 1fr) 2fr; margin: 0; }
+.detail-grid dt, .detail-grid dd { border-bottom: 1px solid var(--line); padding: 10px 0; margin: 0; }
+.detail-grid dt { color: var(--muted); font-weight: 700; }
+.detail-grid dd { font-weight: 600; }
+.detail-note, .empty-detail { color: var(--muted); margin: 14px 0 0; }
+.detail-list { display: grid; gap: 10px; }
+.detail-list-item { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+.detail-list-item p { margin: 3px 0; }
 @keyframes reveal { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
 @media (max-width: 980px) {
@@ -281,4 +299,6 @@ h1 { margin-bottom: 2px; font: 700 22px/1.15 "Space Grotesk", sans-serif; }
 	.actions button { flex: 1; }
 	.learner-toolbar { align-items: stretch; flex-direction: column; }
 	.pagination { flex-wrap: wrap; justify-content: center; }
+	.detail-heading { align-items: flex-start; flex-direction: column; }
+	.detail-grid { grid-template-columns: 1fr; }
 }

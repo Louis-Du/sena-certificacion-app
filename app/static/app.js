@@ -29,6 +29,18 @@ const clearLearnerSearch = document.querySelector("#clear-learner-search");
 const learnersPrev = document.querySelector("#learners-prev");
 const learnersNext = document.querySelector("#learners-next");
 const learnersPage = document.querySelector("#learners-page");
+const learnersFrame = document.querySelector(".learners-frame");
+const learnerDetail = document.querySelector("#learner-detail");
+const learnerDetailTitle = document.querySelector("#learner-detail-title");
+const learnerDetailFeedback = document.querySelector("#learner-detail-feedback");
+const learnerDetailContent = document.querySelector("#learner-detail-content");
+const backToLearners = document.querySelector("#back-to-learners");
+const learnerBasicInfo = document.querySelector("#learner-basic-info");
+const learnerRequirements = document.querySelector("#learner-requirements");
+const learnerRequirementsNote = document.querySelector("#learner-requirements-note");
+const learnerActs = document.querySelector("#learner-acts");
+const learnerDates = document.querySelector("#learner-dates");
+const learnerHistory = document.querySelector("#learner-history");
 const viewLinks = document.querySelectorAll("[data-view]");
 const views = document.querySelectorAll(".app-view");
 const maxFileSize = 20 * 1024 * 1024;
@@ -205,14 +217,119 @@ const learnerPageSize = 25;
 
 function renderLearnerRow(item) {
   const row = document.createElement("tr");
+  row.className = "learner-row";
+  row.tabIndex = 0;
+  row.setAttribute("role", "button");
+  row.setAttribute("aria-label", `Ver detalle de ${item.name}`);
+  row.addEventListener("click", () => loadLearnerDetail(item.id));
+  row.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      loadLearnerDetail(item.id);
+    }
+  });
   [item.name, item.identification, item.program || "Sin programa", item.group_code || "Sin ficha", item.certification_status || "Sin estado"]
     .forEach((value) => {
       const cell = document.createElement("td");
       cell.textContent = value;
       row.appendChild(cell);
     });
+  const detailCell = document.createElement("td");
+  const detailButton = document.createElement("button");
+  detailButton.type = "button";
+  detailButton.className = "detail-button";
+  detailButton.textContent = "Ver detalles";
+  detailButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    loadLearnerDetail(item.id);
+  });
+  detailCell.appendChild(detailButton);
+  row.appendChild(detailCell);
   return row;
 }
+
+function appendDetailField(container, label, value) {
+  const term = document.createElement("dt");
+  term.textContent = label;
+  const description = document.createElement("dd");
+  description.textContent = value || "No disponible";
+  container.append(term, description);
+}
+
+function renderDetailList(container, items, emptyText) {
+  container.replaceChildren();
+  if (!items.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-detail";
+    empty.textContent = emptyText;
+    container.appendChild(empty);
+    return;
+  }
+  items.forEach((item) => {
+    const entry = document.createElement("div");
+    entry.className = "detail-list-item";
+    Object.entries(item).forEach(([label, value]) => {
+      if (value) {
+        const line = document.createElement("p");
+        line.textContent = `${label}: ${value}`;
+        entry.appendChild(line);
+      }
+    });
+    container.appendChild(entry);
+  });
+}
+
+function renderLearnerDetail(detail) {
+  const basic = detail.basic_info;
+  learnerDetailTitle.textContent = basic.name || "Información del aprendiz";
+  learnerBasicInfo.replaceChildren();
+  [
+    ["Documento", basic.identification],
+    ["Nombre", basic.name],
+    ["Programa", basic.program],
+    ["Ficha", basic.group_code],
+    ["Estado", basic.certification_status],
+    ["Tipo de formación", basic.training_type],
+  ].forEach(([label, value]) => appendDetailField(learnerBasicInfo, label, value));
+
+  learnerRequirements.replaceChildren();
+  [
+    ["Resultados de aprendizaje", detail.requirements.learning_outcome],
+    ["Documentación", detail.requirements.documentation],
+    ["Etapa productiva", detail.requirements.productive_stage],
+    ["Paz y salvo", detail.requirements.clearance],
+    ["Saber TyT", detail.requirements.saber_tyt],
+  ].forEach(([label, value]) => appendDetailField(learnerRequirements, label, value));
+  learnerRequirementsNote.textContent = detail.requirements.observations || "Los estados sin registro asociado son provisionales.";
+
+  renderDetailList(learnerActs, detail.acts, "Sin actas registradas.");
+  learnerDates.replaceChildren();
+  appendDetailField(learnerDates, "Inicio", detail.dates.start_date);
+  appendDetailField(learnerDates, "Terminación", detail.dates.termination_date);
+  renderDetailList(learnerHistory, detail.history, "Sin actualizaciones registradas.");
+}
+
+async function loadLearnerDetail(learnerId) {
+  learnersFrame.hidden = true;
+  learnerDetail.hidden = false;
+  learnerDetailContent.hidden = true;
+  learnerDetailFeedback.textContent = "Consultando información del aprendiz...";
+  try {
+    const response = await fetch(`/api/learners/${learnerId}`);
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.detail || `Error HTTP ${response.status}`);
+    renderLearnerDetail(result);
+    learnerDetailFeedback.textContent = "";
+    learnerDetailContent.hidden = false;
+  } catch (error) {
+    learnerDetailFeedback.textContent = `No fue posible cargar el detalle: ${error.message}`;
+  }
+}
+
+backToLearners.addEventListener("click", () => {
+  learnerDetail.hidden = true;
+  learnersFrame.hidden = false;
+});
 
 async function loadLearners() {
   learnersSummary.textContent = "Consultando SQLite...";
@@ -234,7 +351,7 @@ async function loadLearners() {
     learnersNext.disabled = result.page >= Math.max(result.pages, 1);
     if (!result.items.length) {
       const cell = document.createElement("td");
-      cell.colSpan = 5;
+      cell.colSpan = 6;
       cell.textContent = learnerSearch.value ? "No se encontraron aprendices." : "Aun no hay aprendices cargados. Confirma una importacion DF14A para empezar.";
       const emptyRow = document.createElement("tr");
       emptyRow.appendChild(cell);
@@ -245,7 +362,7 @@ async function loadLearners() {
   } catch (error) {
     learnersSummary.textContent = error.message;
     const cell = document.createElement("td");
-    cell.colSpan = 5;
+    cell.colSpan = 6;
     cell.textContent = `No fue posible cargar los aprendices: ${error.message}`;
     const errorRow = document.createElement("tr");
     errorRow.appendChild(cell);

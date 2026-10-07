@@ -48,3 +48,10 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
+
+* text=auto
+*.py text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.ps1 text eol=crlf

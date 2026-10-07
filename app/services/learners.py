@@ -478,6 +478,22 @@ def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
         "estado de la ficha",
         "estado_aspirante",
     )
+    # Algunos reportes DF14A se leen con pandas usando la primera fila visual
+    # como encabezado. En esos archivos las filas de aprendices quedan bajo
+    # columnas Unnamed y el nombre se divide en nombre y apellidos.
+    if not identification:
+        identification = _first_value(
+            normalized,
+            "n mero documento",
+            "unnamed: 3",
+        )
+    if not name:
+        first_name = _first_value(normalized, "unnamed: 4")
+        last_name = _first_value(normalized, "unnamed: 5")
+        name = " ".join(part for part in (first_name, last_name) if part)
+    if not certification_status:
+        certification_status = _first_value(normalized, "unnamed: 15")
+
     tracking_notes = _first_value(
         normalized,
         "correo electronico",
@@ -496,6 +512,11 @@ def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
 
     # Si no hay ni nombre ni documento, no hay como identificar al aprendiz
     if not name and not identification:
+        return None
+    # Las filas de cabecera y control de estos reportes pueden contener marcas
+    # como "X" o textos en la columna del documento. No son aprendices y no
+    # deben convertirse en identificaciones únicas.
+    if identification and not any(character.isdigit() for character in identification):
         return None
 
     return {
