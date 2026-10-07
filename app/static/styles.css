@@ -264,6 +264,11 @@ h1 { margin-bottom: 2px; font: 700 22px/1.15 "Space Grotesk", sans-serif; }
 .requirement-editor select, .requirement-editor textarea { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 7px; font: inherit; }
 .requirement-feedback { color: var(--muted); font-size: 11px; }
 .empty-detail { color: var(--muted); }
+.act-form, .act-inline-form { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.act-form label, .act-inline-form label { display: grid; gap: 5px; color: var(--muted); font-size: 11px; font-weight: 700; }
+.act-form input, .act-form select, .act-form textarea, .act-inline-form input { padding: 8px; border: 1px solid var(--line); border-radius: 6px; font: inherit; }
+.act-wide { grid-column: 1 / -1; }
+.act-inline-form { grid-template-columns: 180px 1fr auto; margin-top: 16px; }
 .learners-data td[colspan] { color: var(--muted); text-align: center; }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 16px; color: var(--muted); font-size: 11px; }
 .pagination button:disabled { cursor: not-allowed; opacity: .45; }
@@ -300,4 +305,5 @@ h1 { margin-bottom: 2px; font: 700 22px/1.15 "Space Grotesk", sans-serif; }
 	.pagination { flex-wrap: wrap; justify-content: center; }
 	.requirement-editor { grid-template-columns: 1fr; }
 	.detail-grid { grid-template-columns: 1fr; }
+	.act-form, .act-inline-form { grid-template-columns: 1fr; }
 }
