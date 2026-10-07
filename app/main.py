@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import date
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
@@ -7,12 +8,24 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db, init_db
+from app.models import Act
 from app.services.imports import (
     confirm_import,
     get_staged,
     import_preview,
     list_imports,
     stage_file,
+)
+from app.services.acts import (
+    REVIEW_STATUSES,
+    act_options,
+    create_act,
+    delete_act,
+    get_act_detail,
+    link_learner_to_act,
+    list_acts,
+    unlink_learner_from_act,
+    update_act,
 )
 from app.services.learners import get_learner_detail, list_learners
 from app.services.requirements import (
@@ -35,6 +48,29 @@ init_db()
 class RequirementRequest(BaseModel):
     requirement_type: str
     status: str
+    observations: str | None = None
+
+
+class ActCreateRequest(BaseModel):
+    number: str
+    act_date: date
+    act_type: str | None = None
+    original_file: str = "Registro manual"
+    review_status: str = "pending"
+    observations: str | None = None
+
+
+class ActUpdateRequest(BaseModel):
+    number: str | None = None
+    act_date: date | None = None
+    act_type: str | None = None
+    original_file: str | None = None
+    review_status: str | None = None
+    observations: str | None = None
+
+
+class ActLearnerRequest(BaseModel):
+    learner_id: int
     observations: str | None = None
 
 
@@ -163,3 +199,99 @@ async def learner_detail(learner_id: int, session: Session = Depends(get_db)) ->
     if detail is None:
         raise HTTPException(status_code=404, detail="Aprendiz no encontrado.")
     return detail
+
+
+@app.get("/api/acts")
+async def acts(
+    search: str = Query(default="", max_length=200),
+    review_status: str | None = Query(default=None, max_length=50),
+    session: Session = Depends(get_db),
+) -> dict:
+    try:
+        return {"items": list_acts(session, search, review_status)}
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/acts/options")
+async def acts_options() -> dict:
+    return act_options()
+
+
+@app.get("/api/acts/{act_id}")
+async def act_detail_endpoint(act_id: int, session: Session = Depends(get_db)) -> dict:
+    result = get_act_detail(session, act_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Acta no encontrada.")
+    return result
+
+
+@app.post("/api/acts", status_code=201)
+async def create_act_endpoint(
+    request: ActCreateRequest,
+    session: Session = Depends(get_db),
+) -> dict:
+    if not request.number.strip() or not request.original_file.strip():
+        raise HTTPException(status_code=422, detail="Número y archivo original son obligatorios.")
+    try:
+        return create_act(
+            session,
+            request.number,
+            request.act_date,
+            request.act_type,
+            request.original_file,
+            request.review_status,
+            request.observations,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.patch("/api/acts/{act_id}")
+async def update_act_endpoint(
+    act_id: int,
+    request: ActUpdateRequest,
+    session: Session = Depends(get_db),
+) -> dict:
+    try:
+        return update_act(session, act_id, request.model_dump(exclude_unset=True))
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.delete("/api/acts/{act_id}", status_code=204)
+async def delete_act_endpoint(act_id: int, session: Session = Depends(get_db)) -> None:
+    try:
+        delete_act(session, act_id)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.post("/api/acts/{act_id}/learners", status_code=201)
+async def link_act_learner(
+    act_id: int,
+    request: ActLearnerRequest,
+    session: Session = Depends(get_db),
+) -> dict:
+    try:
+        return link_learner_to_act(session, act_id, request.learner_id, request.observations)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.delete("/api/acts/{act_id}/learners/{learner_id}", status_code=204)
+async def unlink_act_learner(
+    act_id: int,
+    learner_id: int,
+    session: Session = Depends(get_db),
+) -> None:
+    if session.get(Act, act_id) is None:
+        raise HTTPException(status_code=404, detail="Acta no encontrada.")
+    try:
+        unlink_learner_from_act(session, act_id, learner_id)
+    except LookupError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error

@@ -41,6 +41,19 @@ const learnerRequirements = document.querySelector("#learner-requirements");
 const viewLinks = document.querySelectorAll("[data-view]");
 const views = document.querySelectorAll(".app-view");
 const maxFileSize = 20 * 1024 * 1024;
+const actForm = document.querySelector("#act-form");
+const actList = document.querySelector("#acts-list");
+const actSearch = document.querySelector("#act-search");
+const actSummary = document.querySelector("#acts-summary");
+const actFeedback = document.querySelector("#act-form-feedback");
+const actDetail = document.querySelector("#act-detail");
+const actDetailContent = document.querySelector("#act-detail-content");
+const actDetailTitle = document.querySelector("#act-detail-title");
+const actDetailFeedback = document.querySelector("#act-detail-feedback");
+const actBasicInfo = document.querySelector("#act-basic-info");
+const actLearners = document.querySelector("#act-learners");
+const actLearnerForm = document.querySelector("#act-learner-form");
+let currentActId = null;
 
 const extensionsByType = {
   df14a: [".xlsx", ".xls", ".csv"],
@@ -380,13 +393,14 @@ async function loadLearners() {
 }
 
 function showView(viewName, updateHash = true) {
-  const target = viewName === "aprendices" ? "aprendices" : "carga";
+  const target = ["aprendices", "actas"].includes(viewName) ? viewName : "carga";
   views.forEach((view) => {
     view.hidden = view.id !== `${target}-view`;
   });
   viewLinks.forEach((link) => link.classList.toggle("active", link.dataset.view === target));
-  if (updateHash) history.replaceState(null, "", target === "aprendices" ? "#aprendices" : "#carga");
+  if (updateHash) history.replaceState(null, "", `#${target}`);
   if (target === "aprendices") loadLearners();
+  if (target === "actas") loadActs();
 }
 
 viewLinks.forEach((link) => link.addEventListener("click", (event) => {
@@ -394,6 +408,61 @@ viewLinks.forEach((link) => link.addEventListener("click", (event) => {
   showView(link.dataset.view);
 }));
 refreshLearnersButton.addEventListener("click", loadLearners);
+
+function renderActs(items) {
+  actList.replaceChildren();
+  items.forEach((item) => {
+    const row = document.createElement("tr");
+    [item.number || "Sin número", item.act_date || "Sin fecha", item.act_type || "Sin tipo", item.review_status, item.learners_count].forEach((value) => {
+      const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell);
+    });
+    const cell = document.createElement("td"), button = document.createElement("button");
+    button.className = "detail-button"; button.type = "button"; button.textContent = "Ver detalle";
+    button.addEventListener("click", () => loadActDetail(item.id)); cell.appendChild(button); row.appendChild(cell); actList.appendChild(row);
+  });
+  if (!items.length) actList.innerHTML = '<tr><td colspan="6">No hay actas registradas.</td></tr>';
+}
+async function loadActs() {
+  try {
+    const result = await readResponse(await fetch(`/api/acts?search=${encodeURIComponent(actSearch.value.trim())}`));
+    actSummary.textContent = `${result.items.length} actas registradas`; renderActs(result.items);
+  } catch (error) { actSummary.textContent = error.message; }
+}
+async function loadActDetail(id) {
+  currentActId = id; actDetail.hidden = false; actDetailContent.hidden = true;
+  document.querySelectorAll("#actas-view > .panel").forEach((panel) => { if (panel.id !== "act-detail") panel.hidden = true; });
+  try {
+    const item = await readResponse(await fetch(`/api/acts/${id}`));
+    actDetailTitle.textContent = item.number || "Acta"; actBasicInfo.replaceChildren();
+    [["Número", item.number], ["Fecha", item.act_date], ["Tipo", item.act_type], ["Estado", item.review_status], ["Archivo", item.original_file], ["Observaciones", item.observations]].forEach(([label, value]) => {
+      const term = document.createElement("dt"), description = document.createElement("dd"); term.textContent = label; description.textContent = value || "No disponible"; actBasicInfo.append(term, description);
+    });
+    renderActLearners(item.learners); actDetailContent.hidden = false; actDetailFeedback.textContent = "";
+  } catch (error) { actDetailFeedback.textContent = error.message; }
+}
+function renderActLearners(items) {
+  actLearners.replaceChildren();
+  if (!items.length) { actLearners.innerHTML = '<p class="empty-detail">Sin aprendices asociados.</p>'; return; }
+  items.forEach((item) => {
+    const entry = document.createElement("div"); entry.className = "detail-list-item"; entry.textContent = `${item.name} · ${item.identification}`;
+    const button = document.createElement("button"); button.className = "cancel-button"; button.type = "button"; button.textContent = "Desasociar";
+    button.addEventListener("click", async () => { await readResponse(await fetch(`/api/acts/${currentActId}/learners/${item.id}`, {method: "DELETE"})); loadActDetail(currentActId); });
+    entry.appendChild(button); actLearners.appendChild(entry);
+  });
+}
+actForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try { const result = await readResponse(await fetch("/api/acts", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(Object.fromEntries(new FormData(actForm)))})); actForm.reset(); actFeedback.textContent = `Acta ${result.number} guardada correctamente.`; loadActs(); }
+  catch (error) { actFeedback.textContent = error.message; }
+});
+actLearnerForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try { const payload = Object.fromEntries(new FormData(actLearnerForm)); payload.learner_id = Number(payload.learner_id); await readResponse(await fetch(`/api/acts/${currentActId}/learners`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)})); actLearnerForm.reset(); loadActDetail(currentActId); }
+  catch (error) { actDetailFeedback.textContent = error.message; }
+});
+document.querySelector("#refresh-acts").addEventListener("click", loadActs);
+actSearch.addEventListener("input", loadActs);
+document.querySelector("#back-to-acts").addEventListener("click", () => { actDetail.hidden = true; document.querySelectorAll("#actas-view > .panel").forEach((panel) => { panel.hidden = false; }); });
 
 typeOptions.forEach((option) => option.addEventListener("click", () => setType(option.dataset.type)));
 selectButton.addEventListener("click", (event) => { event.stopPropagation(); fileInput.click(); });
