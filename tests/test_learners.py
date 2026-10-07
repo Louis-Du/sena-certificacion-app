@@ -136,3 +136,105 @@ def test_learners_api_migrates_existing_imported_records_when_table_is_empty(cli
     assert response.status_code == 200
     assert response.json()["total"] == 1
     assert response.json()["items"][0]["identification"] == "12345"
+
+
+def test_requirements_can_be_created_updated_and_retrieved(client: TestClient):
+    seed_learners(client, count=1)
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+
+    created = client.post(
+        f"/api/learners/{learner_id}/requirements",
+        json={
+            "requirement_type": "documentation",
+            "status": "Pendiente",
+            "observations": "Falta documento de identidad.",
+        },
+    )
+    assert created.status_code == 201
+    requirement_id = created.json()["id"]
+
+    updated = client.patch(
+        f"/api/learners/{learner_id}/requirements/{requirement_id}",
+        json={
+            "requirement_type": "documentation",
+            "status": "Cumplido",
+            "observations": "Validado el 07/10/2026.",
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["status"] == "Cumplido"
+
+    listed = client.get(f"/api/learners/{learner_id}/requirements")
+    assert listed.status_code == 200
+    assert listed.json()["items"][0]["observations"] == "Validado el 07/10/2026."
+
+    detail = client.get(f"/api/learners/{learner_id}")
+    assert detail.status_code == 200
+    assert detail.json()["requirements"][1]["status"] == "Cumplido"
+
+
+def test_learner_detail_exposes_editable_requirement_slots_without_registering_them(client: TestClient):
+    seed_learners(client, count=1)
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+
+    detail = client.get(f"/api/learners/{learner_id}")
+
+    assert detail.status_code == 200
+    assert {item["requirement_type"] for item in detail.json()["requirements"]} == {
+        "learning_outcome",
+        "documentation",
+        "productive_stage",
+        "clearance",
+        "saber_tyt",
+    }
+    assert client.get("/api/learners/with-pending-requirements").json()["items"] == []
+
+
+def test_pending_requirements_only_include_registered_pending_status(client: TestClient):
+    seed_learners(client, count=3)
+    learners = client.get("/api/learners").json()["items"]
+    client.post(
+        f"/api/learners/{learners[0]['id']}/requirements",
+        json={"requirement_type": "documentation", "status": "Pendiente"},
+    )
+    client.post(
+        f"/api/learners/{learners[1]['id']}/requirements",
+        json={"requirement_type": "documentation", "status": "Cumplido"},
+    )
+    client.post(
+        f"/api/learners/{learners[2]['id']}/requirements",
+        json={"requirement_type": "documentation", "status": "No aplica"},
+    )
+
+    response = client.get("/api/learners/with-pending-requirements")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [learners[0]["id"]]
+    assert response.json()["items"][0]["pending_count"] == 1
+
+
+def test_requirements_validate_learner_type_status_and_duplicates(client: TestClient):
+    seed_learners(client, count=1)
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+
+    assert client.post(
+        f"/api/learners/{learner_id}/requirements",
+        json={"requirement_type": "unknown", "status": "Pendiente"},
+    ).status_code == 400
+    assert client.post(
+        f"/api/learners/{learner_id}/requirements",
+        json={"requirement_type": "documentation", "status": "Otro"},
+    ).status_code == 400
+    assert client.post(
+        f"/api/learners/{learner_id}/requirements",
+        json={"requirement_type": "documentation", "status": "Pendiente"},
+    ).status_code == 201
+    assert client.post(
+        f"/api/learners/{learner_id}/requirements",
+        json={"requirement_type": "documentation", "status": "Cumplido"},
+    ).status_code == 400
+    assert client.get("/api/learners/9999/requirements").status_code == 404
+    assert client.patch(
+        f"/api/learners/9999/requirements/1",
+        json={"requirement_type": "documentation", "status": "Cumplido"},
+    ).status_code == 404
