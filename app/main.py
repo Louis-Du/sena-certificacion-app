@@ -133,11 +133,12 @@ async def import_history(session: Session = Depends(get_db)) -> dict:
 @app.get("/api/learners")
 async def learners(
     search: str = Query(default="", max_length=100),
+    status: str = Query(default="", max_length=100),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100),
     session: Session = Depends(get_db),
 ) -> dict:
-    return list_learners(session, search=search, page=page, page_size=page_size)
+    return list_learners(session, search=search, status=status, page=page, page_size=page_size)
 
 
 @app.get("/api/learners/with-pending-requirements")
