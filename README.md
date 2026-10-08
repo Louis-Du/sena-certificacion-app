@@ -99,8 +99,11 @@ powershell -ExecutionPolicy Bypass -File .\build_demo.ps1
 El ejecutable queda en
 `dist\SenaCertificacionDemo\SenaCertificacionDemo.exe`. Para presentarlo, entrega la
 carpeta completa `dist\SenaCertificacionDemo` y ejecuta el `.exe`; luego abre
-`http://127.0.0.1:8000` en el navegador. La consola permanece visible para mostrar
-el estado del servidor y se cierra al terminar la aplicacion.
+`http://127.0.0.1:8000` en el navegador. El lanzador intenta abrir esa direccion
+automaticamente. La consola permanece visible para mostrar el estado del servidor y
+se cierra al terminar la aplicacion. Si el inicio falla, la consola queda abierta
+para mostrar el error. Si el puerto 8000 ya esta ocupado, el lanzador selecciona
+automaticamente otro puerto local disponible y abre el navegador en esa direccion.
 
 ### Pruebas realizadas
 
