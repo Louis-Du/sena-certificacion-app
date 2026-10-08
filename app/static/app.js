@@ -25,6 +25,7 @@ const learnersList = document.querySelector("#learners-list");
 const learnersSummary = document.querySelector("#learners-summary");
 const refreshLearnersButton = document.querySelector("#refresh-learners");
 const learnerSearch = document.querySelector("#learner-search");
+const learnerStatus = document.querySelector("#learner-status");
 const clearLearnerSearch = document.querySelector("#clear-learner-search");
 const learnersPrev = document.querySelector("#learners-prev");
 const learnersNext = document.querySelector("#learners-next");
@@ -332,10 +333,15 @@ async function loadLearners() {
   try {
     const params = new URLSearchParams({
       search: learnerSearch.value.trim(),
+      status: learnerStatus.value,
       page: learnerPageNumber,
       page_size: learnerPageSize,
     });
     const result = await readResponse(await fetch(`/api/learners?${params}`));
+    const selectedStatus = learnerStatus.value;
+    learnerStatus.replaceChildren(new Option("Todos los estados", ""));
+    result.statuses.forEach((status) => learnerStatus.add(new Option(status, status)));
+    learnerStatus.value = selectedStatus;
     learnersSummary.textContent = `${result.total} ${result.total === 1 ? "aprendiz" : "aprendices"} registrados`;
     learnersPage.textContent = `Pagina ${result.page} de ${Math.max(result.pages, 1)}`;
     learnersPrev.disabled = result.page <= 1;
@@ -377,6 +383,11 @@ async function loadLearners() {
   });
   clearLearnerSearch.addEventListener("click", () => {
     learnerSearch.value = "";
+    learnerStatus.value = "";
+    learnerPageNumber = 1;
+    loadLearners();
+  });
+  learnerStatus.addEventListener("change", () => {
     learnerPageNumber = 1;
     loadLearners();
   });

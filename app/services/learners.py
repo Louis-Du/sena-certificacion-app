@@ -15,6 +15,7 @@ from app.services.requirements import editor_requirements
 def list_learners(
     session: Session,
     search: str = "",
+    status: str = "",
     page: int = 1,
     page_size: int = 25,
 ) -> dict[str, Any]:
@@ -31,8 +32,11 @@ def list_learners(
                 Learner.identification.ilike(term),
                 Learner.group_code.ilike(term),
                 Learner.program.ilike(term),
+                Learner.certification_status.ilike(term),
             )
         )
+    if status.strip():
+        filters.append(Learner.certification_status.ilike(status.strip()))
     query = select(Learner).order_by(Learner.name.asc(), Learner.id.asc())
     count_query = select(func.count()).select_from(Learner)
     if filters:
@@ -44,6 +48,16 @@ def list_learners(
     ).all()
     return {
         "items": [learner_result(learner) for learner in learners],
+        "statuses": [
+            value
+            for value in session.scalars(
+                select(Learner.certification_status)
+                .where(Learner.certification_status.is_not(None))
+                .distinct()
+                .order_by(Learner.certification_status.asc())
+            ).all()
+            if value
+        ],
         "total": total,
         "page": page,
         "page_size": page_size,

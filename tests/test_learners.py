@@ -138,6 +138,38 @@ def test_learners_api_migrates_existing_imported_records_when_table_is_empty(cli
     assert response.json()["items"][0]["identification"] == "12345"
 
 
+def test_learner_search_matches_name_document_program_group_and_status(client: TestClient):
+    with client.session_factory() as session:
+        session.add_all(
+            [
+                Learner(
+                    identification="2001",
+                    name="Ana Nombre",
+                    program="Programa Redes",
+                    group_code="FICHA-01",
+                    certification_status="Por certificar",
+                ),
+                Learner(
+                    identification="2002",
+                    name="Bruno",
+                    program="Programa Software",
+                    group_code="FICHA-02",
+                    certification_status="Certificado",
+                ),
+            ]
+        )
+        session.commit()
+
+    for term in ("Ana Nombre", "2001", "Programa Redes", "FICHA-01", "Por certificar"):
+        response = client.get("/api/learners", params={"search": term})
+        assert response.status_code == 200
+        assert [item["identification"] for item in response.json()["items"]] == ["2001"]
+
+    response = client.get("/api/learners", params={"status": "Certificado"})
+    assert response.status_code == 200
+    assert [item["identification"] for item in response.json()["items"]] == ["2002"]
+
+
 def test_requirements_can_be_created_updated_and_retrieved(client: TestClient):
     seed_learners(client, count=1)
     learner_id = client.get("/api/learners").json()["items"][0]["id"]
