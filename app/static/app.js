@@ -30,6 +30,7 @@ const clearLearnerSearch = document.querySelector("#clear-learner-search");
 const learnersPrev = document.querySelector("#learners-prev");
 const learnersNext = document.querySelector("#learners-next");
 const learnersPage = document.querySelector("#learners-page");
+const porCertificarLearnersButton = document.querySelector("#por-certificar-learners-button");
 const pendingLearnersButton = document.querySelector("#pending-learners-button");
 const learnersFrame = document.querySelector(".learners-frame");
 const learnerDetail = document.querySelector("#learner-detail");
@@ -252,6 +253,37 @@ function renderLearnerRow(item) {
   return row;
 }
 
+function renderLearnerEmptyState() {
+  const searchTerm = learnerSearch.value.trim();
+  const selectedStatus = learnerStatus.value;
+  let message = "Aun no hay aprendices cargados. Confirma una importacion DF14A para empezar.";
+  if (searchTerm && selectedStatus) {
+    message = `No se encontro ningun aprendiz que coincida con "${searchTerm}" y tenga el estado "${selectedStatus}".`;
+  } else if (searchTerm) {
+    message = `No se encontro ningun aprendiz que coincida con "${searchTerm}".`;
+  } else if (selectedStatus) {
+    message = `No se encontro ningun aprendiz con el estado "${selectedStatus}".`;
+  }
+  const row = document.createElement("tr");
+  const cell = document.createElement("td");
+  cell.colSpan = 7;
+  cell.textContent = message;
+  row.appendChild(cell);
+  learnersList.replaceChildren(row);
+}
+
+function setLearnerStatus(status) {
+  const matchingOption = [...learnerStatus.options].find(
+    (option) => option.value.toLowerCase() === status.toLowerCase(),
+  );
+  if (matchingOption) {
+    learnerStatus.value = matchingOption.value;
+    return;
+  }
+  learnerStatus.add(new Option(status, status));
+  learnerStatus.value = status;
+}
+
 function renderRequirementEditor(items) {
   learnerRequirements.replaceChildren();
   if (!items.length) {
@@ -341,67 +373,79 @@ async function loadLearners() {
     const selectedStatus = learnerStatus.value;
     learnerStatus.replaceChildren(new Option("Todos los estados", ""));
     result.statuses.forEach((status) => learnerStatus.add(new Option(status, status)));
-    learnerStatus.value = selectedStatus;
+    if (selectedStatus) setLearnerStatus(selectedStatus);
+    porCertificarLearnersButton.textContent = `Por Certificar (${result.por_certificar_total})`;
+    porCertificarLearnersButton.setAttribute(
+      "aria-pressed",
+      learnerStatus.value.toLowerCase() === "por certificar" ? "true" : "false",
+    );
     learnersSummary.textContent = `${result.total} ${result.total === 1 ? "aprendiz" : "aprendices"} registrados`;
     learnersPage.textContent = `Pagina ${result.page} de ${Math.max(result.pages, 1)}`;
     learnersPrev.disabled = result.page <= 1;
     learnersNext.disabled = result.page >= result.pages;
     if (!result.items.length) {
-      learnersList.innerHTML = `<tr><td colspan="7">${learnerSearch.value ? "No se encontraron aprendices." : "Aun no hay aprendices cargados. Confirma una importacion DF14A para empezar."}</td></tr>`;
+      renderLearnerEmptyState();
       return;
     }
 
-    async function loadPendingLearners() {
-      try {
-        const result = await readResponse(await fetch("/api/learners/with-pending-requirements"));
-        learnersSummary.textContent = `${result.items.length} aprendices con requisitos pendientes`;
-        learnersList.replaceChildren(...result.items.map((item) => {
-          const row = renderLearnerRow(item);
-          const pendingCell = row.cells[5];
-          pendingCell.textContent = item.pending_count;
-          return row;
-        }));
-      } catch (error) {
-        learnersSummary.textContent = error.message;
-      }
-    }
-
-    backToLearners.addEventListener("click", () => {
-      learnerDetail.hidden = true;
-      learnersFrame.hidden = false;
-    });
-    pendingLearnersButton.addEventListener("click", loadPendingLearners);
     learnersList.replaceChildren(...result.items.map(renderLearnerRow));
   } catch (error) {
     learnersSummary.textContent = "No fue posible consultar SQLite";
     learnersList.textContent = "No fue posible cargar los aprendices.";
   }
 
-  learnerSearch.addEventListener("input", () => {
-    learnerPageNumber = 1;
-    loadLearners();
-  });
-  clearLearnerSearch.addEventListener("click", () => {
-    learnerSearch.value = "";
-    learnerStatus.value = "";
-    learnerPageNumber = 1;
-    loadLearners();
-  });
-  learnerStatus.addEventListener("change", () => {
-    learnerPageNumber = 1;
-    loadLearners();
-  });
-  learnersPrev.addEventListener("click", () => {
-    if (learnerPageNumber > 1) {
-      learnerPageNumber -= 1;
-      loadLearners();
-    }
-  });
-  learnersNext.addEventListener("click", () => {
-    learnerPageNumber += 1;
-    loadLearners();
-  });
 }
+
+async function loadPendingLearners() {
+  try {
+    const result = await readResponse(await fetch("/api/learners/with-pending-requirements"));
+    learnersSummary.textContent = `${result.items.length} aprendices con requisitos pendientes`;
+    learnersList.replaceChildren(...result.items.map((item) => {
+      const row = renderLearnerRow(item);
+      row.cells[5].textContent = item.pending_count;
+      return row;
+    }));
+  } catch (error) {
+    learnersSummary.textContent = error.message;
+  }
+}
+
+backToLearners.addEventListener("click", () => {
+  learnerDetail.hidden = true;
+  learnersFrame.hidden = false;
+});
+learnerSearch.addEventListener("input", () => {
+  learnerPageNumber = 1;
+  loadLearners();
+});
+clearLearnerSearch.addEventListener("click", () => {
+  learnerSearch.value = "";
+  learnerStatus.value = "";
+  learnerPageNumber = 1;
+  loadLearners();
+});
+learnerStatus.addEventListener("change", () => {
+  learnerPageNumber = 1;
+  loadLearners();
+});
+porCertificarLearnersButton.addEventListener("click", () => {
+  setLearnerStatus(
+    learnerStatus.value.toLowerCase() === "por certificar" ? "" : "Por Certificar",
+  );
+  learnerPageNumber = 1;
+  loadLearners();
+});
+pendingLearnersButton.addEventListener("click", loadPendingLearners);
+learnersPrev.addEventListener("click", () => {
+  if (learnerPageNumber > 1) {
+    learnerPageNumber -= 1;
+    loadLearners();
+  }
+});
+learnersNext.addEventListener("click", () => {
+  learnerPageNumber += 1;
+  loadLearners();
+});
 
 function showView(viewName, updateHash = true) {
   const target = ["aprendices", "actas"].includes(viewName) ? viewName : "carga";

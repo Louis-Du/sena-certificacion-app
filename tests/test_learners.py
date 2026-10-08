@@ -170,6 +170,43 @@ def test_learner_search_matches_name_document_program_group_and_status(client: T
     assert [item["identification"] for item in response.json()["items"]] == ["2002"]
 
 
+def test_por_certificar_filter_counts_registered_status_without_changing_requirements(
+    client: TestClient,
+):
+    with client.session_factory() as session:
+        session.add_all(
+            [
+                Learner(
+                    identification="3001",
+                    name="Carla Por Certificar",
+                    certification_status="Por certificar",
+                ),
+                Learner(
+                    identification="3002",
+                    name="Diego Certificado",
+                    certification_status="Certificado",
+                ),
+            ]
+        )
+        session.commit()
+
+    learner_id = client.get("/api/learners", params={"search": "Carla"}).json()["items"][0]["id"]
+    client.post(
+        f"/api/learners/{learner_id}/requirements",
+        json={"requirement_type": "documentation", "status": "Cumplido"},
+    )
+    before = client.get(f"/api/learners/{learner_id}/requirements").json()["items"]
+
+    all_learners = client.get("/api/learners")
+    filtered = client.get("/api/learners", params={"status": "Por Certificar"})
+
+    assert all_learners.json()["por_certificar_total"] == 1
+    assert filtered.json()["total"] == 1
+    assert [item["identification"] for item in filtered.json()["items"]] == ["3001"]
+    assert client.get("/api/learners", params={"status": "Certificado"}).json()["total"] == 1
+    assert client.get(f"/api/learners/{learner_id}/requirements").json()["items"] == before
+
+
 def test_requirements_can_be_created_updated_and_retrieved(client: TestClient):
     seed_learners(client, count=1)
     learner_id = client.get("/api/learners").json()["items"][0]["id"]

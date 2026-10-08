@@ -83,6 +83,25 @@ Tambien pueden ejecutarse por grupo:
 .\.venv\Scripts\python.exe -m pytest -q tests/test_import_flow.py
 ```
 
+## Preparar demo portable para Windows
+
+La demo se construye con PyInstaller en modo carpeta (`one-folder`). Esta opcion no
+requiere Python instalado en el equipo de presentacion y conserva los archivos
+estaticos dentro del paquete. SQLite se crea o utiliza en la carpeta de la demo, por
+lo que los datos pueden conservarse entre ejecuciones.
+
+Desde PowerShell en la raiz del proyecto:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build_demo.ps1
+```
+
+El ejecutable queda en
+`dist\SenaCertificacionDemo\SenaCertificacionDemo.exe`. Para presentarlo, entrega la
+carpeta completa `dist\SenaCertificacionDemo` y ejecuta el `.exe`; luego abre
+`http://127.0.0.1:8000` en el navegador. La consola permanece visible para mostrar
+el estado del servidor y se cierra al terminar la aplicacion.
+
 ### Pruebas realizadas
 
 #### Pruebas unitarias
@@ -96,6 +115,8 @@ Archivo: [`tests/test_learners.py`](./tests/test_learners.py)
 | Buscar por nombre | Devolver únicamente los aprendices coincidentes | Superado |
 | Buscar por programa | Devolver todos los registros del programa buscado | Superado |
 | Buscar por ficha | Devolver los aprendices asociados a la ficha | Superado |
+| Filtrar aprendices por estado `Por certificar` | Devolver únicamente el estado registrado solicitado y su cantidad | Superado |
+| Consultar un aprendiz por certificar | No modificar sus requisitos al consultar el filtro | Superado |
 
 #### Pruebas de integración
 
@@ -126,11 +147,11 @@ Archivo: [`tests/test_import_flow.py`](./tests/test_import_flow.py)
 Última ejecución:
 
 ```text
-10 passed, 1 warning
+22 passed, 1 warning
 ```
 
 El resultado esperado era que todos los casos terminaran correctamente sin fallos.
-El resultado obtenido fue **10 pruebas superadas**.
+El resultado obtenido fue **22 pruebas superadas**.
 
 La única advertencia corresponde a la compatibilidad futura entre `Starlette
 TestClient` y la versión instalada de `httpx`; no afecta el resultado funcional de

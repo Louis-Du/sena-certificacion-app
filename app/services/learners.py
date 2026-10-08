@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 from app.models import ImportedRecord, Learner
 from app.services.requirements import editor_requirements
 
+POR_CERTIFICAR_STATUS = "Por Certificar"
+
 
 def list_learners(
     session: Session,
@@ -43,6 +45,11 @@ def list_learners(
         query = query.where(*filters)
         count_query = count_query.where(*filters)
     total = session.scalar(count_query) or 0
+    por_certificar_total = session.scalar(
+        select(func.count())
+        .select_from(Learner)
+        .where(func.lower(Learner.certification_status) == POR_CERTIFICAR_STATUS.lower())
+    ) or 0
     learners = session.scalars(
         query.offset((page - 1) * page_size).limit(page_size)
     ).all()
@@ -62,6 +69,7 @@ def list_learners(
         "page": page,
         "page_size": page_size,
         "pages": (total + page_size - 1) // page_size,
+        "por_certificar_total": por_certificar_total,
     }
 
 
