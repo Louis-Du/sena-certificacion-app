@@ -307,3 +307,24 @@ def test_requirements_validate_learner_type_status_and_duplicates(client: TestCl
         f"/api/learners/9999/requirements/1",
         json={"requirement_type": "documentation", "status": "Cumplido"},
     ).status_code == 404
+
+
+def test_learner_detail_returns_404_for_unknown_id(client: TestClient):
+    assert client.get("/api/learners/9999").status_code == 404
+
+
+def test_requirement_patch_rejects_requirement_from_another_learner(client: TestClient):
+    seed_learners(client, count=2)
+    learners = client.get("/api/learners").json()["items"]
+    created = client.post(
+        f"/api/learners/{learners[0]['id']}/requirements",
+        json={"requirement_type": "documentation", "status": "Pendiente"},
+    )
+    requirement_id = created.json()["id"]
+
+    response = client.patch(
+        f"/api/learners/{learners[1]['id']}/requirements/{requirement_id}",
+        json={"requirement_type": "documentation", "status": "Cumplido"},
+    )
+
+    assert response.status_code == 404
