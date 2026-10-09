@@ -105,3 +105,19 @@ def test_confirm_updates_learners_list_in_sqlite(client: TestClient):
     assert len(learners.json()["items"]) == 1
     assert learners.json()["items"][0]["identification"] == "1001"
     assert learners.json()["items"][0]["name"] == "Ana"
+
+
+def test_validate_rejects_incompatible_format_without_history(client: TestClient):
+    response = client.post(
+        "/api/files/validate",
+        data={"information_type": "df14a"},
+        files={"file": ("acta.pdf", b"%PDF-1.4", "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "error"
+    assert client.get("/api/imports/history").json()["items"] == []
+
+
+def test_preview_requires_existing_successful_validation(client: TestClient):
+    assert client.get("/api/imports/no-existe/preview").status_code == 404
