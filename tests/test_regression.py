@@ -174,3 +174,66 @@ def test_deleting_act_removes_associations_but_keeps_learner(client: TestClient)
     with client.session_factory() as session:
         assert session.query(ActLearner).count() == 0
         assert session.get(Learner, learner_id) is not None
+
+
+def test_failed_confirm_does_not_leave_partial_sqlite_rows(client: TestClient):
+    error_id = _validate(client, "acta.pdf", pdf_bytes(), "df14a")["validation_id"]
+    assert client.post(f"/api/imports/{error_id}/confirm").status_code == 400
+
+    with client.session_factory() as session:
+        assert session.query(ImportHistory).count() == 0
+        assert session.query(ImportedRecord).count() == 0
+        assert session.query(Learner).count() == 0
+        assert session.query(Act).count() == 0
+
+
+def test_acta_file_import_does_not_create_act_entity(client: TestClient):
+    validation_id = _validate(client, "acta.pdf", pdf_bytes(), "acta")["validation_id"]
+    confirmed = client.post(f"/api/imports/{validation_id}/confirm")
+
+    assert confirmed.status_code == 200
+    assert client.get("/api/acts").json()["items"] == []
+    with client.session_factory() as session:
+        assert session.query(Act).count() == 0
+        assert session.query(ImportHistory).count() == 1
+
+
+def test_search_and_pagination_keep_working_after_import(client: TestClient):
+    rows = ["DOCUMENTO,NOMBRES,PROGRAMA,ESTADO_ASPIRANTE"]
+    rows.extend(
+        f"{2000 + index},Aprendiz {index:02d},Software,Por Certificar" for index in range(26)
+    )
+    validation_id = _validate(client, "df14a.csv", csv_bytes("\n".join(rows)))["validation_id"]
+    client.post(f"/api/imports/{validation_id}/confirm")
+
+    page = client.get("/api/learners", params={"page": 2, "page_size": 5})
+    search = client.get("/api/learners", params={"search": "Aprendiz 03"})
+
+    assert page.json()["total"] == 26
+    assert page.json()["pages"] == 6
+    assert len(page.json()["items"]) == 5
+    assert search.json()["total"] == 1
+    assert search.json()["items"][0]["identification"] == "2003"
+
+
+def test_api_learner_detail_contract_matches_frontend_keys(client: TestClient):
+    with client.session_factory() as session:
+        session.add(Learner(identification="8001", name="Nora", program="Redes"))
+        session.commit()
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+
+    body = client.get(f"/api/learners/{learner_id}").json()
+
+    assert "basic_info" in body
+    assert set(body["basic_info"]) >= {
+        "id",
+        "identification",
+        "name",
+        "program",
+        "group_code",
+        "certification_status",
+    }
+    assert isinstance(body["requirements"], list)
+    assert isinstance(body["acts"], list)
+    assert isinstance(body["history"], list)
+    assert "start_date" in body["dates"]

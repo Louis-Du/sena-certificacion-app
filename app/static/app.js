@@ -40,6 +40,7 @@ const learnerDetailFeedback = document.querySelector("#learner-detail-feedback")
 const learnerDetailContent = document.querySelector("#learner-detail-content");
 const learnerBasicInfo = document.querySelector("#learner-basic-info");
 const learnerRequirements = document.querySelector("#learner-requirements");
+const learnerActs = document.querySelector("#learner-acts");
 const viewLinks = document.querySelectorAll("[data-view]");
 const views = document.querySelectorAll(".app-view");
 const maxFileSize = 20 * 1024 * 1024;
@@ -284,6 +285,23 @@ function setLearnerStatus(status) {
   learnerStatus.value = status;
 }
 
+function renderLearnerActs(items) {
+  if (!learnerActs) return;
+  learnerActs.replaceChildren();
+  if (!items.length) {
+    learnerActs.innerHTML = '<p class="empty-detail">Sin actas asociadas.</p>';
+    return;
+  }
+  items.forEach((item) => {
+    const entry = document.createElement("div");
+    entry.className = "detail-list-item";
+    const number = item.number || "Sin número";
+    const actDate = item.act_date || "Sin fecha";
+    entry.textContent = `${number} · ${actDate} · ${item.review_status || "pending"}`;
+    learnerActs.appendChild(entry);
+  });
+}
+
 function renderRequirementEditor(items) {
   learnerRequirements.replaceChildren();
   if (!items.length) {
@@ -354,6 +372,7 @@ async function loadLearnerDetail(learnerId) {
         learnerBasicInfo.append(term, description);
       });
     renderRequirementEditor(result.requirements);
+    renderLearnerActs(result.acts || []);
     learnerDetailFeedback.textContent = "";
     learnerDetailContent.hidden = false;
   } catch (error) {
