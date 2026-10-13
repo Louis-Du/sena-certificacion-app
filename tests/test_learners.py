@@ -313,6 +313,33 @@ def test_learner_detail_returns_404_for_unknown_id(client: TestClient):
     assert client.get("/api/learners/9999").status_code == 404
 
 
+def test_learner_detail_includes_associated_acts_and_empty_history(client: TestClient):
+    seed_learners(client, count=1)
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+    act_id = client.post(
+        "/api/acts",
+        json={"number": "ACT-DET-01", "act_date": "2026-10-09", "act_type": "Certificacion"},
+    ).json()["id"]
+    client.post(
+        f"/api/acts/{act_id}/learners",
+        json={"learner_id": learner_id, "observations": "Incluido en el acta"},
+    )
+
+    detail = client.get(f"/api/learners/{learner_id}")
+
+    assert detail.status_code == 200
+    body = detail.json()
+    assert set(body) >= {"basic_info", "requirements", "acts", "history", "dates"}
+    assert len(body["acts"]) == 1
+    assert body["acts"][0]["number"] == "ACT-DET-01"
+    assert body["acts"][0]["observations"] == "Incluido en el acta"
+    assert body["history"] == []
+
+    client.delete(f"/api/acts/{act_id}/learners/{learner_id}")
+    after = client.get(f"/api/learners/{learner_id}").json()
+    assert after["acts"] == []
+
+
 def test_requirement_patch_rejects_requirement_from_another_learner(client: TestClient):
     seed_learners(client, count=2)
     learners = client.get("/api/learners").json()["items"]

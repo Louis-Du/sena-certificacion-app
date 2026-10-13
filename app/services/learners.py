@@ -6,9 +6,9 @@ from unicodedata import normalize
 from typing import Any
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
-from app.models import ImportedRecord, Learner
+from app.models import ActLearner, ImportedRecord, Learner
 from app.services.requirements import editor_requirements
 
 POR_CERTIFICAR_STATUS = "Por Certificar"
@@ -86,14 +86,20 @@ def learner_result(learner: Learner) -> dict[str, Any]:
 
 
 def get_learner_detail(session: Session, learner_id: int) -> dict[str, Any] | None:
-    learner = session.get(Learner, learner_id)
+    learner = session.scalar(
+        select(Learner)
+        .options(joinedload(Learner.acts).joinedload(ActLearner.act))
+        .where(Learner.id == learner_id)
+    )
     if learner is None:
         return None
     requirements = editor_requirements(session, learner_id)
     return {
         "basic_info": learner_result(learner),
         "requirements": requirements or [],
-        "acts": [],
+        "acts": associated_acts(learner),
+        # ImportHistory is file-level and has no foreign key to Learner.
+        # Until a confirmed rule exists, do not invent per-learner history.
         "history": [],
         "dates": {
             "start_date": learner.start_date.isoformat() if learner.start_date else None,
@@ -102,6 +108,22 @@ def get_learner_detail(session: Session, learner_id: int) -> dict[str, Any] | No
             else None,
         },
     }
+
+
+def associated_acts(learner: Learner) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": link.act.id,
+            "number": link.act.number,
+            "act_date": link.act.act_date.isoformat() if link.act.act_date else None,
+            "act_type": link.act.act_type,
+            "original_file": link.act.original_file,
+            "review_status": link.act.review_status,
+            "observations": link.observations,
+        }
+        for link in learner.acts
+        if link.act is not None
+    ]
 
 
 def sync_learners_from_imports(session: Session) -> int:
