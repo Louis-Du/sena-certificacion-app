@@ -35,7 +35,7 @@ def test_validate_rejects_incompatible_extension_for_df14a():
 def test_validate_accepts_csv_and_counts_rows():
     result = validate_file(
         "df14a.csv",
-        csv_bytes("nombre,estado\nAna,Por Certificar\nLuis,Certificado\n"),
+        csv_bytes("FICHA,nombre,estado\n3001,Ana,Por Certificar\n3002,Luis,Certificado\n"),
         "df14a",
     )
 
@@ -44,6 +44,18 @@ def test_validate_accepts_csv_and_counts_rows():
     assert result.valid_records == 2
     assert result.inconsistencies == 0
     assert "no se han guardado datos" in result.message
+
+
+def test_validate_warns_when_required_columns_missing():
+    result = validate_file(
+        "certificados.csv",
+        csv_bytes("nombre,estado\nAna,Por Certificar\n"),
+        "certificados",
+    )
+
+    assert result.status == "warning"
+    assert result.missing_columns
+    assert "NÚMERO DE DOCUMENTO" in result.missing_columns
 
 
 def test_validate_xlsx_df14a_is_ready():
