@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,6 +10,7 @@ from app.database import Base, get_db
 from app.main import app
 from app.models import ImportHistory, ImportedRecord, Learner
 from app.services.learners import _prepare_learner_row
+from tests.conftest import csv_bytes
 
 
 @pytest.fixture
@@ -136,3 +138,278 @@ def test_learners_api_migrates_existing_imported_records_when_table_is_empty(cli
     assert response.status_code == 200
     assert response.json()["total"] == 1
     assert response.json()["items"][0]["identification"] == "12345"
+
+
+def test_learner_search_matches_name_document_program_group_and_status(client: TestClient):
+    with client.session_factory() as session:
+        session.add_all(
+            [
+                Learner(
+                    identification="2001",
+                    name="Ana Nombre",
+                    program="Programa Redes",
+                    group_code="FICHA-01",
+                    certification_status="Por certificar",
+                ),
+                Learner(
+                    identification="2002",
+                    name="Bruno",
+                    program="Programa Software",
+                    group_code="FICHA-02",
+                    certification_status="Certificado",
+                ),
+            ]
+        )
+        session.commit()
+
+    for term in ("Ana Nombre", "2001", "Programa Redes", "FICHA-01", "Por certificar"):
+        response = client.get("/api/learners", params={"search": term})
+        assert response.status_code == 200
+        assert [item["identification"] for item in response.json()["items"]] == ["2001"]
+
+    response = client.get("/api/learners", params={"status": "Certificado"})
+    assert response.status_code == 200
+    assert [item["identification"] for item in response.json()["items"]] == ["2002"]
+
+
+def test_por_certificar_filter_counts_registered_status_without_changing_requirements(
+    client: TestClient,
+):
+    with client.session_factory() as session:
+        session.add_all(
+            [
+                Learner(
+                    identification="3001",
+                    name="Carla Por Certificar",
+                    certification_status="Por certificar",
+                ),
+                Learner(
+                    identification="3002",
+                    name="Diego Certificado",
+                    certification_status="Certificado",
+                ),
+            ]
+        )
+        session.commit()
+
+    learner_id = client.get("/api/learners", params={"search": "Carla"}).json()["items"][0]["id"]
+    client.post(
+        f"/api/learners/{learner_id}/requirements",
+        json={"requirement_type": "documentation", "status": "Cumplido"},
+    )
+    before = client.get(f"/api/learners/{learner_id}/requirements").json()["items"]
+
+    all_learners = client.get("/api/learners")
+    filtered = client.get("/api/learners", params={"status": "Por Certificar"})
+
+    assert all_learners.json()["por_certificar_total"] == 1
+    assert filtered.json()["total"] == 1
+    assert [item["identification"] for item in filtered.json()["items"]] == ["3001"]
+    assert client.get("/api/learners", params={"status": "Certificado"}).json()["total"] == 1
+    assert client.get(f"/api/learners/{learner_id}/requirements").json()["items"] == before
+
+
+def test_requirements_can_be_created_updated_and_retrieved(client: TestClient):
+    seed_learners(client, count=1)
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+
+    created = client.post(
+        f"/api/learners/{learner_id}/requirements",
+        json={
+            "requirement_type": "documentation",
+            "status": "Pendiente",
+            "observations": "Falta documento de identidad.",
+        },
+    )
+    assert created.status_code == 201
+    requirement_id = created.json()["id"]
+
+    updated = client.patch(
+        f"/api/learners/{learner_id}/requirements/{requirement_id}",
+        json={
+            "requirement_type": "documentation",
+            "status": "Cumplido",
+            "observations": "Validado el 07/10/2026.",
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["status"] == "Cumplido"
+
+    listed = client.get(f"/api/learners/{learner_id}/requirements")
+    assert listed.status_code == 200
+    assert listed.json()["items"][0]["observations"] == "Validado el 07/10/2026."
+
+    detail = client.get(f"/api/learners/{learner_id}")
+    assert detail.status_code == 200
+    assert detail.json()["requirements"][1]["status"] == "Cumplido"
+
+
+def test_learner_detail_exposes_editable_requirement_slots_without_registering_them(client: TestClient):
+    seed_learners(client, count=1)
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+
+    detail = client.get(f"/api/learners/{learner_id}")
+
+    assert detail.status_code == 200
+    assert {item["requirement_type"] for item in detail.json()["requirements"]} == {
+        "learning_outcome",
+        "documentation",
+        "productive_stage",
+        "clearance",
+        "saber_tyt",
+    }
+    assert client.get("/api/learners/with-pending-requirements").json()["items"] == []
+
+
+def test_pending_requirements_only_include_registered_pending_status(client: TestClient):
+    seed_learners(client, count=3)
+    learners = client.get("/api/learners").json()["items"]
+    client.post(
+        f"/api/learners/{learners[0]['id']}/requirements",
+        json={"requirement_type": "documentation", "status": "Pendiente"},
+    )
+    client.post(
+        f"/api/learners/{learners[1]['id']}/requirements",
+        json={"requirement_type": "documentation", "status": "Cumplido"},
+    )
+    client.post(
+        f"/api/learners/{learners[2]['id']}/requirements",
+        json={"requirement_type": "documentation", "status": "No aplica"},
+    )
+
+    response = client.get("/api/learners/with-pending-requirements")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [learners[0]["id"]]
+    assert response.json()["items"][0]["pending_count"] == 1
+
+
+def test_requirements_validate_learner_type_status_and_duplicates(client: TestClient):
+    seed_learners(client, count=1)
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+
+    assert client.post(
+        f"/api/learners/{learner_id}/requirements",
+        json={"requirement_type": "unknown", "status": "Pendiente"},
+    ).status_code == 400
+    assert client.post(
+        f"/api/learners/{learner_id}/requirements",
+        json={"requirement_type": "documentation", "status": "Otro"},
+    ).status_code == 400
+    assert client.post(
+        f"/api/learners/{learner_id}/requirements",
+        json={"requirement_type": "documentation", "status": "Pendiente"},
+    ).status_code == 201
+    assert client.post(
+        f"/api/learners/{learner_id}/requirements",
+        json={"requirement_type": "documentation", "status": "Cumplido"},
+    ).status_code == 400
+    assert client.get("/api/learners/9999/requirements").status_code == 404
+    assert client.patch(
+        f"/api/learners/9999/requirements/1",
+        json={"requirement_type": "documentation", "status": "Cumplido"},
+    ).status_code == 404
+
+
+def test_learner_detail_returns_404_for_unknown_id(client: TestClient):
+    assert client.get("/api/learners/9999").status_code == 404
+
+
+def test_learner_detail_includes_associated_acts_and_empty_history(client: TestClient):
+    seed_learners(client, count=1)
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+    act_id = client.post(
+        "/api/acts",
+        json={"number": "ACT-DET-01", "act_date": "2026-10-09", "act_type": "Certificacion"},
+    ).json()["id"]
+    client.post(
+        f"/api/acts/{act_id}/learners",
+        json={"learner_id": learner_id, "observations": "Incluido en el acta"},
+    )
+
+    detail = client.get(f"/api/learners/{learner_id}")
+
+    assert detail.status_code == 200
+    body = detail.json()
+    assert set(body) >= {"basic_info", "requirements", "acts", "history", "dates"}
+    assert len(body["acts"]) == 1
+    assert body["acts"][0]["number"] == "ACT-DET-01"
+    assert body["acts"][0]["observations"] == "Incluido en el acta"
+    assert body["history"] == []
+
+    client.delete(f"/api/acts/{act_id}/learners/{learner_id}")
+    after = client.get(f"/api/learners/{learner_id}").json()
+    assert after["acts"] == []
+
+
+def test_learner_detail_returns_multiple_associated_acts(client: TestClient):
+    seed_learners(client, count=1)
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+    for number in ("ACT-MULTI-01", "ACT-MULTI-02"):
+        act_id = client.post(
+            "/api/acts",
+            json={"number": number, "act_date": "2026-10-09", "act_type": "Certificacion"},
+        ).json()["id"]
+        client.post(
+            f"/api/acts/{act_id}/learners",
+            json={"learner_id": learner_id, "observations": f"Nota {number}"},
+        )
+
+    body = client.get(f"/api/learners/{learner_id}").json()
+
+    assert {act["number"] for act in body["acts"]} == {"ACT-MULTI-01", "ACT-MULTI-02"}
+    assert {act["observations"] for act in body["acts"]} == {"Nota ACT-MULTI-01", "Nota ACT-MULTI-02"}
+
+
+def test_learner_detail_exposes_dates_and_empty_acts_for_learner_without_associations(client: TestClient):
+    with client.session_factory() as session:
+        session.add(
+            Learner(
+                identification="9100",
+                name="Fecha Aprendiz",
+                program="Programa",
+                group_code="1",
+                start_date=date(2026, 1, 15),
+                termination_date=date(2026, 12, 20),
+            )
+        )
+        session.commit()
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+
+    body = client.get(f"/api/learners/{learner_id}").json()
+
+    assert body["acts"] == []
+    assert body["dates"] == {"start_date": "2026-01-15", "termination_date": "2026-12-20"}
+
+
+def test_learner_detail_history_is_always_empty_even_with_imports(client: TestClient):
+    content = csv_bytes("identificacion,nombre\n1001,Ana\n")
+    response = client.post(
+        "/api/files/validate",
+        data={"information_type": "df14a"},
+        files={"file": ("df14a.csv", content, "text/csv")},
+    )
+    validation_id = response.json()["validation_id"]
+    client.post(f"/api/imports/{validation_id}/confirm")
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+
+    body = client.get(f"/api/learners/{learner_id}").json()
+
+    assert body["history"] == []
+
+
+def test_requirement_patch_rejects_requirement_from_another_learner(client: TestClient):
+    seed_learners(client, count=2)
+    learners = client.get("/api/learners").json()["items"]
+    created = client.post(
+        f"/api/learners/{learners[0]['id']}/requirements",
+        json={"requirement_type": "documentation", "status": "Pendiente"},
+    )
+    requirement_id = created.json()["id"]
+
+    response = client.patch(
+        f"/api/learners/{learners[1]['id']}/requirements/{requirement_id}",
+        json={"requirement_type": "documentation", "status": "Cumplido"},
+    )
+
+    assert response.status_code == 404

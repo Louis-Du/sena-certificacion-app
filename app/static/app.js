@@ -25,13 +25,38 @@ const learnersList = document.querySelector("#learners-list");
 const learnersSummary = document.querySelector("#learners-summary");
 const refreshLearnersButton = document.querySelector("#refresh-learners");
 const learnerSearch = document.querySelector("#learner-search");
+const learnerStatus = document.querySelector("#learner-status");
 const clearLearnerSearch = document.querySelector("#clear-learner-search");
 const learnersPrev = document.querySelector("#learners-prev");
 const learnersNext = document.querySelector("#learners-next");
 const learnersPage = document.querySelector("#learners-page");
+const porCertificarLearnersButton = document.querySelector("#por-certificar-learners-button");
+const pendingLearnersButton = document.querySelector("#pending-learners-button");
+const learnersFrame = document.querySelector(".learners-frame");
+const learnerDetail = document.querySelector("#learner-detail");
+const backToLearners = document.querySelector("#back-to-learners");
+const learnerDetailTitle = document.querySelector("#learner-detail-title");
+const learnerDetailFeedback = document.querySelector("#learner-detail-feedback");
+const learnerDetailContent = document.querySelector("#learner-detail-content");
+const learnerBasicInfo = document.querySelector("#learner-basic-info");
+const learnerRequirements = document.querySelector("#learner-requirements");
 const viewLinks = document.querySelectorAll("[data-view]");
 const views = document.querySelectorAll(".app-view");
 const maxFileSize = 20 * 1024 * 1024;
+const actForm = document.querySelector("#act-form");
+const actList = document.querySelector("#acts-list");
+const actSearch = document.querySelector("#act-search");
+const actStatusFilter = document.querySelector("#act-status-filter");
+const actSummary = document.querySelector("#acts-summary");
+const actFeedback = document.querySelector("#act-form-feedback");
+const actDetail = document.querySelector("#act-detail");
+const actDetailContent = document.querySelector("#act-detail-content");
+const actDetailTitle = document.querySelector("#act-detail-title");
+const actDetailFeedback = document.querySelector("#act-detail-feedback");
+const actBasicInfo = document.querySelector("#act-basic-info");
+const actLearners = document.querySelector("#act-learners");
+const actLearnerForm = document.querySelector("#act-learner-form");
+let currentActId = null;
 
 const extensionsByType = {
   df14a: [".xlsx", ".xls", ".csv"],
@@ -125,6 +150,7 @@ function renderValidation(result) {
 }
 
 async function readResponse(response) {
+  if (response.status === 204) return null;
   const result = await response.json();
   if (!response.ok) throw new Error(result.detail || "No fue posible completar la operacion.");
   return result;
@@ -192,7 +218,11 @@ async function loadHistory() {
     historyList.replaceChildren(...result.items.slice(0, 5).map((item) => {
       const element = document.createElement("div");
       element.className = "history-item";
-      element.innerHTML = `<strong>${item.file_name}</strong><small>${item.information_type} · ${item.records_count} registros · ${new Date(item.imported_at).toLocaleString()}</small>`;
+      const title = document.createElement("strong");
+      title.textContent = item.file_name;
+      const details = document.createElement("small");
+      details.textContent = `${item.information_type} · ${item.records_count} registros · ${new Date(item.imported_at).toLocaleString()}`;
+      element.append(title, details);
       return element;
     }));
   } catch (error) {
@@ -211,60 +241,227 @@ function renderLearnerRow(item) {
       cell.textContent = value;
       row.appendChild(cell);
     });
+  const pendingCell = document.createElement("td");
+  pendingCell.textContent = item.pending_count ?? "—";
+  row.appendChild(pendingCell);
+  const detailCell = document.createElement("td");
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "detail-button";
+  button.textContent = "Ver detalles";
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    loadLearnerDetail(item.id);
+  });
+  detailCell.appendChild(button);
+  row.appendChild(detailCell);
+  row.addEventListener("click", () => loadLearnerDetail(item.id));
   return row;
+}
+
+function renderLearnerEmptyState() {
+  const searchTerm = learnerSearch.value.trim();
+  const selectedStatus = learnerStatus.value;
+  let message = "Aun no hay aprendices cargados. Confirma una importacion DF14A para empezar.";
+  if (searchTerm && selectedStatus) {
+    message = `No se encontro ningun aprendiz que coincida con "${searchTerm}" y tenga el estado "${selectedStatus}".`;
+  } else if (searchTerm) {
+    message = `No se encontro ningun aprendiz que coincida con "${searchTerm}".`;
+  } else if (selectedStatus) {
+    message = `No se encontro ningun aprendiz con el estado "${selectedStatus}".`;
+  }
+  const row = document.createElement("tr");
+  const cell = document.createElement("td");
+  cell.colSpan = 7;
+  cell.textContent = message;
+  row.appendChild(cell);
+  learnersList.replaceChildren(row);
+}
+
+function setLearnerStatus(status) {
+  const matchingOption = [...learnerStatus.options].find(
+    (option) => option.value.toLowerCase() === status.toLowerCase(),
+  );
+  if (matchingOption) {
+    learnerStatus.value = matchingOption.value;
+    return;
+  }
+  learnerStatus.add(new Option(status, status));
+  learnerStatus.value = status;
+}
+
+function renderRequirementEditor(items) {
+  learnerRequirements.replaceChildren();
+  if (!items.length) {
+    learnerRequirements.innerHTML = "<p class=\"empty-detail\">No hay requisitos registrados.</p>";
+    return;
+  }
+  items.forEach((item) => {
+    const form = document.createElement("form");
+    form.className = "requirement-editor";
+    form.innerHTML = `<strong>${item.label || item.requirement_type}</strong>
+      <label>Estado<select name="status">
+        <option>Pendiente</option><option>Cumplido</option><option>No aplica</option>
+      </select></label>
+      <label>Observación<textarea name="observations" rows="2"></textarea></label>
+      <button class="primary-button" type="submit">Guardar</button>
+      <span class="requirement-feedback" role="status"></span>`;
+    form.elements.status.value = item.status || "Pendiente";
+    form.elements.observations.value = item.observations || "";
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const feedback = form.querySelector(".requirement-feedback");
+      feedback.textContent = "Guardando...";
+      try {
+        const response = await fetch(
+          item.id
+            ? `/api/learners/${window.currentLearnerId}/requirements/${item.id}`
+            : `/api/learners/${window.currentLearnerId}/requirements`,
+          {
+          method: item.id ? "PATCH" : "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            requirement_type: item.requirement_type,
+            status: form.elements.status.value,
+            observations: form.elements.observations.value,
+          }),
+          },
+        );
+        const result = await readResponse(response);
+        item.id = result.id;
+        item.status = result.status;
+        item.observations = result.observations;
+        feedback.textContent = "Guardado.";
+      } catch (error) {
+        feedback.textContent = error.message;
+      }
+    });
+    learnerRequirements.appendChild(form);
+  });
+}
+
+async function loadLearnerDetail(learnerId) {
+  learnersFrame.hidden = true;
+  learnerDetail.hidden = false;
+  learnerDetailContent.hidden = true;
+  learnerDetailFeedback.textContent = "Consultando...";
+  try {
+    const result = await readResponse(await fetch(`/api/learners/${learnerId}`));
+    window.currentLearnerId = learnerId;
+    learnerDetailTitle.textContent = result.basic_info.name;
+    learnerBasicInfo.replaceChildren();
+    [["Documento", result.basic_info.identification], ["Programa", result.basic_info.program],
+      ["Ficha", result.basic_info.group_code], ["Estado", result.basic_info.certification_status]]
+      .forEach(([label, value]) => {
+        const term = document.createElement("dt");
+        term.textContent = label;
+        const description = document.createElement("dd");
+        description.textContent = value || "No disponible";
+        learnerBasicInfo.append(term, description);
+      });
+    renderRequirementEditor(result.requirements);
+    learnerDetailFeedback.textContent = "";
+    learnerDetailContent.hidden = false;
+  } catch (error) {
+    learnerDetailFeedback.textContent = error.message;
+  }
 }
 
 async function loadLearners() {
   try {
     const params = new URLSearchParams({
       search: learnerSearch.value.trim(),
+      status: learnerStatus.value,
       page: learnerPageNumber,
       page_size: learnerPageSize,
     });
     const result = await readResponse(await fetch(`/api/learners?${params}`));
+    const selectedStatus = learnerStatus.value;
+    learnerStatus.replaceChildren(new Option("Todos los estados", ""));
+    result.statuses.forEach((status) => learnerStatus.add(new Option(status, status)));
+    if (selectedStatus) setLearnerStatus(selectedStatus);
+    porCertificarLearnersButton.textContent = `Por Certificar (${result.por_certificar_total})`;
+    porCertificarLearnersButton.setAttribute(
+      "aria-pressed",
+      learnerStatus.value.toLowerCase() === "por certificar" ? "true" : "false",
+    );
     learnersSummary.textContent = `${result.total} ${result.total === 1 ? "aprendiz" : "aprendices"} registrados`;
     learnersPage.textContent = `Pagina ${result.page} de ${Math.max(result.pages, 1)}`;
     learnersPrev.disabled = result.page <= 1;
     learnersNext.disabled = result.page >= result.pages;
     if (!result.items.length) {
-      learnersList.innerHTML = `<tr><td colspan="5">${learnerSearch.value ? "No se encontraron aprendices." : "Aun no hay aprendices cargados. Confirma una importacion DF14A para empezar."}</td></tr>`;
+      renderLearnerEmptyState();
       return;
     }
+
     learnersList.replaceChildren(...result.items.map(renderLearnerRow));
   } catch (error) {
     learnersSummary.textContent = "No fue posible consultar SQLite";
     learnersList.textContent = "No fue posible cargar los aprendices.";
   }
 
-  learnerSearch.addEventListener("input", () => {
-    learnerPageNumber = 1;
-    loadLearners();
-  });
-  clearLearnerSearch.addEventListener("click", () => {
-    learnerSearch.value = "";
-    learnerPageNumber = 1;
-    loadLearners();
-  });
-  learnersPrev.addEventListener("click", () => {
-    if (learnerPageNumber > 1) {
-      learnerPageNumber -= 1;
-      loadLearners();
-    }
-  });
-  learnersNext.addEventListener("click", () => {
-    learnerPageNumber += 1;
-    loadLearners();
-  });
 }
 
+async function loadPendingLearners() {
+  try {
+    const result = await readResponse(await fetch("/api/learners/with-pending-requirements"));
+    learnersSummary.textContent = `${result.items.length} aprendices con requisitos pendientes`;
+    learnersList.replaceChildren(...result.items.map((item) => {
+      const row = renderLearnerRow(item);
+      row.cells[5].textContent = item.pending_count;
+      return row;
+    }));
+  } catch (error) {
+    learnersSummary.textContent = error.message;
+  }
+}
+
+backToLearners.addEventListener("click", () => {
+  learnerDetail.hidden = true;
+  learnersFrame.hidden = false;
+});
+learnerSearch.addEventListener("input", () => {
+  learnerPageNumber = 1;
+  loadLearners();
+});
+clearLearnerSearch.addEventListener("click", () => {
+  learnerSearch.value = "";
+  learnerStatus.value = "";
+  learnerPageNumber = 1;
+  loadLearners();
+});
+learnerStatus.addEventListener("change", () => {
+  learnerPageNumber = 1;
+  loadLearners();
+});
+porCertificarLearnersButton.addEventListener("click", () => {
+  setLearnerStatus(
+    learnerStatus.value.toLowerCase() === "por certificar" ? "" : "Por Certificar",
+  );
+  learnerPageNumber = 1;
+  loadLearners();
+});
+pendingLearnersButton.addEventListener("click", loadPendingLearners);
+learnersPrev.addEventListener("click", () => {
+  if (learnerPageNumber > 1) {
+    learnerPageNumber -= 1;
+    loadLearners();
+  }
+});
+learnersNext.addEventListener("click", () => {
+  learnerPageNumber += 1;
+  loadLearners();
+});
+
 function showView(viewName, updateHash = true) {
-  const target = viewName === "aprendices" ? "aprendices" : "carga";
+  const target = ["aprendices", "actas"].includes(viewName) ? viewName : "carga";
   views.forEach((view) => {
     view.hidden = view.id !== `${target}-view`;
   });
   viewLinks.forEach((link) => link.classList.toggle("active", link.dataset.view === target));
-  if (updateHash) history.replaceState(null, "", target === "aprendices" ? "#aprendices" : "#carga");
+  if (updateHash) history.replaceState(null, "", `#${target}`);
   if (target === "aprendices") loadLearners();
+  if (target === "actas") loadActs();
 }
 
 viewLinks.forEach((link) => link.addEventListener("click", (event) => {
@@ -272,6 +469,68 @@ viewLinks.forEach((link) => link.addEventListener("click", (event) => {
   showView(link.dataset.view);
 }));
 refreshLearnersButton.addEventListener("click", loadLearners);
+
+function renderActs(items) {
+  actList.replaceChildren();
+  items.forEach((item) => {
+    const row = document.createElement("tr");
+    [item.number || "Sin número", item.act_date || "Sin fecha", item.act_type || "Sin tipo", item.review_status, item.learners_count].forEach((value) => {
+      const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell);
+    });
+    const cell = document.createElement("td"), button = document.createElement("button");
+    button.className = "detail-button"; button.type = "button"; button.textContent = "Ver detalle";
+    button.addEventListener("click", () => loadActDetail(item.id)); cell.appendChild(button); row.appendChild(cell); actList.appendChild(row);
+  });
+  if (!items.length) actList.innerHTML = '<tr><td colspan="6">No hay actas registradas.</td></tr>';
+}
+async function loadActs() {
+  try {
+    const result = await readResponse(await fetch(`/api/acts?${new URLSearchParams({search: actSearch.value.trim(), ...(actStatusFilter.value ? {review_status: actStatusFilter.value} : {})})}`));
+    actSummary.textContent = `${result.items.length} actas registradas`; renderActs(result.items);
+  } catch (error) { actSummary.textContent = error.message; }
+}
+async function loadActDetail(id) {
+  currentActId = id; actDetail.hidden = false; actDetailContent.hidden = true;
+  document.querySelectorAll("#actas-view > .panel").forEach((panel) => { if (panel.id !== "act-detail") panel.hidden = true; });
+  try {
+    const item = await readResponse(await fetch(`/api/acts/${id}`));
+    actDetailTitle.textContent = item.number || "Acta"; actBasicInfo.replaceChildren();
+    [["Número", item.number], ["Fecha", item.act_date], ["Tipo", item.act_type], ["Estado", item.review_status], ["Archivo", item.original_file], ["Observaciones", item.observations]].forEach(([label, value]) => {
+      const term = document.createElement("dt"), description = document.createElement("dd"); term.textContent = label; description.textContent = value || "No disponible"; actBasicInfo.append(term, description);
+    });
+    renderActLearners(item.learners); actDetailContent.hidden = false; actDetailFeedback.textContent = "";
+  } catch (error) { actDetailFeedback.textContent = error.message; }
+}
+function renderActLearners(items) {
+  actLearners.replaceChildren();
+  if (!items.length) { actLearners.innerHTML = '<p class="empty-detail">Sin aprendices asociados.</p>'; return; }
+  items.forEach((item) => {
+    const entry = document.createElement("div"); entry.className = "detail-list-item"; entry.textContent = `${item.name} · ${item.identification}`;
+    const button = document.createElement("button"); button.className = "cancel-button"; button.type = "button"; button.textContent = "Desasociar";
+    button.addEventListener("click", async () => {
+      let failure = null;
+      try { await readResponse(await fetch(`/api/acts/${currentActId}/learners/${item.id}`, {method: "DELETE"})); }
+      catch (error) { failure = error.message; }
+      await loadActDetail(currentActId);
+      if (failure) actDetailFeedback.textContent = failure;
+    });
+    entry.appendChild(button); actLearners.appendChild(entry);
+  });
+}
+actForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try { const result = await readResponse(await fetch("/api/acts", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(Object.fromEntries(new FormData(actForm)))})); actForm.reset(); actFeedback.textContent = `Acta ${result.number} guardada correctamente.`; loadActs(); }
+  catch (error) { actFeedback.textContent = error.message; }
+});
+actLearnerForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try { const payload = Object.fromEntries(new FormData(actLearnerForm)); payload.learner_id = Number(payload.learner_id); await readResponse(await fetch(`/api/acts/${currentActId}/learners`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)})); actLearnerForm.reset(); loadActDetail(currentActId); }
+  catch (error) { actDetailFeedback.textContent = error.message; }
+});
+document.querySelector("#refresh-acts").addEventListener("click", loadActs);
+actSearch.addEventListener("input", loadActs);
+actStatusFilter.addEventListener("change", loadActs);
+document.querySelector("#back-to-acts").addEventListener("click", () => { document.querySelectorAll("#actas-view > .panel").forEach((panel) => { panel.hidden = false; }); actDetail.hidden = true; });
 
 typeOptions.forEach((option) => option.addEventListener("click", () => setType(option.dataset.type)));
 selectButton.addEventListener("click", (event) => { event.stopPropagation(); fileInput.click(); });
