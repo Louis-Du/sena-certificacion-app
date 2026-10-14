@@ -152,10 +152,10 @@ def test_migration_preserves_data_after_repeated_runs(tmp_path):
 
 
 def test_migration_handles_database_without_target_tables(tmp_path):
+    import pytest
+
     db_path = tmp_path / "empty.db"
     engine = create_engine(f"sqlite:///{db_path}")
 
-    _upgrade_sqlite_schema(engine)
-
-    assert _columns(engine, "import_history") == set()
-    assert _columns(engine, "requirements") == set()
+    with pytest.raises(NoSuchTableError):
+        _upgrade_sqlite_schema(engine)

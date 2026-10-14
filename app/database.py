@@ -5,9 +5,6 @@ from pathlib import Path
 
 # Importamos varias clases y funciones de SQLAlchemy para manejar la base de datos, como crear motores de conexión, inspeccionar esquemas, ejecutar consultas y manejar sesiones.
 from sqlalchemy import Engine, create_engine, inspect, text
-# Importamos la excepción NoSuchTableError de SQLAlchemy para manejar errores cuando una tabla no existe en la base de datos.
-from sqlalchemy.exc import NoSuchTableError
-# Importamos varias clases y funciones de SQLAlchemy para manejar la base de datos, como crear motores de conexión, inspeccionar esquemas, ejecutar consultas y manejar sesiones.
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
@@ -40,10 +37,7 @@ def init_db(bind: Engine | None = None) -> None:
 
 
 def _table_columns(inspector, table_name: str) -> set[str]:
-    try:
-        return {column["name"] for column in inspector.get_columns(table_name)}
-    except NoSuchTableError:
-        return set()
+    return {column["name"] for column in inspector.get_columns(table_name)}
 
 # Esta función privada `_upgrade_sqlite_schema` se encarga de actualizar el esquema de la base de datos SQLite si es necesario. 
 # Verifica si la base de datos es SQLite y luego inspecciona las columnas existentes en las tablas `import_history` y `requirements`. 
