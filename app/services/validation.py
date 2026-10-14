@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
+from typing import Any
+from unicodedata import normalize
 
 import pandas as pd
 
@@ -10,7 +12,10 @@ import pandas as pd
 MAX_FILE_SIZE = 20 * 1024 * 1024
 
 SUPPORTED_TYPES: dict[str, set[str]] = {
-    "df14a": {".xlsx", ".xls", ".csv"},
+    "df14a": {".xlsx", ".xls", ".csv", ".xml"},
+    "certificados": {".xlsx", ".xls", ".csv"},
+    "pendientes": {".xlsx", ".xls", ".csv"},
+    "complementaria": {".xlsx", ".xls", ".csv"},
     "acta": {".pdf", ".docx"},
     "requisitos": {".xlsx", ".xls", ".csv"},
     "otro": {".xlsx", ".xls", ".csv", ".pdf", ".docx"},
@@ -18,9 +23,19 @@ SUPPORTED_TYPES: dict[str, set[str]] = {
 
 TYPE_LABELS = {
     "df14a": "DF14A",
+    "certificados": "Listado de certificados",
+    "pendientes": "Listado de pendientes",
+    "complementaria": "Formación complementaria",
     "acta": "Acta de certificacion",
     "requisitos": "Requisitos / pendientes",
     "otro": "Otro archivo",
+}
+
+REQUIRED_COLUMNS: dict[str, list[str]] = {
+    "df14a": ["FICHA"],
+    "certificados": ["NÚMERO DE DOCUMENTO", "NOMBRE", "FICHA"],
+    "pendientes": ["NÚMERO DE DOCUMENTO", "NOMBRE", "FICHA"],
+    "requisitos": ["DOCUMENTO", "NOMBRES", "REQUISITO", "ESTADO"],
 }
 
 
@@ -34,6 +49,9 @@ class ValidationResult:
     valid_records: int | None = None
     inconsistencies: int = 0
     message: str | None = None
+    detected_columns: list[str] = field(default_factory=list)
+    missing_columns: list[str] = field(default_factory=list)
+    extra_columns: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {
@@ -45,6 +63,9 @@ class ValidationResult:
             "valid_records": self.valid_records,
             "inconsistencies": self.inconsistencies,
             "message": self.message,
+            "detected_columns": self.detected_columns,
+            "missing_columns": self.missing_columns,
+            "extra_columns": self.extra_columns,
         }
 
 
@@ -74,19 +95,22 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
     records_found: int | None = None
     valid_records: int | None = None
     inconsistencies = 0
+    detected_columns: list[str] = []
+    missing_columns: list[str] = []
+    extra_columns: list[str] = []
     try:
+        frame = None
         if extension == ".csv":
-            frame = pd.read_csv(BytesIO(content))
+            frame = _read_csv(content)
             checks.append({"label": "Columnas leidas correctamente", "status": "ok"})
-            records_found, valid_records, inconsistencies, duplicate_rows = _tabular_summary(frame)
-            if duplicate_rows:
-                checks.append({"label": f"{duplicate_rows} registros duplicados detectados", "status": "warning"})
         elif extension in {".xlsx", ".xls"}:
             frame = pd.read_excel(BytesIO(content))
             checks.append({"label": "Columnas leidas correctamente", "status": "ok"})
-            records_found, valid_records, inconsistencies, duplicate_rows = _tabular_summary(frame)
-            if duplicate_rows:
-                checks.append({"label": f"{duplicate_rows} registros duplicados detectados", "status": "warning"})
+        elif extension == ".xml":
+            from app.services.parsers import parse_df14a_xml
+
+            frame = parse_df14a_xml(content)
+            checks.append({"label": "Columnas leidas correctamente", "status": "ok"})
         elif extension == ".pdf":
             import fitz
 
@@ -101,6 +125,31 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
             if not document.paragraphs and not document.tables:
                 raise ValueError("El documento no contiene contenido.")
             checks.append({"label": "Documento Word abierto correctamente", "status": "ok"})
+
+        if frame is not None:
+            detected_columns = [str(c) for c in frame.columns]
+            missing_columns, extra_columns = check_required_columns(
+                information_type, detected_columns
+            )
+            if missing_columns:
+                checks.append(
+                    {
+                        "label": f"Faltan {len(missing_columns)} columna(s) obligatoria(s): {', '.join(missing_columns)}",
+                        "status": "warning",
+                    }
+                )
+            else:
+                checks.append({"label": "Columnas obligatorias presentes", "status": "ok"})
+            if extra_columns:
+                checks.append(
+                    {
+                        "label": f"{len(extra_columns)} columna(s) adicional(es) detectada(s)",
+                        "status": "info",
+                    }
+                )
+            records_found, valid_records, inconsistencies, duplicate_rows = _tabular_summary(frame)
+            if duplicate_rows:
+                checks.append({"label": f"{duplicate_rows} registros duplicados detectados", "status": "warning"})
     except Exception as error:
         return ValidationResult(
             file_name=file_name,
@@ -119,13 +168,57 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
     return ValidationResult(
         file_name=file_name,
         information_type=label,
-        status="warning" if inconsistencies else "ready",
+        status="warning" if (inconsistencies or missing_columns) else "ready",
         checks=checks,
         records_found=records_found,
         valid_records=valid_records,
         inconsistencies=inconsistencies,
+        detected_columns=detected_columns,
+        missing_columns=missing_columns,
+        extra_columns=extra_columns,
         message="La validacion es preliminar y no se han guardado datos.",
     )
+
+
+def _read_csv(content: bytes) -> pd.DataFrame:
+    last_error: Exception | None = None
+    for encoding in ("utf-8", "utf-8-sig", "cp1252", "latin-1"):
+        try:
+            return pd.read_csv(BytesIO(content), encoding=encoding)
+        except UnicodeDecodeError as error:
+            last_error = error
+        except pd.errors.ParserError as error:
+            try:
+                return pd.read_csv(BytesIO(content), encoding=encoding, on_bad_lines="skip")
+            except Exception as inner:
+                last_error = inner
+    if last_error is not None:
+        raise last_error
+    raise ValueError("No se pudo decodificar el archivo CSV.")
+
+
+def normalize_column_name(value: str) -> str:
+    ascii_value = normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    return " ".join(ascii_value.lower().replace("_", " ").replace("-", " ").split())
+
+
+def check_required_columns(
+    information_type: str, columns: list[str]
+) -> tuple[list[str], list[str]]:
+    required = REQUIRED_COLUMNS.get(information_type)
+    if not required:
+        return [], []
+    normalized_columns = {normalize_column_name(str(c)): str(c) for c in columns}
+    missing: list[str] = []
+    for col in required:
+        if normalize_column_name(col) not in normalized_columns:
+            missing.append(col)
+    extra = [
+        original
+        for original in columns
+        if normalize_column_name(str(original)) not in {normalize_column_name(c) for c in required}
+    ]
+    return missing, extra
 
 
 def _tabular_summary(frame: pd.DataFrame) -> tuple[int, int, int, int]:
