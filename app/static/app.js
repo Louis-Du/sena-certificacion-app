@@ -47,6 +47,7 @@ const maxFileSize = 20 * 1024 * 1024;
 const actForm = document.querySelector("#act-form");
 const actList = document.querySelector("#acts-list");
 const actSearch = document.querySelector("#act-search");
+const actStatus = document.querySelector("#act-status");
 const actSummary = document.querySelector("#acts-summary");
 const actFeedback = document.querySelector("#act-form-feedback");
 const actDetail = document.querySelector("#act-detail");
@@ -150,6 +151,7 @@ function renderValidation(result) {
 }
 
 async function readResponse(response) {
+  if (response.status === 204) return null;
   const result = await response.json();
   if (!response.ok) throw new Error(result.detail || "No fue posible completar la operacion.");
   return result;
@@ -498,7 +500,9 @@ function renderActs(items) {
 }
 async function loadActs() {
   try {
-    const result = await readResponse(await fetch(`/api/acts?search=${encodeURIComponent(actSearch.value.trim())}`));
+    const params = new URLSearchParams({ search: actSearch.value.trim() });
+    if (actStatus.value) params.append("review_status", actStatus.value);
+    const result = await readResponse(await fetch(`/api/acts?${params}`));
     actSummary.textContent = `${result.items.length} actas registradas`; renderActs(result.items);
   } catch (error) { actSummary.textContent = error.message; }
 }
@@ -536,6 +540,7 @@ actLearnerForm.addEventListener("submit", async (event) => {
 });
 document.querySelector("#refresh-acts").addEventListener("click", loadActs);
 actSearch.addEventListener("input", loadActs);
+actStatus.addEventListener("change", loadActs);
 document.querySelector("#back-to-acts").addEventListener("click", () => { actDetail.hidden = true; document.querySelectorAll("#actas-view > .panel").forEach((panel) => { panel.hidden = false; }); });
 
 typeOptions.forEach((option) => option.addEventListener("click", () => setType(option.dataset.type)));

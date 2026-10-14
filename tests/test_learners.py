@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,6 +10,7 @@ from app.database import Base, get_db
 from app.main import app
 from app.models import ImportHistory, ImportedRecord, Learner
 from app.services.learners import _prepare_learner_row
+from tests.conftest import csv_bytes
 
 
 @pytest.fixture
@@ -338,6 +340,62 @@ def test_learner_detail_includes_associated_acts_and_empty_history(client: TestC
     client.delete(f"/api/acts/{act_id}/learners/{learner_id}")
     after = client.get(f"/api/learners/{learner_id}").json()
     assert after["acts"] == []
+
+
+def test_learner_detail_returns_multiple_associated_acts(client: TestClient):
+    seed_learners(client, count=1)
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+    for number in ("ACT-MULTI-01", "ACT-MULTI-02"):
+        act_id = client.post(
+            "/api/acts",
+            json={"number": number, "act_date": "2026-10-09", "act_type": "Certificacion"},
+        ).json()["id"]
+        client.post(
+            f"/api/acts/{act_id}/learners",
+            json={"learner_id": learner_id, "observations": f"Nota {number}"},
+        )
+
+    body = client.get(f"/api/learners/{learner_id}").json()
+
+    assert {act["number"] for act in body["acts"]} == {"ACT-MULTI-01", "ACT-MULTI-02"}
+    assert {act["observations"] for act in body["acts"]} == {"Nota ACT-MULTI-01", "Nota ACT-MULTI-02"}
+
+
+def test_learner_detail_exposes_dates_and_empty_acts_for_learner_without_associations(client: TestClient):
+    with client.session_factory() as session:
+        session.add(
+            Learner(
+                identification="9100",
+                name="Fecha Aprendiz",
+                program="Programa",
+                group_code="1",
+                start_date=date(2026, 1, 15),
+                termination_date=date(2026, 12, 20),
+            )
+        )
+        session.commit()
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+
+    body = client.get(f"/api/learners/{learner_id}").json()
+
+    assert body["acts"] == []
+    assert body["dates"] == {"start_date": "2026-01-15", "termination_date": "2026-12-20"}
+
+
+def test_learner_detail_history_is_always_empty_even_with_imports(client: TestClient):
+    content = csv_bytes("identificacion,nombre\n1001,Ana\n")
+    response = client.post(
+        "/api/files/validate",
+        data={"information_type": "df14a"},
+        files={"file": ("df14a.csv", content, "text/csv")},
+    )
+    validation_id = response.json()["validation_id"]
+    client.post(f"/api/imports/{validation_id}/confirm")
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+
+    body = client.get(f"/api/learners/{learner_id}").json()
+
+    assert body["history"] == []
 
 
 def test_requirement_patch_rejects_requirement_from_another_learner(client: TestClient):
