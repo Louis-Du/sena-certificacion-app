@@ -40,14 +40,13 @@ const learnerDetailFeedback = document.querySelector("#learner-detail-feedback")
 const learnerDetailContent = document.querySelector("#learner-detail-content");
 const learnerBasicInfo = document.querySelector("#learner-basic-info");
 const learnerRequirements = document.querySelector("#learner-requirements");
-const learnerActs = document.querySelector("#learner-acts");
 const viewLinks = document.querySelectorAll("[data-view]");
 const views = document.querySelectorAll(".app-view");
 const maxFileSize = 20 * 1024 * 1024;
 const actForm = document.querySelector("#act-form");
 const actList = document.querySelector("#acts-list");
 const actSearch = document.querySelector("#act-search");
-const actStatus = document.querySelector("#act-status");
+const actStatusFilter = document.querySelector("#act-status-filter");
 const actSummary = document.querySelector("#acts-summary");
 const actFeedback = document.querySelector("#act-form-feedback");
 const actDetail = document.querySelector("#act-detail");
@@ -219,7 +218,11 @@ async function loadHistory() {
     historyList.replaceChildren(...result.items.slice(0, 5).map((item) => {
       const element = document.createElement("div");
       element.className = "history-item";
-      element.innerHTML = `<strong>${item.file_name}</strong><small>${item.information_type} · ${item.records_count} registros · ${new Date(item.imported_at).toLocaleString()}</small>`;
+      const title = document.createElement("strong");
+      title.textContent = item.file_name;
+      const details = document.createElement("small");
+      details.textContent = `${item.information_type} · ${item.records_count} registros · ${new Date(item.imported_at).toLocaleString()}`;
+      element.append(title, details);
       return element;
     }));
   } catch (error) {
@@ -285,23 +288,6 @@ function setLearnerStatus(status) {
   }
   learnerStatus.add(new Option(status, status));
   learnerStatus.value = status;
-}
-
-function renderLearnerActs(items) {
-  if (!learnerActs) return;
-  learnerActs.replaceChildren();
-  if (!items.length) {
-    learnerActs.innerHTML = '<p class="empty-detail">Sin actas asociadas.</p>';
-    return;
-  }
-  items.forEach((item) => {
-    const entry = document.createElement("div");
-    entry.className = "detail-list-item";
-    const number = item.number || "Sin número";
-    const actDate = item.act_date || "Sin fecha";
-    entry.textContent = `${number} · ${actDate} · ${item.review_status || "pending"}`;
-    learnerActs.appendChild(entry);
-  });
 }
 
 function renderRequirementEditor(items) {
@@ -374,7 +360,6 @@ async function loadLearnerDetail(learnerId) {
         learnerBasicInfo.append(term, description);
       });
     renderRequirementEditor(result.requirements);
-    renderLearnerActs(result.acts || []);
     learnerDetailFeedback.textContent = "";
     learnerDetailContent.hidden = false;
   } catch (error) {
@@ -500,9 +485,7 @@ function renderActs(items) {
 }
 async function loadActs() {
   try {
-    const params = new URLSearchParams({ search: actSearch.value.trim() });
-    if (actStatus.value) params.append("review_status", actStatus.value);
-    const result = await readResponse(await fetch(`/api/acts?${params}`));
+    const result = await readResponse(await fetch(`/api/acts?${new URLSearchParams({search: actSearch.value.trim(), ...(actStatusFilter.value ? {review_status: actStatusFilter.value} : {})})}`));
     actSummary.textContent = `${result.items.length} actas registradas`; renderActs(result.items);
   } catch (error) { actSummary.textContent = error.message; }
 }
@@ -524,7 +507,13 @@ function renderActLearners(items) {
   items.forEach((item) => {
     const entry = document.createElement("div"); entry.className = "detail-list-item"; entry.textContent = `${item.name} · ${item.identification}`;
     const button = document.createElement("button"); button.className = "cancel-button"; button.type = "button"; button.textContent = "Desasociar";
-    button.addEventListener("click", async () => { await readResponse(await fetch(`/api/acts/${currentActId}/learners/${item.id}`, {method: "DELETE"})); loadActDetail(currentActId); });
+    button.addEventListener("click", async () => {
+      let failure = null;
+      try { await readResponse(await fetch(`/api/acts/${currentActId}/learners/${item.id}`, {method: "DELETE"})); }
+      catch (error) { failure = error.message; }
+      await loadActDetail(currentActId);
+      if (failure) actDetailFeedback.textContent = failure;
+    });
     entry.appendChild(button); actLearners.appendChild(entry);
   });
 }
@@ -540,8 +529,8 @@ actLearnerForm.addEventListener("submit", async (event) => {
 });
 document.querySelector("#refresh-acts").addEventListener("click", loadActs);
 actSearch.addEventListener("input", loadActs);
-actStatus.addEventListener("change", loadActs);
-document.querySelector("#back-to-acts").addEventListener("click", () => { actDetail.hidden = true; document.querySelectorAll("#actas-view > .panel").forEach((panel) => { panel.hidden = false; }); });
+actStatusFilter.addEventListener("change", loadActs);
+document.querySelector("#back-to-acts").addEventListener("click", () => { document.querySelectorAll("#actas-view > .panel").forEach((panel) => { panel.hidden = false; }); actDetail.hidden = true; });
 
 typeOptions.forEach((option) => option.addEventListener("click", () => setType(option.dataset.type)));
 selectButton.addEventListener("click", (event) => { event.stopPropagation(); fileInput.click(); });

@@ -70,18 +70,37 @@ El volumen `app_data` queda reservado para conservar la futura base de datos SQL
 
 ### Ejecucion
 
-Las pruebas se ejecutan con el interprete del entorno virtual:
+Las pruebas se ejecutan con el interprete del entorno virtual. En Windows (PowerShell):
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q
+# 1. Dependencias de la aplicacion y de las pruebas (una sola vez)
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+
+# 2. Navegador para las pruebas E2E (una sola vez)
+.\.venv\Scripts\python.exe -m playwright install chromium
+
+# 3. Unitarias, integracion y regresion (rapidas, sin navegador)
+.\.venv\Scripts\python.exe -m pytest -m "not e2e"
+
+# 4. Solo E2E con Playwright
+.\.venv\Scripts\python.exe -m pytest -m e2e
+
+# 5. Todo
+.\.venv\Scripts\python.exe -m pytest
 ```
 
-Tambien pueden ejecutarse por grupo:
+Tambien pueden ejecutarse por archivo, por ejemplo:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest -q tests/test_learners.py
-.\.venv\Scripts\python.exe -m pytest -q tests/test_import_flow.py
+.\.venv\Scripts\python.exe -m pytest tests/test_learner_detail.py
+.\.venv\Scripts\python.exe -m pytest tests/e2e/test_e2e_acts.py
+.\.venv\Scripts\python.exe -m pytest tests/e2e --headed   # ver el navegador
 ```
+
+Aislamiento: `tests/conftest.py` fija `DATABASE_URL=sqlite:///:memory:` antes de importar
+la app, las pruebas usan bases SQLite temporales y cada prueba E2E arranca su propio
+servidor `uvicorn` en un puerto libre con una base temporal. Nunca se usa
+`data/sena_certificacion.db`. Si `playwright` no esta instalado, los archivos E2E se omiten.
 
 ## Preparar demo portable para Windows
 
@@ -147,18 +166,26 @@ Archivo: [`tests/test_import_flow.py`](./tests/test_import_flow.py)
 
 ### Resultado de la suite
 
-Última ejecución:
+Ultima ejecucion (entorno virtual limpio, Chromium headless):
 
 ```text
-22 passed, 1 warning
+134 passed, 1 warning in 80s     (93 sin E2E en ~4 s + 41 E2E)
 ```
 
-El resultado esperado era que todos los casos terminaran correctamente sin fallos.
-El resultado obtenido fue **22 pruebas superadas**.
+La unica advertencia corresponde a la compatibilidad futura entre `Starlette
+TestClient` y `httpx` (el aviso sugiere `httpx2`); no afecta el resultado funcional.
 
-La única advertencia corresponde a la compatibilidad futura entre `Starlette
-TestClient` y la versión instalada de `httpx`; no afecta el resultado funcional de
-las pruebas.
+Comportamientos que NO estan definidos funcionalmente y por eso solo se documentan:
+
+- `history` del detalle del aprendiz permanece vacio: `ImportHistory`/`ImportedRecord` no
+  tienen relacion con `Learner`.
+- Importar un archivo de tipo "Acta de certificacion" solo registra la importacion; no crea
+  un `Act` (las actas se registran manualmente en la pestaña Actas).
+- Al reimportar un aprendiz con datos modificados, el resumen cuenta el registro como
+  "nuevo" (la llave es un hash del contenido); el aprendiz si se actualiza sin duplicarse.
+- La interfaz de actas no tiene controles para editar ni eliminar actas (solo la API).
+- `_upgrade_sqlite_schema` solo agrega `import_history.error_count`, `import_history.user_name`
+  y `requirements.requirement_type`; otros cambios de esquema en bases antiguas no se migran.
 
 ### Verificación manual de interfaz
 

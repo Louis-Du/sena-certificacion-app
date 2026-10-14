@@ -1,74 +1,132 @@
+"""Infraestructura E2E: servidor FastAPI real + base SQLite temporal por prueba.
+
+Cada prueba arranca su propio `uvicorn` en un puerto libre con DATABASE_URL apuntando a
+un archivo dentro de `tmp_path`, de modo que nunca se toca data/sena_certificacion.db.
+Los datos son ficticios.
+"""
+from __future__ import annotations
+
 import os
 import socket
+import sqlite3
 import subprocess
 import sys
 import time
-from collections.abc import Generator
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
-from tests.conftest import csv_bytes, pdf_bytes, xlsx_bytes
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DF14A_HEADER = "DOCUMENTO,NOMBRES,FICHA,PROGRAMA,ESTADO_ASPIRANTE\n"
+
+
+@dataclass
+class LiveServer:
+    url: str
+    db_path: Path
+
+    def count(self, table: str) -> int:
+        connection = sqlite3.connect(self.db_path)
+        try:
+            return connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        finally:
+            connection.close()
 
 
 def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+    with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
 
 
 @pytest.fixture
-def e2e_server(tmp_path) -> Generator[dict, None, None]:
-    db_path = tmp_path / "e2e.db"
+def live_server(tmp_path) -> LiveServer:
     port = _free_port()
-    env = os.environ.copy()
-    env["DATABASE_URL"] = f"sqlite:///{db_path.as_posix()}"
-    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
-
+    db_path = tmp_path / "e2e.db"
+    env = {**os.environ, "DATABASE_URL": f"sqlite:///{db_path.as_posix()}"}
     process = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "app.main:app",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(port),
-            "--log-level",
-            "error",
-        ],
+        [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1",
+         "--port", str(port), "--log-level", "warning"],
+        cwd=REPO_ROOT,
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
     )
-
-    base_url = f"http://127.0.0.1:{port}"
-    deadline = time.time() + 30
-    ready = False
-    while time.time() < deadline:
+    url = f"http://127.0.0.1:{port}"
+    deadline = time.monotonic() + 30
+    while True:
+        if process.poll() is not None:
+            raise RuntimeError("El servidor E2E terminó antes de estar listo.")
         try:
-            with socket.create_connection(("127.0.0.1", port), timeout=1):
-                ready = True
+            with urllib.request.urlopen(f"{url}/api/information-types", timeout=1):
                 break
-        except OSError:
-            time.sleep(0.5)
-
-    if not ready:
-        process.terminate()
-        process.wait(timeout=5)
-        raise RuntimeError("No se pudo iniciar el servidor de pruebas E2E.")
-
-    yield {"base_url": base_url, "db_path": db_path}
-
+        except (urllib.error.URLError, ConnectionError, OSError):
+            if time.monotonic() > deadline:
+                process.terminate()
+                raise RuntimeError("El servidor E2E no respondió a tiempo.")
+            time.sleep(0.1)
+    yield LiveServer(url=url, db_path=db_path)
     process.terminate()
     try:
-        process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:  # pragma: no cover
         process.kill()
-        process.wait()
 
 
 @pytest.fixture
-def app_url(e2e_server) -> str:
-    return e2e_server["base_url"]
+def app_url(live_server: LiveServer) -> str:
+    return live_server.url
+
+
+@pytest.fixture
+def make_file(tmp_path):
+    def factory(name: str, content: bytes | str) -> Path:
+        path = tmp_path / name
+        path.write_bytes(content.encode("utf-8") if isinstance(content, str) else content)
+        return path
+
+    return factory
+
+
+def df14a_csv(count: int, status_cycle=("Por Certificar", "En Formacion", "Certificado")) -> str:
+    rows = [
+        f"{1000 + i},Aprendiz {i:02d},300{i % 3},Programa {'A' if i % 2 == 0 else 'B'},"
+        f"{status_cycle[i % len(status_cycle)]}\n"
+        for i in range(count)
+    ]
+    return DF14A_HEADER + "".join(rows)
+
+
+@pytest.fixture
+def seed_df14a(live_server, page):
+    """Importa un DF14A ficticio por la API (validar + confirmar) y devuelve el JSON final."""
+
+    def seed(count: int = 5, **kwargs) -> dict:
+        content = df14a_csv(count, **kwargs).encode("utf-8")
+        validated = page.request.post(
+            f"{live_server.url}/api/files/validate",
+            multipart={
+                "information_type": "df14a",
+                "file": {"name": "seed_df14a.csv", "mimeType": "text/csv", "buffer": content},
+            },
+        )
+        assert validated.ok
+        confirmed = page.request.post(f"{live_server.url}/api/imports/{validated.json()['validation_id']}/confirm")
+        assert confirmed.ok
+        return confirmed.json()
+
+    return seed
+
+
+@pytest.fixture
+def seed_act(live_server, page):
+    def seed(number: str, act_date: str = "2026-10-01", **extra) -> dict:
+        response = page.request.post(
+            f"{live_server.url}/api/acts",
+            data={"number": number, "act_date": act_date, **extra},
+        )
+        assert response.status == 201
+        return response.json()
+
+    return seed
