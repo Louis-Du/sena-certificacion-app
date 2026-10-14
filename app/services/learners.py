@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import ImportedRecord, Learner
+from app.models import Act, ActLearner, ImportedRecord, Learner
 from app.services.requirements import editor_requirements
 
 POR_CERTIFICAR_STATUS = "Por Certificar"
@@ -93,7 +93,9 @@ def get_learner_detail(session: Session, learner_id: int) -> dict[str, Any] | No
     return {
         "basic_info": learner_result(learner),
         "requirements": requirements or [],
-        "acts": [],
+        "acts": learner_acts(session, learner_id),
+        # Pendiente de definición funcional: ImportHistory/ImportedRecord no tienen
+        # relación con Learner, así que no se atribuyen importaciones al aprendiz.
         "history": [],
         "dates": {
             "start_date": learner.start_date.isoformat() if learner.start_date else None,
@@ -102,6 +104,27 @@ def get_learner_detail(session: Session, learner_id: int) -> dict[str, Any] | No
             else None,
         },
     }
+
+
+def learner_acts(session: Session, learner_id: int) -> list[dict[str, Any]]:
+    """Actas con las que el aprendiz está realmente asociado (tabla act_learners)."""
+    rows = session.execute(
+        select(Act, ActLearner.observations)
+        .join(ActLearner, ActLearner.act_id == Act.id)
+        .where(ActLearner.learner_id == learner_id)
+        .order_by(Act.act_date.desc(), Act.id.desc())
+    ).all()
+    return [
+        {
+            "id": act.id,
+            "number": act.number,
+            "act_date": act.act_date.isoformat() if act.act_date else None,
+            "act_type": act.act_type,
+            "review_status": act.review_status,
+            "observations": observations,
+        }
+        for act, observations in rows
+    ]
 
 
 def sync_learners_from_imports(session: Session) -> int:

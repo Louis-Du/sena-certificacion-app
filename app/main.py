@@ -1,12 +1,21 @@
-from pathlib import Path
+# Importamos la clase Path del módulo pathlib para trabajar con rutas de archivos y directorios de manera más conveniente.
+from pathlib import Path 
+# Importamos el decorador asynccontextmanager del módulo contextlib para crear un contexto asíncrono que se puede usar con la declaración with.
+from contextlib import asynccontextmanager 
 from datetime import date
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
+# Importamos varias clases y funciones de FastAPI para crear la aplicación web, manejar dependencias, recibir archivos y formularios, y manejar excepciones HTTP.
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile 
+# Importamos la clase FileResponse de fastapi.responses para enviar archivos como respuesta HTTP.
 from fastapi.responses import FileResponse
+# Importamos la clase StaticFiles de fastapi.staticfiles para servir archivos estáticos desde un directorio específico.
 from fastapi.staticfiles import StaticFiles
+# Importamos la clase BaseModel de pydantic para definir modelos de datos que se validan automáticamente.
 from pydantic import BaseModel
+# Importamos la clase Session de sqlalchemy.orm para manejar sesiones de base de datos.
 from sqlalchemy.orm import Session
 
+# Importamos varias funciones y clases de nuestro propio módulo app para manejar la base de datos, modelos, servicios y validaciones.
 from app.database import get_db, init_db
 from app.models import Act
 from app.services.imports import (
@@ -40,9 +49,15 @@ from app.services.validation import TYPE_LABELS
 
 BASE_DIR = Path(__file__).resolve().parent
 
-app = FastAPI(title="Sena Certificacion App", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="Sena Certificacion App", version="0.1.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
-init_db()
 
 
 class RequirementRequest(BaseModel):
