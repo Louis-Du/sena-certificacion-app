@@ -8,12 +8,16 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import ImportedRecord, Learner
+from app.models import Act, ActLearner, ImportedRecord, Learner
+from app.services.requirements import editor_requirements
+
+POR_CERTIFICAR_STATUS = "Por Certificar"
 
 
 def list_learners(
     session: Session,
     search: str = "",
+    status: str = "",
     page: int = 1,
     page_size: int = 25,
 ) -> dict[str, Any]:
@@ -30,23 +34,42 @@ def list_learners(
                 Learner.identification.ilike(term),
                 Learner.group_code.ilike(term),
                 Learner.program.ilike(term),
+                Learner.certification_status.ilike(term),
             )
         )
+    if status.strip():
+        filters.append(Learner.certification_status.ilike(status.strip()))
     query = select(Learner).order_by(Learner.name.asc(), Learner.id.asc())
     count_query = select(func.count()).select_from(Learner)
     if filters:
         query = query.where(*filters)
         count_query = count_query.where(*filters)
     total = session.scalar(count_query) or 0
+    por_certificar_total = session.scalar(
+        select(func.count())
+        .select_from(Learner)
+        .where(func.lower(Learner.certification_status) == POR_CERTIFICAR_STATUS.lower())
+    ) or 0
     learners = session.scalars(
         query.offset((page - 1) * page_size).limit(page_size)
     ).all()
     return {
         "items": [learner_result(learner) for learner in learners],
+        "statuses": [
+            value
+            for value in session.scalars(
+                select(Learner.certification_status)
+                .where(Learner.certification_status.is_not(None))
+                .distinct()
+                .order_by(Learner.certification_status.asc())
+            ).all()
+            if value
+        ],
         "total": total,
         "page": page,
         "page_size": page_size,
         "pages": (total + page_size - 1) // page_size,
+        "por_certificar_total": por_certificar_total,
     }
 
 
@@ -60,6 +83,48 @@ def learner_result(learner: Learner) -> dict[str, Any]:
         "training_type": learner.training_type,
         "certification_status": learner.certification_status,
     }
+
+
+def get_learner_detail(session: Session, learner_id: int) -> dict[str, Any] | None:
+    learner = session.get(Learner, learner_id)
+    if learner is None:
+        return None
+    requirements = editor_requirements(session, learner_id)
+    return {
+        "basic_info": learner_result(learner),
+        "requirements": requirements or [],
+        "acts": learner_acts(session, learner_id),
+        # Pendiente de definición funcional: ImportHistory/ImportedRecord no tienen
+        # relación con Learner, así que no se atribuyen importaciones al aprendiz.
+        "history": [],
+        "dates": {
+            "start_date": learner.start_date.isoformat() if learner.start_date else None,
+            "termination_date": learner.termination_date.isoformat()
+            if learner.termination_date
+            else None,
+        },
+    }
+
+
+def learner_acts(session: Session, learner_id: int) -> list[dict[str, Any]]:
+    """Actas con las que el aprendiz está realmente asociado (tabla act_learners)."""
+    rows = session.execute(
+        select(Act, ActLearner.observations)
+        .join(ActLearner, ActLearner.act_id == Act.id)
+        .where(ActLearner.learner_id == learner_id)
+        .order_by(Act.act_date.desc(), Act.id.desc())
+    ).all()
+    return [
+        {
+            "id": act.id,
+            "number": act.number,
+            "act_date": act.act_date.isoformat() if act.act_date else None,
+            "act_type": act.act_type,
+            "review_status": act.review_status,
+            "observations": observations,
+        }
+        for act, observations in rows
+    ]
 
 
 def sync_learners_from_imports(session: Session) -> int:

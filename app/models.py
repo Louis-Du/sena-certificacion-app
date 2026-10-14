@@ -69,6 +69,7 @@ class Requirement(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     learner_id: Mapped[int] = mapped_column(ForeignKey("learners.id"), index=True)
+    requirement_type: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     learning_outcome: Mapped[str | None] = mapped_column(String(200), nullable=True)
     documentation_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     productive_stage_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
