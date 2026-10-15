@@ -104,7 +104,7 @@ def test_indicadores_period_filter_and_real_act_associations(client: TestClient)
         # Acta en período: 2026-05-10
         act_valida = Act(
             number="ACTA-2026-VAL",
-            act_date="2026-05-10",
+            act_date=date(2026, 5, 10),
             act_type="Ordinaria",
             original_file="acta_mayo.docx",
             review_status="reviewed",
@@ -112,7 +112,7 @@ def test_indicadores_period_filter_and_real_act_associations(client: TestClient)
         # Acta fuera de período: 2026-10-15
         act_fuera = Act(
             number="ACTA-2026-OUT",
-            act_date="2026-10-15",
+            act_date=date(2026, 10, 15),
             act_type="Ordinaria",
             original_file="acta_octubre.docx",
             review_status="reviewed",
@@ -156,8 +156,8 @@ def test_indicadores_deduplication_of_certified_learners(client: TestClient):
         session.add(l)
         session.commit()
 
-        act1 = Act(number="ACTA-01", act_date="2026-02-15", original_file="f1.docx", review_status="reviewed")
-        act2 = Act(number="ACTA-02", act_date="2026-03-20", original_file="f2.docx", review_status="reviewed")
+        act1 = Act(number="ACTA-01", act_date=date(2026, 2, 15), original_file="f1.docx", review_status="reviewed")
+        act2 = Act(number="ACTA-02", act_date=date(2026, 3, 20), original_file="f2.docx", review_status="reviewed")
         session.add_all([act1, act2])
         session.commit()
 
@@ -170,3 +170,59 @@ def test_indicadores_deduplication_of_certified_learners(client: TestClient):
     sup = next(m for m in res["metricas"] if m["category"] == "superior")
     # Base superior es 890, con este aprendiz único debe ser exactamente 891 (no 892)
     assert sup["certificados"] == 891
+
+
+def test_indicadores_termination_date_not_used_as_certification(session_factory):
+    """
+    Verifica la regla de precedencia y fechas:
+    La fecha de terminación del programa NO es fecha de certificación.
+    Un aprendiz con termination_date en 2026 pero sin acta en período no debe sumarse como certificado.
+    """
+    with session_factory() as session:
+        l = Learner(
+            identification="999888111",
+            name="Learner Terminado Sin Acta",
+            program="Cocina",
+            training_type="Técnico",
+            certification_status="Certificado",
+            termination_date=date(2026, 4, 15),
+        )
+        session.add(l)
+        session.commit()
+
+        data = compute_indicadores_2026(session)
+        tec = next(m for m in data["metricas"] if m["category"] == "tecnica")
+        # Base tecnica es 1480; no debe ser 1481 porque carece de acta verificable en período
+        assert tec["certificados"] == 1480
+
+
+def test_indicadores_single_category_classification_and_formulas(session_factory):
+    """
+    Verifica que cada aprendiz pertenezca a exactamente una categoría en el cálculo global,
+    y que los numeradores y denominadores de avance y efectividad se documenten.
+    """
+    with session_factory() as session:
+        data = compute_indicadores_2026(session)
+
+        # Sum of categories equals totals
+        sum_cert = sum(m["certificados"] for m in data["metricas"])
+        assert sum_cert == data["total_certificados"]
+
+        sum_pend = sum(m["pendientes"] for m in data["metricas"])
+        assert sum_pend == data["total_pendientes"]
+
+        sum_meta = sum(m["meta"] for m in data["metricas"])
+        assert sum_meta == data["total_meta"]
+
+        # Check formula metadata present
+        assert "formula_avance_global" in data
+        assert "formula_efectividad_global" in data
+        assert data["formula_avance_global"]["numerador"] == data["total_certificados"]
+        assert data["formula_avance_global"]["denominador"] == data["total_meta"]
+
+        for m in data["metricas"]:
+            assert m["formula_avance"]["numerador"] == m["certificados"]
+            assert m["formula_avance"]["denominador"] == m["meta"]
+            assert m["formula_efectividad"]["numerador"] == m["certificados"]
+            assert m["formula_efectividad"]["denominador"] == m["certificados"] + m["pendientes"]
+

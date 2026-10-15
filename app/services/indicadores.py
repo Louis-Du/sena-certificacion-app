@@ -150,15 +150,15 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
 
         is_certified = False
         if l.id in act_learner_ids:
+            # Vinculado a acta aprobada/registrada en el período oficial
             is_certified = True
         elif l.certification_status and l.certification_status.lower() == "certificado":
-            # Si no tiene acta, verificar fecha de terminación en el período
-            if l.termination_date:
-                t_date = str(l.termination_date)
-                if fecha_inicio <= t_date <= fecha_fin:
-                    is_certified = True
-            else:
-                is_certified = True
+            # REGLA INSTITUCIONAL AUDITADA:
+            # La fecha de terminación NO equivale a la fecha de certificación salvo que
+            # el aprendiz tenga acta verificable o registro formal en el período.
+            # Si tiene acta registrada, se rige por la fecha del acta. Si no tiene acta,
+            # no puede asumirse certificación formal sin acta de comité.
+            pass
 
         if is_certified:
             cats_cert[cat].add(norm_id)
@@ -187,11 +187,25 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
         cert_count = base_certificados[cat] + len(cats_cert[cat])
         pend_count = base_pendientes[cat] + len(cats_pend[cat])
 
-        # Fórmulas oficiales
-        avance = round((cert_count / meta) * 100, 1) if meta > 0 else 0.0
-        brecha = max(0, meta - cert_count)
+        # Fórmulas oficiales auditadas:
+        # Avance = (Certificados / Meta) * 100
+        # Brecha = max(0, Meta - Certificados)
+        # Efectividad = (Certificados / (Certificados + Pendientes)) * 100
         candidatos = cert_count + pend_count
-        efectividad = round((cert_count / candidatos) * 100, 1) if candidatos > 0 else 100.0
+        warning = None
+        if meta <= 0:
+            avance = 0.0
+            warning = "Meta no definida o menor o igual a cero"
+        else:
+            avance = round((cert_count / meta) * 100, 1)
+
+        brecha = max(0, meta - cert_count)
+
+        if candidatos <= 0:
+            efectividad = None  # No inventar resultado si no hay candidatos
+            warning = warning or "Sin aprendices evaluados (certificados + pendientes = 0)"
+        else:
+            efectividad = round((cert_count / candidatos) * 100, 1)
 
         total_meta += meta
         total_cert += cert_count
@@ -206,12 +220,23 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
             "avance": avance,
             "brecha": brecha,
             "efectividad": efectividad,
+            "formula_avance": {
+                "numerador": cert_count,
+                "denominador": meta,
+                "formula": "certificados_unicos / meta_anual * 100",
+            },
+            "formula_efectividad": {
+                "numerador": cert_count,
+                "denominador": candidatos,
+                "formula": "certificados_unicos / (certificados_unicos + pendientes_unicos) * 100",
+            },
+            "warning": warning,
         })
 
     # Indicadores globales acumulados
     avance_global = round((total_cert / total_meta) * 100, 1) if total_meta > 0 else 0.0
     cand_global = total_cert + total_pend
-    efectividad_global = round((total_cert / cand_global) * 100, 1) if cand_global > 0 else 100.0
+    efectividad_global = round((total_cert / cand_global) * 100, 1) if cand_global > 0 else None
 
     # 5. Distribución de causas de no certificación (Incidencias vs Aprendices Únicos)
     # Base auditada del censo de causas: 639 incidencias de causas en total
@@ -280,6 +305,10 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
     extra_multiple_causes = sum(1 for cnt in learner_req_pending_counts.values() if cnt > 1)
     aprendices_con_causas_multiples = base_diferencia_causas_multiples + extra_multiple_causes
 
+    global_warning = None
+    if cand_global <= 0:
+        global_warning = "Sin aprendices evaluados en el período"
+
     return {
         "periodo": "Enero - Septiembre 2026",
         "fecha_corte": "2026-09-30",
@@ -290,6 +319,17 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
         "aprendices_con_causas_multiples": aprendices_con_causas_multiples,
         "avance_global": avance_global,
         "efectividad_global": efectividad_global,
+        "formula_avance_global": {
+            "numerador": total_cert,
+            "denominador": total_meta,
+            "formula": "total_certificados_unicos / total_meta_anual * 100",
+        },
+        "formula_efectividad_global": {
+            "numerador": total_cert,
+            "denominador": cand_global,
+            "formula": "total_certificados_unicos / (total_certificados_unicos + total_pendientes_unicos) * 100",
+        },
+        "warning": global_warning,
         "metricas": metricas,
         "motivos": motivos,
         "ultimas_actas": ultimas_actas,
