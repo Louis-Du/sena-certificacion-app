@@ -1,0 +1,8 @@
+{
+  "name": "Sena Certificación App",
+  "description": "Aplicación local para la gestión administrativa del proceso de certificación de aprendices del SENA Centro de Comercio y Servicios Regional Bolívar.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
