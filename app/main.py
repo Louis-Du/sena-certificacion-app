@@ -311,3 +311,9 @@ async def unlink_act_learner(
         unlink_learner_from_act(session, act_id, learner_id)
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.get("/api/indicadores")
+async def indicadores_endpoint(session: Session = Depends(get_db)) -> dict:
+    from app.services.indicadores import compute_indicadores_2026
+    return compute_indicadores_2026(session)

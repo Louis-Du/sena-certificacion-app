@@ -43,7 +43,7 @@ def get_staged(validation_id: str) -> StagedImport | None:
 
 
 def import_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
-    records = parse_records(staged.file_name, staged.content)
+    records = parse_records(staged.file_name, staged.content, staged.information_type)
     keys = [record_key(staged.information_type, record) for record in records]
     existing = _existing_keys(session, staged.information_type, keys)
     warnings = [check["label"] for check in staged.result.checks if check["status"] == "warning"]
@@ -56,6 +56,8 @@ def import_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
         "updated_records": sum(key in existing for key in keys),
         "warnings": warnings,
         "status": staged.result.status,
+        "detected_columns": staged.result.detected_columns,
+        "missing_columns": staged.result.missing_columns,
     }
 
 
@@ -66,7 +68,7 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
     if staged.result.status == "error":
         raise ValueError("El archivo tiene errores que impiden la importacion.")
 
-    records = parse_records(staged.file_name, staged.content)
+    records = parse_records(staged.file_name, staged.content, staged.information_type)
     keys = [record_key(staged.information_type, record) for record in records]
     existing = _existing_records(session, staged.information_type, keys)
     history = ImportHistory(
@@ -100,7 +102,7 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
             current.row_number = row_number
             current.payload = payload
 
-    if staged.information_type == "df14a":
+    if staged.information_type in {"df14a", "certificados", "pendientes"}:
         upsert_learners_from_records(session, records)
 
     session.commit()
@@ -132,16 +134,46 @@ def list_imports(session: Session) -> list[dict[str, Any]]:
     return [import_result(history) for history in histories]
 
 
-def parse_records(file_name: str, content: bytes) -> list[dict[str, Any]]:
+def parse_records(file_name: str, content: bytes, information_type: str = "otro") -> list[dict[str, Any]]:
+    from app.services import parsers
+
     extension = Path(file_name).suffix.lower()
+    if information_type == "df14a" and extension == ".xml":
+        frame = parsers.parse_df14a_xml(content)
+        return parsers.frame_to_records(frame)
+    if information_type == "certificados":
+        if extension in {".xlsx", ".xls"}:
+            return parsers.frame_to_records(parsers.read_actas_certificados(content))
+        return _parse_generic_tabular(extension, content)
+    if information_type == "pendientes":
+        if extension in {".xlsx", ".xls"}:
+            return parsers.frame_to_records(parsers.read_actas_pendientes(content))
+        return _parse_generic_tabular(extension, content)
+    if information_type == "complementaria":
+        if extension in {".xlsx", ".xls"}:
+            return parsers.frame_to_records(parsers.read_complementaria(content))
+        return _parse_generic_tabular(extension, content)
+    if information_type == "requisitos":
+        if extension in {".xlsx", ".xls", ".csv"}:
+            return _parse_generic_tabular(extension, content)
+        return []
+    if information_type == "acta" and extension == ".docx":
+        result = parsers.parse_acta_docx(content)
+        return result.get("records", [])
+    if extension in {".pdf", ".docx"}:
+        return [{"file_name": file_name, "format": extension[1:]}]
+    return _parse_generic_tabular(extension, content)
+
+
+def _parse_generic_tabular(extension: str, content: bytes) -> list[dict[str, Any]]:
     if extension == ".csv":
-        frame = pd.read_csv(BytesIO(content))
+        from app.services.validation import _read_csv
+
+        frame = _read_csv(content)
         return _frame_records(frame)
     if extension in {".xlsx", ".xls"}:
         frame = pd.read_excel(BytesIO(content))
         return _frame_records(frame)
-    if extension in {".pdf", ".docx"}:
-        return [{"file_name": file_name, "format": extension[1:]}]
     return []
 
 
