@@ -454,7 +454,7 @@ learnersNext.addEventListener("click", () => {
 });
 
 function showView(viewName, updateHash = true) {
-  const target = ["aprendices", "actas"].includes(viewName) ? viewName : "carga";
+  const target = ["aprendices", "actas", "indicadores"].includes(viewName) ? viewName : "carga";
   views.forEach((view) => {
     view.hidden = view.id !== `${target}-view`;
   });
@@ -462,6 +462,81 @@ function showView(viewName, updateHash = true) {
   if (updateHash) history.replaceState(null, "", `#${target}`);
   if (target === "aprendices") loadLearners();
   if (target === "actas") loadActs();
+  if (target === "indicadores") loadIndicadores();
+}
+
+async function loadIndicadores() {
+  const kpis = document.querySelector("#indicadores-kpis");
+  const table = document.querySelector("#indicadores-table");
+  const causasTable = document.querySelector("#indicadores-causas-table");
+  const causasSummary = document.querySelector("#indicadores-causas-summary");
+  const causasNote = document.querySelector("#indicadores-causas-note");
+  const actasTable = document.querySelector("#indicadores-actas-table");
+  const actasSummary = document.querySelector("#indicadores-actas-summary");
+  if (!kpis || !table) return;
+
+  try {
+    const data = await readResponse(await fetch("/api/indicadores"));
+    kpis.innerHTML = `
+      <div class="panel"><div><small>META ANUAL</small><h2>${data.total_meta.toLocaleString("es-CO")}</h2><small>Aprendices proyectados</small></div></div>
+      <div class="panel" style="border-left:4px solid var(--green)"><div><small style="color:var(--green-dark)">CERTIFICADOS (ENE-SEP)</small><h2 style="color:var(--green-dark)">${data.total_certificados.toLocaleString("es-CO")}</h2><small>Aprendices únicos</small></div></div>
+      <div class="panel" style="border-left:4px solid #b87d00"><div><small style="color:#b87d00">PENDIENTES</small><h2 style="color:#b87d00">${data.total_pendientes.toLocaleString("es-CO")}</h2><small>Aprendices únicos</small></div></div>
+      <div class="panel" style="background:var(--green-soft)"><div><small style="color:var(--green-dark)">% AVANCE</small><h2 style="color:var(--green-dark)">${data.avance_global}%</h2><small>Acumulado</small></div></div>
+      <div class="panel"><div><small>EFECTIVIDAD</small><h2>${data.efectividad_global}%</h2><small>Tasa de cierre</small></div></div>
+    `;
+    table.innerHTML = data.metricas.map(m => `
+      <tr>
+        <td><strong>${m.category_label}</strong></td>
+        <td>${m.meta.toLocaleString("es-CO")}</td>
+        <td style="color:var(--green-dark);font-weight:700">${m.certificados.toLocaleString("es-CO")}</td>
+        <td style="color:#b87d00">${m.pendientes.toLocaleString("es-CO")}</td>
+        <td><strong>${m.avance}%</strong></td>
+        <td>${m.brecha > 0 ? m.brecha.toLocaleString("es-CO") : "Cumplida"}</td>
+        <td><span class="result-badge ready">${m.efectividad}%</span></td>
+      </tr>
+    `).join("");
+
+    if (causasTable && data.motivos) {
+      if (causasSummary) {
+        causasSummary.textContent = `${data.total_incidencias_causas} incidencias de requisitos (${data.total_pendientes} aprendices únicos)`;
+      }
+      causasTable.innerHTML = data.motivos.map(mot => `
+        <tr>
+          <td>${mot.motivo}</td>
+          <td><strong>${mot.cantidad.toLocaleString("es-CO")}</strong></td>
+          <td><span class="result-badge pending">${mot.porcentaje}%</span></td>
+        </tr>
+      `).join("");
+      if (causasNote) {
+        causasNote.innerHTML = `◈ <strong>Auditoría de consistencia:</strong> Se registran <strong>${data.total_pendientes}</strong> aprendices únicos pendientes y <strong>${data.total_incidencias_causas}</strong> incidencias totales de causas. La diferencia de <strong>${data.total_incidencias_causas - data.total_pendientes}</strong> corresponde a causas múltiples por aprendiz (concurrencia de requisitos simultáneos no superados).`;
+      }
+    }
+
+    if (actasTable && data.ultimas_actas) {
+      if (actasSummary) {
+        actasSummary.textContent = `${data.ultimas_actas.length} actas en el corte (Ene - Sep 2026)`;
+      }
+      if (data.ultimas_actas.length > 0) {
+        actasTable.innerHTML = data.ultimas_actas.map(act => `
+          <tr>
+            <td><strong>${act.number}</strong></td>
+            <td>${act.act_date || "Sin fecha"}</td>
+            <td>${act.act_type}</td>
+            <td style="color:var(--green-dark);font-weight:700">${act.aprendices_count} asociados</td>
+          </tr>
+        `).join("");
+      } else {
+        actasTable.innerHTML = `<tr><td colspan="4" style="color:var(--muted)">Sin actas adicionales en SQLite en este período.</td></tr>`;
+      }
+    }
+  } catch (err) {
+    kpis.innerHTML = `<p class="error">No fue posible calcular indicadores: ${err.message}</p>`;
+  }
+}
+
+const refreshIndicadoresBtn = document.querySelector("#refresh-indicadores");
+if (refreshIndicadoresBtn) {
+  refreshIndicadoresBtn.addEventListener("click", loadIndicadores);
 }
 
 viewLinks.forEach((link) => link.addEventListener("click", (event) => {
