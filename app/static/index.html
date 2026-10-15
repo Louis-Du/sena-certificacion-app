@@ -19,8 +19,8 @@
         <a class="sidebar-link" href="#historial" data-view="carga">▤ <span>Historial</span></a>
         <a class="sidebar-link" href="#aprendices" data-view="aprendices">♙ <span>Aprendices</span></a>
         <a class="sidebar-link" href="#actas" data-view="actas">Actas</a>
-        <a class="sidebar-link disabled" href="#indicadores" aria-disabled="true">◌ <span>Indicadores</span></a>
-        <div class="sidebar-footer">Prototipo inicial<br><small>Reglas por confirmar</small></div>
+        <a class="sidebar-link" href="#indicadores" data-view="indicadores">◐ <span>Indicadores</span></a>
+        <div class="sidebar-footer">Sistema Local · 2026<br><small>Centro de Comercio y Servicios</small></div>
       </nav>
       <section class="page-content">
       <div id="carga-view" class="app-view">
@@ -103,6 +103,24 @@
         </section>
         <section class="panel"><div class="learner-toolbar"><label class="search-field">Buscar acta<input id="act-search" type="search" placeholder="Número, tipo o archivo"></label><label class="search-field">Estado de revisión<select id="act-status-filter"><option value="">Todos los estados</option><option value="pending">Pendiente</option><option value="reviewed">Revisada</option><option value="rejected">Rechazada</option></select></label><button id="refresh-acts" class="cancel-button" type="button">Actualizar</button></div><div class="panel-heading"><div><h2>Actas registradas</h2><p id="acts-summary"></p></div></div><div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Número</th><th>Fecha</th><th>Tipo</th><th>Estado</th><th>Aprendices</th><th>Detalle</th></tr></thead><tbody id="acts-list"></tbody></table></div></section>
         <section class="panel learner-detail-frame" id="act-detail" hidden><div class="detail-heading"><button id="back-to-acts" class="cancel-button" type="button">Volver</button><div><p class="eyebrow">Acta</p><h2 id="act-detail-title"></h2></div></div><p id="act-detail-feedback" class="detail-feedback" role="status"></p><div id="act-detail-content" hidden><dl id="act-basic-info" class="detail-grid"></dl><article class="detail-section"><div class="panel-heading"><div><h3>Aprendices asociados</h3></div></div><div id="act-learners" class="detail-list"></div><form id="act-learner-form" class="act-inline-form"><label>ID del aprendiz<input name="learner_id" type="number" required></label><label>Observaciones<input name="observations"></label><button class="primary-button" type="submit">Asociar</button></form></article></div></section>
+      </div>
+      <div id="indicadores-view" class="app-view" hidden>
+        <header class="topbar"><div class="brand-mark">%</div><div><p class="eyebrow">Sena Certificación</p><h1>Indicadores de Certificación 2026</h1><p class="subtitle">Seguimiento de metas, ejecución y pendientes (Enero - Septiembre 2026).</p></div><button id="refresh-indicadores" class="primary-button refresh-button" type="button">↻ Actualizar</button></header>
+        <div id="indicadores-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;"></div>
+        <section class="panel"><div class="panel-heading"><div><h2>Ejecución por Nivel y Tipo de Formación</h2><p>Consolidado acumulado sin duplicidad de aprendices (SQLite)</p></div></div><div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Categoría</th><th>Meta</th><th>Certificados</th><th>Pendientes</th><th>% Avance</th><th>Brecha</th><th>Efectividad</th></tr></thead><tbody id="indicadores-table"></tbody></table></div></section>
+        
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-top:16px;">
+          <section class="panel">
+            <div class="panel-heading"><div><h2>Causas de No Certificación</h2><p id="indicadores-causas-summary">Distribución de incidencias vs. aprendices únicos</p></div></div>
+            <div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Causa / Requisito</th><th>Incidencias</th><th>%</th></tr></thead><tbody id="indicadores-causas-table"></tbody></table></div>
+            <p id="indicadores-causas-note" style="margin-top:10px;font-size:12px;color:var(--muted);line-height:1.4;"></p>
+          </section>
+
+          <section class="panel">
+            <div class="panel-heading"><div><h2>Actas en Período (Ene - Sep 2026)</h2><p id="indicadores-actas-summary">Asociaciones reales de aprendices</p></div></div>
+            <div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Número</th><th>Fecha</th><th>Tipo</th><th>Certificados</th></tr></thead><tbody id="indicadores-actas-table"></tbody></table></div>
+          </section>
+        </div>
       </div>
       </section>
     </div>
