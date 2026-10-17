@@ -88,6 +88,10 @@ def test_acts_options_and_information_types_are_available(client: TestClient):
         "certificados",
         "pendientes",
         "complementaria",
+        # Tipos agregados para leer las metas de la hoja META y la tabla de
+        # referencia del informe de gestion en Word.
+        "meta",
+        "informe",
         "acta",
         "requisitos",
         "otro",

@@ -60,6 +60,14 @@ let currentActId = null;
 
 const extensionsByType = {
   df14a: [".xlsx", ".xls", ".csv"],
+  // Hojas de ACTAS 2026.xlsx. Certificados y pendientes tambien pueden venir
+  // como CSV con las mismas columnas (por ejemplo "ACTAS 2026(PENDIENTES).csv").
+  certificados: [".xlsx", ".xls", ".csv"],
+  pendientes: [".xlsx", ".xls", ".csv"],
+  complementaria: [".xlsx", ".xls"],
+  meta: [".xlsx", ".xls"],
+  // Informe de gestion en Word: solo se usa para la tabla de referencia.
+  informe: [".docx"],
   acta: [".pdf", ".docx"],
   requisitos: [".xlsx", ".xls", ".csv"],
   otro: [".xlsx", ".xls", ".csv", ".pdf", ".docx"],
@@ -465,8 +473,26 @@ function showView(viewName, updateHash = true) {
   if (target === "indicadores") loadIndicadores();
 }
 
+// ---------------------------------------------------------------------------
+// Indicadores: como mostrar valores que el backend NO pudo calcular
+// ---------------------------------------------------------------------------
+// El backend devuelve ``null`` cuando un indicador no se puede calcular (por
+// ejemplo, falta cargar la hoja de metas o la de pendientes). Ese ``null`` NO
+// significa cero, asi que aqui se muestra un guion o "No calculable" en lugar
+// de una cifra falsa.
+function formatNumeroIndicador(valor) {
+  if (valor === null || valor === undefined) return "—";
+  return Number(valor).toLocaleString("es-CO");
+}
+
+function formatPorcentajeIndicador(valor) {
+  if (valor === null || valor === undefined) return "No calculable";
+  return `${valor}%`;
+}
+
 async function loadIndicadores() {
   const kpis = document.querySelector("#indicadores-kpis");
+  const avisos = document.querySelector("#indicadores-avisos");
   const table = document.querySelector("#indicadores-table");
   const causasTable = document.querySelector("#indicadores-causas-table");
   const causasSummary = document.querySelector("#indicadores-causas-summary");
@@ -478,37 +504,55 @@ async function loadIndicadores() {
   try {
     const data = await readResponse(await fetch("/api/indicadores"));
     kpis.innerHTML = `
-      <div class="panel"><div><small>META ANUAL</small><h2>${data.total_meta.toLocaleString("es-CO")}</h2><small>Aprendices proyectados</small></div></div>
-      <div class="panel" style="border-left:4px solid var(--green)"><div><small style="color:var(--green-dark)">CERTIFICADOS (ENE-SEP)</small><h2 style="color:var(--green-dark)">${data.total_certificados.toLocaleString("es-CO")}</h2><small>Aprendices únicos</small></div></div>
-      <div class="panel" style="border-left:4px solid #b87d00"><div><small style="color:#b87d00">PENDIENTES</small><h2 style="color:#b87d00">${data.total_pendientes.toLocaleString("es-CO")}</h2><small>Aprendices únicos</small></div></div>
-      <div class="panel" style="background:var(--green-soft)"><div><small style="color:var(--green-dark)">% AVANCE</small><h2 style="color:var(--green-dark)">${data.avance_global}%</h2><small>Acumulado</small></div></div>
-      <div class="panel"><div><small>EFECTIVIDAD</small><h2>${data.efectividad_global}%</h2><small>Tasa de cierre</small></div></div>
+      <div class="panel"><div><small>META ANUAL</small><h2>${formatNumeroIndicador(data.total_meta)}</h2><small>Aprendices proyectados</small></div></div>
+      <div class="panel" style="border-left:4px solid var(--green)"><div><small style="color:var(--green-dark)">CERTIFICADOS (ENE-SEP)</small><h2 style="color:var(--green-dark)">${formatNumeroIndicador(data.total_certificados)}</h2><small>Aprendices únicos</small></div></div>
+      <div class="panel" style="border-left:4px solid #b87d00"><div><small style="color:#b87d00">PENDIENTES</small><h2 style="color:#b87d00">${formatNumeroIndicador(data.total_pendientes)}</h2><small>Aprendices únicos</small></div></div>
+      <div class="panel" style="background:var(--green-soft)"><div><small style="color:var(--green-dark)">% AVANCE</small><h2 style="color:var(--green-dark)">${formatPorcentajeIndicador(data.avance_global)}</h2><small>Acumulado</small></div></div>
+      <div class="panel"><div><small>EFECTIVIDAD</small><h2>${formatPorcentajeIndicador(data.efectividad_global)}</h2><small>Tasa de cierre</small></div></div>
     `;
+
+    // Muestra por que algunos indicadores no se pudieron calcular (datos
+    // faltantes, registros sin clasificar, filas fuera del periodo, etc.).
+    if (avisos) {
+      const lista = data.advertencias || [];
+      avisos.innerHTML = lista.length
+        ? `<div class="panel" style="border-left:4px solid #b87d00"><div class="panel-heading"><div><h3>Datos y advertencias</h3><p>${data.datos_suficientes ? "Resultados calculados con los documentos cargados." : "Aún no hay documentos suficientes para calcular los indicadores."}</p></div></div><ul style="margin:0;padding-left:18px;font-size:13px;color:var(--muted);line-height:1.6;">${lista.map((texto) => `<li>${texto}</li>`).join("")}</ul></div>`
+        : "";
+    }
+
     table.innerHTML = data.metricas.map(m => `
       <tr>
-        <td><strong>${m.category_label}</strong></td>
-        <td>${m.meta.toLocaleString("es-CO")}</td>
-        <td style="color:var(--green-dark);font-weight:700">${m.certificados.toLocaleString("es-CO")}</td>
-        <td style="color:#b87d00">${m.pendientes.toLocaleString("es-CO")}</td>
-        <td><strong>${m.avance}%</strong></td>
-        <td>${m.brecha > 0 ? m.brecha.toLocaleString("es-CO") : "Cumplida"}</td>
-        <td><span class="result-badge ready">${m.efectividad}%</span></td>
+        <td><strong>${m.category_label}</strong>${m.nota_doble_conteo ? `<br><small style="color:var(--muted)">${m.nota_doble_conteo}</small>` : ""}</td>
+        <td>${formatNumeroIndicador(m.meta)}</td>
+        <td style="color:var(--green-dark);font-weight:700">${formatNumeroIndicador(m.certificados)}</td>
+        <td style="color:#b87d00">${formatNumeroIndicador(m.pendientes)}</td>
+        <td><strong>${formatPorcentajeIndicador(m.avance)}</strong></td>
+        <td>${m.brecha === null || m.brecha === undefined ? "—" : (m.brecha > 0 ? m.brecha.toLocaleString("es-CO") : "Cumplida")}</td>
+        <td><span class="result-badge ready">${formatPorcentajeIndicador(m.efectividad)}</span></td>
       </tr>
     `).join("");
 
     if (causasTable && data.motivos) {
       if (causasSummary) {
-        causasSummary.textContent = `${data.total_incidencias_causas} incidencias de requisitos (${data.total_pendientes} aprendices únicos)`;
+        causasSummary.textContent = `${data.total_incidencias_causas} incidencias de requisitos (${formatNumeroIndicador(data.total_pendientes)} aprendices únicos)`;
       }
       causasTable.innerHTML = data.motivos.map(mot => `
         <tr>
           <td>${mot.motivo}</td>
           <td><strong>${mot.cantidad.toLocaleString("es-CO")}</strong></td>
-          <td><span class="result-badge pending">${mot.porcentaje}%</span></td>
+          <td><span class="result-badge pending">${formatPorcentajeIndicador(mot.porcentaje)}</span></td>
         </tr>
       `).join("");
       if (causasNote) {
-        causasNote.innerHTML = `◈ <strong>Auditoría de consistencia:</strong> Se registran <strong>${data.total_pendientes}</strong> aprendices únicos pendientes y <strong>${data.total_incidencias_causas}</strong> incidencias totales de causas. La diferencia de <strong>${data.total_incidencias_causas - data.total_pendientes}</strong> corresponde a causas múltiples por aprendiz (concurrencia de requisitos simultáneos no superados).`;
+        // Solo se calcula la diferencia cuando el total de pendientes existe;
+        // si no se cargo la hoja PENDIENTES la comparacion no tiene sentido.
+        const diferencia = data.total_pendientes === null || data.total_pendientes === undefined
+          ? null
+          : data.total_incidencias_causas - data.total_pendientes;
+        causasNote.innerHTML = `◈ <strong>Auditoría de consistencia:</strong> Se registran <strong>${formatNumeroIndicador(data.total_pendientes)}</strong> aprendices únicos pendientes y <strong>${data.total_incidencias_causas}</strong> incidencias totales de causas.`
+          + (diferencia === null
+            ? " Cargue la hoja PENDIENTES para comparar aprendices únicos contra incidencias."
+            : ` La diferencia de <strong>${diferencia}</strong> corresponde a causas múltiples por aprendiz (concurrencia de requisitos simultáneos no superados).`);
       }
     }
 
@@ -520,13 +564,13 @@ async function loadIndicadores() {
         actasTable.innerHTML = data.ultimas_actas.map(act => `
           <tr>
             <td><strong>${act.number}</strong></td>
-            <td>${act.act_date || "Sin fecha"}</td>
-            <td>${act.act_type}</td>
+            <td>${act.act_date || "No disponible"}</td>
+            <td>${act.act_type || "No disponible"}</td>
             <td style="color:var(--green-dark);font-weight:700">${act.aprendices_count} asociados</td>
           </tr>
         `).join("");
       } else {
-        actasTable.innerHTML = `<tr><td colspan="4" style="color:var(--muted)">Sin actas adicionales en SQLite en este período.</td></tr>`;
+        actasTable.innerHTML = `<tr><td colspan="4" style="color:var(--muted)">Sin actas adicionales en la base de datos en este período.</td></tr>`;
       }
     }
   } catch (err) {

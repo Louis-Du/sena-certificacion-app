@@ -135,24 +135,48 @@ def list_imports(session: Session) -> list[dict[str, Any]]:
 
 
 def parse_records(file_name: str, content: bytes, information_type: str = "otro") -> list[dict[str, Any]]:
+    """
+    Convierte un archivo validado en una lista de registros (diccionarios).
+
+    Aqui se decide, segun el TIPO DE INFORMACION y la EXTENSION, que lector de
+    ``app.services.parsers`` corresponde. Cada lector devuelve ya los registros en
+    formato diccionario, con nombres de campo internos (en minusculas y sin
+    tildes) para que el resto de la aplicacion no dependa de los encabezados
+    exactos que traiga el archivo original.
+
+    Reglas:
+    * ``certificados`` / ``pendientes`` / ``complementaria`` -> leen su hoja
+      especifica dentro de ACTAS 2026.xlsx (no la primera hoja cualquiera).
+      ``certificados`` y ``pendientes`` tambien aceptan un CSV con la misma
+      estructura de columnas.
+    * ``meta`` -> lee la hoja META y devuelve UN solo registro con las metas.
+    * ``informe`` -> lee la tabla de referencia del Word de gestion.
+    * ``df14a`` -> lee el XML SpreadsheetML.
+    * Cualquier otro caso cae en la lectura tabular generica.
+    """
     from app.services import parsers
 
     extension = Path(file_name).suffix.lower()
     if information_type == "df14a" and extension == ".xml":
         frame = parsers.parse_df14a_xml(content)
         return parsers.frame_to_records(frame)
-    if information_type == "certificados":
-        if extension in {".xlsx", ".xls"}:
-            return parsers.frame_to_records(parsers.read_actas_certificados(content))
-        return _parse_generic_tabular(extension, content)
-    if information_type == "pendientes":
-        if extension in {".xlsx", ".xls"}:
-            return parsers.frame_to_records(parsers.read_actas_pendientes(content))
-        return _parse_generic_tabular(extension, content)
-    if information_type == "complementaria":
-        if extension in {".xlsx", ".xls"}:
-            return parsers.frame_to_records(parsers.read_complementaria(content))
-        return _parse_generic_tabular(extension, content)
+    if information_type == "certificados" and extension in {".xlsx", ".xls"}:
+        return parsers.read_certificados_records(content)
+    if information_type == "pendientes" and extension in {".xlsx", ".xls"}:
+        return parsers.read_pendientes_records(content)
+    # Los mismos listados de personas pueden venir en CSV (por ejemplo
+    # "ACTAS 2026(PENDIENTES).csv"). Se normalizan con el mismo lector para que
+    # las columnas queden con nombres internos; si no, se contarian 0 aprendices.
+    if information_type in {"certificados", "pendientes"} and extension == ".csv":
+        return parsers.read_actas_csv_records(content)
+    if information_type == "complementaria" and extension in {".xlsx", ".xls"}:
+        return parsers.read_complementaria_records(content)
+    if information_type == "meta" and extension in {".xlsx", ".xls"}:
+        # La hoja META produce un unico registro "de cabecera" con todas las metas.
+        metas = parsers.read_meta_sheet(content)
+        return [metas] if metas else []
+    if information_type == "informe" and extension == ".docx":
+        return parsers.parse_informe_referencia(content)
     if information_type == "requisitos":
         if extension in {".xlsx", ".xls", ".csv"}:
             return _parse_generic_tabular(extension, content)
