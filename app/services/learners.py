@@ -172,11 +172,17 @@ def upsert_learners_from_records(session: Session, records: list[dict[str, Any]]
 def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
     normalized = {_normalize_key(str(key)): value for key, value in record.items()}
     name = _first_value(normalized, "nombres", "nombre completo", "nombre", "aprendiz")
+    apellidos = _first_value(normalized, "apellidos")
+    if name and apellidos:
+        full_name = f"{name} {apellidos}".strip()
+    else:
+        full_name = name or apellidos
     identification = _first_value(
         normalized,
+        "numero de documento",
+        "numero documento",
         "documento",
         "nis",
-        "numero documento",
         "n de identificacion",
         "no de identificacion",
         "numero de identificacion",
@@ -185,7 +191,13 @@ def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
     )
     program = _first_value(normalized, "programa", "programa de formacion", "programa formacion")
     group_code = _first_value(normalized, "ficha", "codigo ficha", "grupo")
-    training_type = _first_value(normalized, "modalidad", "tipo formacion", "tipo de formacion")
+    training_type = _first_value(
+        normalized,
+        "nivel",
+        "modalidad",
+        "tipo formacion",
+        "tipo de formacion",
+    )
     certification_status = _first_value(
         normalized,
         "estado aspirante",
@@ -193,14 +205,19 @@ def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
         "estado de certificacion",
         "estado",
     )
-    tracking_notes = _first_value(normalized, "correo electronico", "observaciones", "novedades", "seguimiento")
+    email = _first_value(normalized, "correo", "correo electronico")
+    act_number = _first_value(normalized, "acta", "numero de acta")
+    notes_parts = [p for p in (email, f"Acta: {act_number}" if act_number else None) if p]
+    tracking_notes = "; ".join(notes_parts) if notes_parts else _first_value(
+        normalized, "observaciones", "novedades", "seguimiento"
+    )
 
-    if not name and not identification:
+    if not full_name and not identification:
         return None
 
     return {
         "identification": _clean_identification(identification) if identification else _auto_identification(record),
-        "name": name or "Aprendiz sin nombre",
+        "name": full_name or "Aprendiz sin nombre",
         "program": program,
         "group_code": group_code,
         "training_type": training_type,
