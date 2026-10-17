@@ -5,7 +5,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
-
+# Esta clase representa el historial de importaciones de archivos en la base de datos. 
+# Contiene información sobre el archivo importado, el tipo de información, la fecha de importación, el número de registros, el estado de la importación y otros detalles relevantes. 
+# Además, establece una relación con la clase ImportedRecord para almacenar los registros importados asociados a cada historial de importación.
 class ImportHistory(Base):
     __tablename__ = "import_history"
 
@@ -28,7 +30,8 @@ class ImportHistory(Base):
         back_populates="import_history", cascade="all, delete-orphan"
     )
 
-
+# Esta clase representa un registro importado en la base de datos. 
+# Contiene información sobre el historial de importación al que pertenece, el tipo de información, la clave del registro, el número de fila y el contenido del registro en formato de texto.
 class ImportedRecord(Base):
     __tablename__ = "imported_records"
 
@@ -41,7 +44,7 @@ class ImportedRecord(Base):
 
     import_history: Mapped[ImportHistory] = relationship(back_populates="records")
 
-
+# Esta clase representa un aprendiz en la base de datos.
 class Learner(Base):
     __tablename__ = "learners"
 
@@ -63,7 +66,7 @@ class Learner(Base):
         back_populates="learner", cascade="all, delete-orphan"
     )
 
-
+# Esta clase representa un requisito asociado a un aprendiz en la base de datos.
 class Requirement(Base):
     __tablename__ = "requirements"
 
@@ -80,7 +83,7 @@ class Requirement(Base):
 
     learner: Mapped[Learner] = relationship(back_populates="requirements")
 
-
+# Esta clase representa un acta asociada a un aprendiz en la base de datos.
 class Act(Base):
     __tablename__ = "acts"
 
@@ -99,7 +102,7 @@ class Act(Base):
         back_populates="act", cascade="all, delete-orphan"
     )
 
-
+# Esta clase representa la relación entre un acta y un aprendiz en la base de datos.
 class ActLearner(Base):
     __tablename__ = "act_learners"
     __table_args__ = (UniqueConstraint("act_id", "learner_id"),)
