@@ -39,6 +39,11 @@
       <section class="main-column">
         <article class="panel type-panel"><div class="panel-heading"><div><h2>Tipo de información</h2><p>Selecciona el contenido que deseas importar</p></div></div><div class="type-options" id="type-options">
           <button class="type-option selected" data-type="df14a" type="button"><span class="option-icon">▦</span><strong>DF14A</strong><small>Lista base de aprendices y novedades</small><span class="check">✓</span></button>
+          <button class="type-option" data-type="certificados" type="button"><span class="option-icon">✔</span><strong>Certificados</strong><small>Hoja CERTIFICADOS de ACTAS 2026.xlsx</small><span class="check">✓</span></button>
+          <button class="type-option" data-type="pendientes" type="button"><span class="option-icon">◷</span><strong>Pendientes</strong><small>Hoja PENDIENTES de ACTAS 2026.xlsx</small><span class="check">✓</span></button>
+          <button class="type-option" data-type="complementaria" type="button"><span class="option-icon">◫</span><strong>Complementaria</strong><small>Hoja COMPLEMENTARIA por canal</small><span class="check">✓</span></button>
+          <button class="type-option" data-type="meta" type="button"><span class="option-icon">◎</span><strong>Metas oficiales</strong><small>Hoja META de ACTAS 2026.xlsx</small><span class="check">✓</span></button>
+          <button class="type-option" data-type="informe" type="button"><span class="option-icon">▤</span><strong>Informe de gestión</strong><small>Tabla de referencia (Word)</small><span class="check">✓</span></button>
           <button class="type-option" data-type="acta" type="button"><span class="option-icon">♧</span><strong>Acta de certificacion</strong><small>Documento de acta para revision</small><span class="check">✓</span></button>
           <button class="type-option" data-type="requisitos" type="button"><span class="option-icon">☷</span><strong>Requisitos / pendientes</strong><small>Matriz de requisitos por aprendiz</small><span class="check">✓</span></button>
           <button class="type-option" data-type="otro" type="button"><span class="option-icon">□</span><strong>Otro archivo</strong><small>Documento de apoyo para consulta</small><span class="check">✓</span></button>
@@ -120,7 +125,8 @@
       <div id="indicadores-view" class="app-view" hidden>
         <header class="topbar"><div class="brand-mark">%</div><div><p class="eyebrow">Sena Certificación</p><h1>Indicadores de Certificación 2026</h1><p class="subtitle">Seguimiento de metas, ejecución y pendientes (Enero - Septiembre 2026).</p></div><button id="refresh-indicadores" class="primary-button refresh-button" type="button">↻ Actualizar</button></header>
         <div id="indicadores-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;"></div>
-        <section class="panel"><div class="panel-heading"><div><h2>Ejecución por Nivel y Tipo de Formación</h2><p>Consolidado acumulado sin duplicidad de aprendices (SQLite)</p></div></div><div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Categoría</th><th>Meta</th><th>Certificados</th><th>Pendientes</th><th>% Avance</th><th>Brecha</th><th>Efectividad</th></tr></thead><tbody id="indicadores-table"></tbody></table></div></section>
+        <div id="indicadores-avisos" style="margin-bottom:16px;"></div>
+        <section class="panel"><div class="panel-heading"><div><h2>Ejecución por Nivel y Tipo de Formación</h2><p>Consolidado acumulado sin duplicidad de aprendices (base de datos)</p></div></div><div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Categoría</th><th>Meta</th><th>Certificados</th><th>Pendientes</th><th>% Avance</th><th>Brecha</th><th>Efectividad</th></tr></thead><tbody id="indicadores-table"></tbody></table></div></section>
         
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-top:16px;">
           <section class="panel">
@@ -138,6 +144,6 @@
       </section>
     </div>
   </main>
-  <script src="/static/app.js?v=20261013-3"></script>
+  <script src="/static/app.js?v=20261017-1"></script>
 </body>
 </html>

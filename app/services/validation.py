@@ -15,7 +15,16 @@ SUPPORTED_TYPES: dict[str, set[str]] = {
     "df14a": {".xlsx", ".xls", ".csv", ".xml"},
     "certificados": {".xlsx", ".xls", ".csv"},
     "pendientes": {".xlsx", ".xls", ".csv"},
-    "complementaria": {".xlsx", ".xls", ".csv"},
+    # La hoja COMPLEMENTARIA no es una tabla con encabezados (son bloques de
+    # fecha/cantidad por canal), por eso solo se lee desde el Excel: un CSV con
+    # la estructura equivocada produciria un total en cero sin avisar.
+    "complementaria": {".xlsx", ".xls"},
+    # "meta" se lee de la hoja META de ACTAS 2026.xlsx: alli viven las metas anuales
+    # oficiales (Tecnico laboral y otros, Articulacion, Educacion superior, etc.).
+    "meta": {".xlsx", ".xls"},
+    # "informe" es el documento Word de gestion. Se usa UNICAMENTE para la tabla de
+    # referencia institucional (metas y avance reportado a la fecha de corte).
+    "informe": {".docx"},
     "acta": {".pdf", ".docx"},
     "requisitos": {".xlsx", ".xls", ".csv"},
     "otro": {".xlsx", ".xls", ".csv", ".pdf", ".docx"},
@@ -26,6 +35,8 @@ TYPE_LABELS = {
     "certificados": "Listado de certificados",
     "pendientes": "Listado de pendientes",
     "complementaria": "Formación complementaria",
+    "meta": "Metas oficiales (hoja META)",
+    "informe": "Informe de gestion (tabla de referencia)",
     "acta": "Acta de certificacion",
     "requisitos": "Requisitos / pendientes",
     "otro": "Otro archivo",
@@ -104,8 +115,22 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
             frame = _read_csv(content)
             checks.append({"label": "Columnas leidas correctamente", "status": "ok"})
         elif extension in {".xlsx", ".xls"}:
-            frame = pd.read_excel(BytesIO(content))
-            checks.append({"label": "Columnas leidas correctamente", "status": "ok"})
+            if information_type == "meta":
+                # La hoja META no es una tabla con encabezados: son rotulos y valores
+                # en celdas sueltas. Por eso no se lee como DataFrame normal, sino con
+                # el lector especializado y se informa cuantas metas se reconocieron.
+                from app.services.parsers import read_meta_sheet
+
+                metas = read_meta_sheet(content)
+                if metas:
+                    checks.append(
+                        {"label": f"{len([k for k in metas if not k.endswith('_celda') and k != 'fila_rotulos'])} metas reconocidas", "status": "ok"}
+                    )
+                else:
+                    checks.append({"label": "No se reconocieron metas en la hoja META", "status": "warning"})
+            else:
+                frame = pd.read_excel(BytesIO(content))
+                checks.append({"label": "Columnas leidas correctamente", "status": "ok"})
         elif extension == ".xml":
             from app.services.parsers import parse_df14a_xml
 
