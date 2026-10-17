@@ -85,6 +85,9 @@ def test_acts_options_and_information_types_are_available(client: TestClient):
     assert types.status_code == 200
     assert {item["value"] for item in types.json()["items"]} == {
         "df14a",
+        "certificados",
+        "pendientes",
+        "complementaria",
         "acta",
         "requisitos",
         "otro",

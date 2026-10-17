@@ -56,16 +56,16 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Sena Certificacion App", version="0.1.0", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+app = FastAPI(title="Sena Certificacion App", version="0.1.0", lifespan=lifespan) # El parámetro lifespan se establece en la función lifespan definida anteriormente el cual inicializa la base de datos al iniciar la aplicación.
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static") # Montamos un directorio de archivos estáticos en la ruta /static para servir archivos como imágenes, CSS o JavaScript. 
 
-
+# Definimos varios modelos de datos usando Pydantic para validar y documentar las solicitudes y respuestas de la API.
 class RequirementRequest(BaseModel):
     requirement_type: str
     status: str
     observations: str | None = None
 
-
+# Definimos un modelo de datos para crear un acta, que incluye campos como número, fecha, tipo, archivo original, estado de revisión y observaciones.
 class ActCreateRequest(BaseModel):
     number: str
     act_date: date
@@ -74,7 +74,7 @@ class ActCreateRequest(BaseModel):
     review_status: str = "pending"
     observations: str | None = None
 
-
+# Definimos un modelo de datos para actualizar un acta, que permite modificar campos opcionales como número, fecha, tipo, archivo original, estado de revisión y observaciones.
 class ActUpdateRequest(BaseModel):
     number: str | None = None
     act_date: date | None = None
@@ -83,22 +83,22 @@ class ActUpdateRequest(BaseModel):
     review_status: str | None = None
     observations: str | None = None
 
-
+# Definimos un modelo de datos para asociar un aprendiz a un acta, que incluye el ID del aprendiz y observaciones opcionales.
 class ActLearnerRequest(BaseModel):
     learner_id: int
     observations: str | None = None
 
-
+# Esta ruta devuelve el archivo index.html ubicado en el directorio static cuando se accede a la raíz del sitio web. Se utiliza FileResponse para enviar el archivo como respuesta HTTP.
 @app.get("/", include_in_schema=False)
 async def index() -> FileResponse:
     return FileResponse(BASE_DIR / "static" / "index.html")
 
-
+# Esta ruta devuelve una lista de tipos de información disponibles para la validación de archivos. Cada tipo se representa como un diccionario con un valor y una etiqueta.
 @app.get("/api/information-types")
 async def information_types() -> dict[str, list[dict[str, str]]]:
     return {"items": [{"value": value, "label": label} for value, label in TYPE_LABELS.items()]}
 
-
+# Esta ruta permite subir un archivo y validarlo según el tipo de información especificado. Se recibe el tipo de información como un formulario y el archivo como un archivo cargado. Se llama a la función stage_file para procesar el archivo y se devuelve un diccionario con los resultados de la validación y un ID de validación.
 @app.post("/api/files/validate")
 async def validate_upload(
     information_type: str = Form(...),
@@ -110,7 +110,7 @@ async def validate_upload(
     response["validation_id"] = staged.validation_id
     return response
 
-
+# Esta ruta devuelve una vista previa de la importación de un archivo previamente validado. Se recibe un ID de validación como parámetro y se busca el archivo en estado "staged". Si el archivo no está disponible o tiene errores, se devuelve un error HTTP. Si todo está bien, se llama a la función import_preview para preparar la importación y se devuelve un diccionario con los datos a importar.
 @app.get("/api/imports/{validation_id}/preview")
 async def import_preview_endpoint(
     validation_id: str,
@@ -126,7 +126,7 @@ async def import_preview_endpoint(
     except Exception as error:
         raise HTTPException(status_code=400, detail=f"No fue posible preparar la importacion: {error}") from error
 
-
+# Esta ruta confirma la importación de un archivo previamente validado y preparado. Se recibe un ID de validación como parámetro y se llama a la función confirm_import para realizar la importación en la base de datos. Si ocurre algún error, se devuelve un error HTTP con el mensaje correspondiente.
 @app.post("/api/imports/{validation_id}/confirm")
 async def confirm_import_endpoint(
     validation_id: str,
@@ -139,12 +139,12 @@ async def confirm_import_endpoint(
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
-
+# Esta ruta devuelve el historial de importaciones realizadas en la aplicación. Se llama a la función list_imports para obtener una lista de importaciones desde la base de datos y se devuelve un diccionario con los elementos.
 @app.get("/api/imports/history")
 async def import_history(session: Session = Depends(get_db)) -> dict:
     return {"items": list_imports(session)}
 
-
+# Esta ruta devuelve una lista de aprendices según los parámetros de búsqueda, estado, página y tamaño de página especificados. Se llama a la función list_learners para obtener los aprendices desde la base de datos y se devuelve un diccionario con los elementos.
 @app.get("/api/learners")
 async def learners(
     search: str = Query(default="", max_length=100),
@@ -155,7 +155,7 @@ async def learners(
 ) -> dict:
     return list_learners(session, search=search, status=status, page=page, page_size=page_size)
 
-
+# Esta ruta devuelve una lista de aprendices que tienen requisitos pendientes. Se llama a la función pending_learners para obtener los aprendices desde la base de datos y se devuelve un diccionario con los elementos.
 @app.get("/api/learners/with-pending-requirements")
 async def learners_with_pending_requirements(session: Session = Depends(get_db)) -> dict:
     return {"items": pending_learners(session)}
@@ -311,3 +311,9 @@ async def unlink_act_learner(
         unlink_learner_from_act(session, act_id, learner_id)
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@app.get("/api/indicadores")
+async def indicadores_endpoint(session: Session = Depends(get_db)) -> dict:
+    from app.services.indicadores import compute_indicadores_2026
+    return compute_indicadores_2026(session)
