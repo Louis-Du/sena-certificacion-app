@@ -59,6 +59,7 @@ const actLearnerForm = document.querySelector("#act-learner-form");
 let currentActId = null;
 
 const extensionsByType = {
+  actas_completo: [".xlsx", ".xls"],
   df14a: [".xlsx", ".xls", ".csv"],
   // Hojas de ACTAS 2026.xlsx. Certificados y pendientes tambien pueden venir
   // como CSV con las mismas columnas (por ejemplo "ACTAS 2026(PENDIENTES).csv").
@@ -73,7 +74,7 @@ const extensionsByType = {
   otro: [".xlsx", ".xls", ".csv", ".pdf", ".docx"],
 };
 
-let selectedType = "df14a";
+let selectedType = "actas_completo";
 let selectedFile = null;
 let validationId = null;
 

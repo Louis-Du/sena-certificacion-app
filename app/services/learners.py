@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+# Se importa hashlib para generar identificadores automáticos únicos para aprendices sin identificación proporcionada. Esto asegura que cada aprendiz pueda ser identificado de manera consistente incluso si no se proporciona un número de identificación explícito.
 import hashlib
+# Se importa unicodedata para normalizar cadenas de texto, eliminando acentos y caracteres especiales, lo que facilita la comparación y búsqueda de datos.
 from unicodedata import normalize
+# Se importa Any del módulo typing para indicar que una variable puede ser de cualquier tipo, lo que es útil para funciones que devuelven datos heterogéneos.
 from typing import Any
 
 from sqlalchemy import func, or_, select
@@ -145,14 +148,24 @@ def upsert_learners_from_records(session: Session, records: list[dict[str, Any]]
     if not prepared_rows:
         return 0
 
-    identifications = [row["identification"] for row in prepared_rows]
+    # Deduplicamos por identificacion para evitar fallos si el mismo aprendiz
+    # aparece en varias hojas (ej: certificados y pendientes) o en el mismo archivo.
+    seen = {}
+    deduplicated_rows = []
+    for row in prepared_rows:
+        ident = row["identification"]
+        if ident not in seen:
+            seen[ident] = True
+            deduplicated_rows.append(row)
+
+    identifications = [row["identification"] for row in deduplicated_rows]
     existing = session.scalars(
         select(Learner).where(Learner.identification.in_(identifications))
     ).all()
     existing_by_identification = {learner.identification: learner for learner in existing}
 
     updated = 0
-    for row in prepared_rows:
+    for row in deduplicated_rows:
         learner = existing_by_identification.get(row["identification"])
         if learner is None:
             session.add(Learner(**row))

@@ -27,6 +27,7 @@ SUPPORTED_TYPES: dict[str, set[str]] = {
     "informe": {".docx"},
     "acta": {".pdf", ".docx"},
     "requisitos": {".xlsx", ".xls", ".csv"},
+    "actas_completo": {".xlsx", ".xls"},
     "otro": {".xlsx", ".xls", ".csv", ".pdf", ".docx"},
 }
 
@@ -39,6 +40,7 @@ TYPE_LABELS = {
     "informe": "Informe de gestion (tabla de referencia)",
     "acta": "Acta de certificacion",
     "requisitos": "Requisitos / pendientes",
+    "actas_completo": "Paquete completo ACTAS 2026",
     "otro": "Otro archivo",
 }
 
@@ -128,6 +130,32 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
                     )
                 else:
                     checks.append({"label": "No se reconocieron metas en la hoja META", "status": "warning"})
+            elif information_type == "actas_completo":
+                from app.services.parsers import list_excel_sheets
+                sheets = list_excel_sheets(content)
+                expected = ["CERTIFICADOS", "PENDIENTES", "COMPLEMENTARIA", "META"]
+                found = [s for s in expected if s in sheets]
+                missing = [s for s in expected if s not in sheets]
+                
+                for s in found:
+                    checks.append({"label": f"Hoja {s} detectada", "status": "ok"})
+                for s in missing:
+                    checks.append({"label": f"Hoja {s} no encontrada", "status": "warning"})
+                
+                if not found:
+                    raise ValueError("El archivo no contiene ninguna de las hojas esperadas del paquete ACTAS 2026.")
+                
+                # Resumen rapido: sumamos registros de hojas de personas
+                records_found = 0
+                if "CERTIFICADOS" in found:
+                    records_found += len(pd.read_excel(BytesIO(content), sheet_name="CERTIFICADOS"))
+                if "PENDIENTES" in found:
+                    records_found += len(pd.read_excel(BytesIO(content), sheet_name="PENDIENTES"))
+                if "COMPLEMENTARIA" in found:
+                    checks.append({"label": "La hoja COMPLEMENTARIA se procesara por canales", "status": "info"})
+                
+                valid_records = records_found
+                checks.append({"label": "Contenido multi-hoja validado", "status": "ok"})
             else:
                 frame = pd.read_excel(BytesIO(content))
                 checks.append({"label": "Columnas leidas correctamente", "status": "ok"})
