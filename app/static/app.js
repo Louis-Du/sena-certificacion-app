@@ -1,4 +1,6 @@
+const categoryOptions = document.querySelectorAll(".category-option");
 const typeOptions = document.querySelectorAll(".type-option");
+let selectedCategory = "datos_certificacion";
 const dropZone = document.querySelector("#drop-zone");
 const fileInput = document.querySelector("#file-input");
 const selectButton = document.querySelector("#select-button");
@@ -60,14 +62,12 @@ let currentActId = null;
 
 const extensionsByType = {
   actas_completo: [".xlsx", ".xls"],
-  df14a: [".xlsx", ".xls", ".csv"],
-  // Hojas de ACTAS 2026.xlsx. Certificados y pendientes tambien pueden venir
-  // como CSV con las mismas columnas (por ejemplo "ACTAS 2026(PENDIENTES).csv").
+  df14a: [".xlsx", ".xls", ".csv", ".xml"],
+  csv_certificacion: [".csv"],
   certificados: [".xlsx", ".xls", ".csv"],
   pendientes: [".xlsx", ".xls", ".csv"],
   complementaria: [".xlsx", ".xls"],
   meta: [".xlsx", ".xls"],
-  // Informe de gestion en Word: solo se usa para la tabla de referencia.
   informe: [".docx"],
   acta: [".pdf", ".docx"],
   requisitos: [".xlsx", ".xls", ".csv"],
@@ -77,6 +77,58 @@ const extensionsByType = {
 let selectedType = "actas_completo";
 let selectedFile = null;
 let validationId = null;
+
+function setCategory(category) {
+  selectedCategory = category;
+  categoryOptions.forEach((btn) => btn.classList.toggle("selected", btn.dataset.category === category));
+
+  typeOptions.forEach((btn) => {
+    btn.hidden = btn.dataset.category !== category;
+  });
+
+  const categoryHeadings = {
+    datos_certificacion: {
+      title: "Opciones de Datos de certificación",
+      description: "Selecciona el origen: Excel institucional, DF14A o CSV alternativo",
+    },
+    actas_revision: {
+      title: "Actas para revisión",
+      description: "Acta individual en formato Word o PDF para revisión y vinculación",
+    },
+    requisitos_aprendices: {
+      title: "Requisitos de aprendices",
+      description: "Matriz de seguimiento de requisitos por aprendiz",
+    },
+    documentos_referencia: {
+      title: "Documentos de referencia",
+      description: "Informe de gestión institucional o documentos de apoyo",
+    },
+  };
+
+  const headingInfo = categoryHeadings[category] || {
+    title: "Opciones disponibles",
+    description: "Selecciona el tipo de archivo",
+  };
+
+  const titleEl = document.querySelector("#subtype-title");
+  const descEl = document.querySelector("#subtype-description");
+  if (titleEl) titleEl.textContent = headingInfo.title;
+  if (descEl) descEl.textContent = headingInfo.description;
+
+  const currentOption = Array.from(typeOptions).find(
+    (opt) => opt.dataset.type === selectedType && opt.dataset.category === category
+  );
+  if (currentOption) {
+    setType(selectedType);
+  } else {
+    const firstAvailable = Array.from(typeOptions).find(
+      (opt) => opt.dataset.category === category
+    );
+    if (firstAvailable) {
+      setType(firstAvailable.dataset.type);
+    }
+  }
+}
 
 function showFeedback(message, isError = false) {
   feedback.textContent = message;
@@ -652,6 +704,7 @@ actSearch.addEventListener("input", loadActs);
 actStatusFilter.addEventListener("change", loadActs);
 document.querySelector("#back-to-acts").addEventListener("click", () => { document.querySelectorAll("#actas-view > .panel").forEach((panel) => { panel.hidden = false; }); actDetail.hidden = true; });
 
+categoryOptions.forEach((btn) => btn.addEventListener("click", () => setCategory(btn.dataset.category)));
 typeOptions.forEach((option) => option.addEventListener("click", () => setType(option.dataset.type)));
 selectButton.addEventListener("click", (event) => { event.stopPropagation(); fileInput.click(); });
 dropZone.addEventListener("click", () => fileInput.click());
@@ -661,10 +714,10 @@ fileInput.addEventListener("change", () => setFile(fileInput.files[0]));
 ["dragleave", "drop"].forEach((eventName) => dropZone.addEventListener(eventName, (event) => { event.preventDefault(); dropZone.classList.remove("dragging"); }));
 dropZone.addEventListener("drop", (event) => setFile(event.dataTransfer.files[0]));
 removeButton.addEventListener("click", clearFile);
-cancelButton.addEventListener("click", () => { clearFile(); clearFeedback(); setType("df14a"); });
+cancelButton.addEventListener("click", () => { clearFile(); clearFeedback(); setCategory("datos_certificacion"); });
 validateButton.addEventListener("click", validateFile);
 confirmButton.addEventListener("click", confirmImport);
-updateAcceptedFormats();
+setCategory("datos_certificacion");
 loadHistory();
 loadLearners();
 showView(window.location.hash === "#aprendices" ? "aprendices" : "carga", false);

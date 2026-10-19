@@ -122,6 +122,11 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
     if learners_records:
         upsert_learners_from_records(session, learners_records)
 
+    # Si hay registros de requisitos, actualizamos los requisitos de los aprendices
+    requisitos_records = [r for r, t in final_records if t == "requisitos"]
+    if requisitos_records:
+        _sync_requirements_from_records(session, requisitos_records)
+
     session.commit()
     _staged_imports.pop(validation_id, None)
     return import_result(history)
@@ -186,6 +191,14 @@ def parse_records(file_name: str, content: bytes, information_type: str = "otro"
     # las columnas queden con nombres internos; si no, se contarian 0 aprendices.
     if information_type in {"certificados", "pendientes"} and extension == ".csv":
         return parsers.read_actas_csv_records(content)
+    if information_type == "csv_certificacion" and extension == ".csv":
+        from app.services.validation import _read_csv, detect_csv_certificacion_type
+        frame = _read_csv(content)
+        sub_type, _ = detect_csv_certificacion_type(frame)
+        records = parsers.read_actas_csv_records(content)
+        for r in records:
+            r["__type__"] = sub_type
+        return records
     if information_type == "complementaria" and extension in {".xlsx", ".xls"}:
         return parsers.read_complementaria_records(content)
     if information_type == "meta" and extension in {".xlsx", ".xls"}:
@@ -221,8 +234,17 @@ def _parse_generic_tabular(extension: str, content: bytes) -> list[dict[str, Any
 
 
 def record_key(information_type: str, record: dict[str, Any]) -> str:
+    from app.services.parsers import clean_identification
+
+    clean = {k: v for k, v in record.items() if k != "__type__"}
+    if information_type in {"certificados", "pendientes"}:
+        doc = clean_identification(clean.get("numero de documento") or clean.get("documento"))
+        if doc:
+            ficha = clean_identification(clean.get("ficha")) or ""
+            return hashlib.sha256(f"{information_type}:{doc}:{ficha}".encode("utf-8")).hexdigest()
+
     normalized = json.dumps(
-        {"information_type": information_type, "record": record},
+        {"information_type": information_type, "record": clean},
         ensure_ascii=True,
         sort_keys=True,
         default=str,
@@ -363,3 +385,97 @@ def _first_value(record: dict[str, Any], *candidates: str) -> str | None:
 def _normalize_key(value: str) -> str:
     ascii_value = normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
     return " ".join(ascii_value.lower().replace("_", " ").split())
+
+
+def _sync_requirements_from_records(session: Session, records: list[dict[str, Any]]) -> int:
+    from app.models import Requirement
+    from app.services.parsers import clean_identification, normalize_text
+    from app.services.requirements import REQUIREMENT_TYPES
+
+    req_map = {
+        "rap": "learning_outcome",
+        "resultados de aprendizaje": "learning_outcome",
+        "aprendizaje": "learning_outcome",
+        "resultado de aprendizaje": "learning_outcome",
+        "documento": "documentation",
+        "documentacion": "documentation",
+        "cedula": "documentation",
+        "tarjeta de identidad": "documentation",
+        "ti": "documentation",
+        "cc": "documentation",
+        "etapa productiva": "productive_stage",
+        "etapa": "productive_stage",
+        "practica": "productive_stage",
+        "paz y salvo": "clearance",
+        "paz": "clearance",
+        "salvo": "clearance",
+        "saber tyt": "saber_tyt",
+        "tyt": "saber_tyt",
+        "saber pro": "saber_tyt",
+    }
+    for k in REQUIREMENT_TYPES:
+        req_map[k] = k
+        req_map[normalize_text(REQUIREMENT_TYPES[k])] = k
+
+    count = 0
+    for record in records:
+        norm = {normalize_text(k): v for k, v in record.items()}
+        doc_raw = norm.get("documento") or norm.get("numero documento") or norm.get("identificacion")
+        doc = clean_identification(doc_raw)
+        if not doc:
+            continue
+
+        name_raw = norm.get("nombres") or norm.get("nombre") or norm.get("aprendiz") or "Aprendiz"
+        name = str(name_raw).strip()
+
+        learner = session.scalar(select(Learner).where(Learner.identification == doc))
+        if learner is None:
+            learner = Learner(identification=doc, name=name, certification_status="Por Certificar")
+            session.add(learner)
+            session.flush()
+
+        req_raw = norm.get("requisito") or norm.get("tipo requisito")
+        if not req_raw:
+            continue
+        req_text = normalize_text(req_raw)
+
+        req_type = None
+        for key, candidate in req_map.items():
+            if key in req_text:
+                req_type = candidate
+                break
+        if not req_type:
+            req_type = "documentation"
+
+        status_raw = normalize_text(norm.get("estado"))
+        if any(w in status_raw for w in ("cumplid", "aprob", "si", "ok", "listo")):
+            status = "Cumplido"
+        elif any(w in status_raw for w in ("no aplica", "exento", "n/a")):
+            status = "No aplica"
+        else:
+            status = "Pendiente"
+
+        obs = norm.get("observaciones") or norm.get("novedades") or norm.get("motivo")
+        obs_text = str(obs).strip() if obs and not pd.isna(obs) else None
+
+        existing_req = session.scalar(
+            select(Requirement).where(
+                Requirement.learner_id == learner.id,
+                Requirement.requirement_type == req_type,
+            )
+        )
+        if existing_req is None:
+            session.add(
+                Requirement(
+                    learner_id=learner.id,
+                    requirement_type=req_type,
+                    status=status,
+                    observations=obs_text,
+                )
+            )
+        else:
+            existing_req.status = status
+            if obs_text:
+                existing_req.observations = obs_text
+        count += 1
+    return count
