@@ -44,8 +44,15 @@ def get_staged(validation_id: str) -> StagedImport | None:
 
 def import_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
     records = parse_records(staged.file_name, staged.content, staged.information_type)
-    keys = [record_key(staged.information_type, record) for record in records]
-    existing = _existing_keys(session, staged.information_type, keys)
+    
+    keys = []
+    for r in records:
+        # Copiamos para no modificar el original durante el preview
+        record_copy = r.copy()
+        rtype = record_copy.pop("__type__", staged.information_type)
+        keys.append(record_key(rtype, record_copy))
+        
+    existing = _existing_keys_multi(session, keys)
     warnings = [check["label"] for check in staged.result.checks if check["status"] == "warning"]
     return {
         "validation_id": staged.validation_id,
@@ -69,8 +76,16 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
         raise ValueError("El archivo tiene errores que impiden la importacion.")
 
     records = parse_records(staged.file_name, staged.content, staged.information_type)
-    keys = [record_key(staged.information_type, record) for record in records]
-    existing = _existing_records(session, staged.information_type, keys)
+    
+    # Procesamos los registros para extraer el tipo si viene incrustado (Smart Import)
+    final_records = []
+    keys = []
+    for r in records:
+        rtype = r.pop("__type__", staged.information_type)
+        final_records.append((r, rtype))
+        keys.append(record_key(rtype, r))
+
+    existing = _existing_records_multi(session, keys)
     history = ImportHistory(
         file_name=staged.file_name,
         information_type=TYPE_LABELS.get(staged.information_type, staged.information_type),
@@ -84,14 +99,14 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
     session.add(history)
     session.flush()
 
-    for row_number, (record, key) in enumerate(zip(records, keys), start=2):
+    for row_number, ((record, rtype), key) in enumerate(zip(final_records, keys), start=2):
         current = existing.get(key)
         payload = json.dumps(record, ensure_ascii=True, default=str)
         if current is None:
             session.add(
                 ImportedRecord(
                     import_id=history.id,
-                    information_type=staged.information_type,
+                    information_type=rtype,
                     record_key=key,
                     row_number=row_number,
                     payload=payload,
@@ -102,8 +117,10 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
             current.row_number = row_number
             current.payload = payload
 
-    if staged.information_type in {"df14a", "certificados", "pendientes"}:
-        upsert_learners_from_records(session, records)
+    # Si hay registros de aprendices, actualizamos la tabla maestra
+    learners_records = [r for r, t in final_records if t in {"df14a", "certificados", "pendientes"}]
+    if learners_records:
+        upsert_learners_from_records(session, learners_records)
 
     session.commit()
     _staged_imports.pop(validation_id, None)
@@ -175,6 +192,8 @@ def parse_records(file_name: str, content: bytes, information_type: str = "otro"
         # La hoja META produce un unico registro "de cabecera" con todas las metas.
         metas = parsers.read_meta_sheet(content)
         return [metas] if metas else []
+    if information_type == "actas_completo" and extension in {".xlsx", ".xls"}:
+        return parsers.read_actas_full(content)
     if information_type == "informe" and extension == ".docx":
         return parsers.parse_informe_referencia(content)
     if information_type == "requisitos":
@@ -239,6 +258,29 @@ def _existing_records(session: Session, information_type: str, keys: list[str]) 
     records = session.scalars(
         select(ImportedRecord).where(
             ImportedRecord.information_type == information_type,
+            ImportedRecord.record_key.in_(keys),
+        )
+    ).all()
+    return {record.record_key: record for record in records}
+
+
+def _existing_keys_multi(session: Session, keys: list[str]) -> set[str]:
+    if not keys:
+        return set()
+    return set(
+        session.scalars(
+            select(ImportedRecord.record_key).where(
+                ImportedRecord.record_key.in_(keys),
+            )
+        ).all()
+    )
+
+
+def _existing_records_multi(session: Session, keys: list[str]) -> dict[str, ImportedRecord]:
+    if not keys:
+        return {}
+    records = session.scalars(
+        select(ImportedRecord).where(
             ImportedRecord.record_key.in_(keys),
         )
     ).all()

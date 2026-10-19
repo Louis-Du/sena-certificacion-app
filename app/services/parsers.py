@@ -717,3 +717,38 @@ def frame_to_records(frame: pd.DataFrame) -> list[dict[str, Any]]:
         for row in clean.to_dict(orient="records")
         if any(value is not None for value in row.values())
     ]
+
+
+def read_actas_full(content: bytes) -> list[dict[str, Any]]:
+    """
+    Lee todas las hojas reconocidas de ``ACTAS 2026.xlsx`` en una sola pasada.
+
+    Devuelve una lista combinada de registros, donde cada uno tiene la clave
+    interna ``"__type__"`` para que el importador sepa a que categoria
+    (certificados, pendientes, meta, etc.) pertenece cada dato.
+    """
+    sheets = list_excel_sheets(content)
+    resultado: list[dict[str, Any]] = []
+
+    if "CERTIFICADOS" in sheets:
+        for r in read_certificados_records(content):
+            r["__type__"] = "certificados"
+            resultado.append(r)
+
+    if "PENDIENTES" in sheets:
+        for r in read_pendientes_records(content):
+            r["__type__"] = "pendientes"
+            resultado.append(r)
+
+    if "COMPLEMENTARIA" in sheets:
+        for r in read_complementaria_records(content):
+            r["__type__"] = "complementaria"
+            resultado.append(r)
+
+    if "META" in sheets:
+        metas = read_meta_sheet(content)
+        if metas:
+            metas["__type__"] = "meta"
+            resultado.append(metas)
+
+    return resultado
