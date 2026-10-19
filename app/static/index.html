@@ -37,18 +37,98 @@
     <div id="feedback" class="feedback" role="status" aria-live="polite"></div>
     <div class="workspace-grid">
       <section class="main-column">
-        <article class="panel type-panel"><div class="panel-heading"><div><h2>Tipo de información</h2><p>Selecciona el contenido que deseas importar</p></div></div><div class="type-options" id="type-options">
-          <button class="type-option selected" data-type="actas_completo" type="button"><span class="option-icon">🚀</span><strong>Importación inteligente</strong><small>Detecta automáticamente hojas de ACTAS 2026.xlsx</small><span class="check">✓</span></button>
-          <button class="type-option" data-type="df14a" type="button"><span class="option-icon">▦</span><strong>DF14A</strong><small>Lista base de aprendices y novedades</small><span class="check">✓</span></button>
-          <button class="type-option" data-type="certificados" type="button"><span class="option-icon">✔</span><strong>Certificados</strong><small>Hoja CERTIFICADOS de ACTAS 2026.xlsx</small><span class="check">✓</span></button>
-          <button class="type-option" data-type="pendientes" type="button"><span class="option-icon">◷</span><strong>Pendientes</strong><small>Hoja PENDIENTES de ACTAS 2026.xlsx</small><span class="check">✓</span></button>
-          <button class="type-option" data-type="complementaria" type="button"><span class="option-icon">◫</span><strong>Complementaria</strong><small>Hoja COMPLEMENTARIA por canal</small><span class="check">✓</span></button>
-          <button class="type-option" data-type="meta" type="button"><span class="option-icon">◎</span><strong>Metas oficiales</strong><small>Hoja META de ACTAS 2026.xlsx</small><span class="check">✓</span></button>
-          <button class="type-option" data-type="informe" type="button"><span class="option-icon">▤</span><strong>Informe de gestión</strong><small>Tabla de referencia (Word)</small><span class="check">✓</span></button>
-          <button class="type-option" data-type="acta" type="button"><span class="option-icon">♧</span><strong>Acta de certificacion</strong><small>Documento de acta para revision</small><span class="check">✓</span></button>
-          <button class="type-option" data-type="requisitos" type="button"><span class="option-icon">☷</span><strong>Requisitos / pendientes</strong><small>Matriz de requisitos por aprendiz</small><span class="check">✓</span></button>
-          <button class="type-option" data-type="otro" type="button"><span class="option-icon">□</span><strong>Otro archivo</strong><small>Documento de apoyo para consulta</small><span class="check">✓</span></button>
-        </div></article>
+        <article class="panel type-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Tipo de información</h2>
+              <p>Selecciona una de las 4 categorías para cargar documentos</p>
+            </div>
+          </div>
+          <div class="category-options" id="category-options">
+            <button class="category-option selected" data-category="datos_certificacion" type="button">
+              <span class="category-icon">📊</span>
+              <strong>Datos de certificación</strong>
+              <small>ACTAS 2026, DF14A, CSV</small>
+              <span class="check">✓</span>
+            </button>
+            <button class="category-option" data-category="actas_revision" type="button">
+              <span class="category-icon">📋</span>
+              <strong>Actas para revisión</strong>
+              <small>Actas individuales en Word o PDF</small>
+              <span class="check">✓</span>
+            </button>
+            <button class="category-option" data-category="requisitos_aprendices" type="button">
+              <span class="category-icon">👤</span>
+              <strong>Requisitos de aprendices</strong>
+              <small>Matriz de requisitos en Excel o CSV</small>
+              <span class="check">✓</span>
+            </button>
+            <button class="category-option" data-category="documentos_referencia" type="button">
+              <span class="category-icon">📁</span>
+              <strong>Documentos de referencia</strong>
+              <small>Informe de gestión y apoyo</small>
+              <span class="check">✓</span>
+            </button>
+          </div>
+
+          <div class="subtype-section" id="subtype-section">
+            <div class="subtype-heading">
+              <h3 id="subtype-title">Opciones de Datos de certificación</h3>
+              <p id="subtype-description">Selecciona el origen: Excel institucional, DF14A o CSV alternativo</p>
+            </div>
+            <div class="type-options" id="type-options">
+              <button class="type-option selected" data-type="actas_completo" data-category="datos_certificacion" type="button">
+                <span class="option-icon">🚀</span>
+                <strong>Excel institucional (ACTAS 2026.xlsx)</strong>
+                <small>Procesa en un solo flujo: Certificados, Pendientes, Complementaria y Meta</small>
+                <span class="option-format">Formatos: XLSX, XLS</span>
+                <span class="check">✓</span>
+              </button>
+              <button class="type-option" data-type="df14a" data-category="datos_certificacion" type="button">
+                <span class="option-icon">▦</span>
+                <strong>DF14A</strong>
+                <small>Lista base de aprendices y novedades</small>
+                <span class="option-format">Formatos: XML, XLSX, XLS, CSV</span>
+                <span class="check">✓</span>
+              </button>
+              <button class="type-option" data-type="csv_certificacion" data-category="datos_certificacion" type="button">
+                <span class="option-icon">◷</span>
+                <strong>CSV alternativo (Certificados / Pendientes)</strong>
+                <small>Carga individual de certificados o pendientes en CSV</small>
+                <span class="option-format">Formatos: CSV</span>
+                <span class="check">✓</span>
+              </button>
+              <button class="type-option" data-type="acta" data-category="actas_revision" type="button" hidden>
+                <span class="option-icon">♧</span>
+                <strong>Acta individual de certificación</strong>
+                <small>Documento para revisión y asociación en el módulo de actas</small>
+                <span class="option-format">Formatos: DOCX, PDF</span>
+                <span class="check">✓</span>
+              </button>
+              <button class="type-option" data-type="requisitos" data-category="requisitos_aprendices" type="button" hidden>
+                <span class="option-icon">☷</span>
+                <strong>Matriz de requisitos por aprendiz</strong>
+                <small>Seguimiento de RAP, documentos, etapa productiva, paz y salvo y TyT</small>
+                <span class="option-format">Formatos: XLSX, XLS, CSV</span>
+                <span class="check">✓</span>
+              </button>
+              <button class="type-option" data-type="informe" data-category="documentos_referencia" type="button" hidden>
+                <span class="option-icon">▤</span>
+                <strong>Informe de gestión (Word)</strong>
+                <small>Tabla de referencia institucional y metas anuales</small>
+                <span class="option-format">Formatos: DOCX</span>
+                <span class="check">✓</span>
+              </button>
+              <button class="type-option" data-type="otro" data-category="documentos_referencia" type="button" hidden>
+                <span class="option-icon">□</span>
+                <strong>Otros documentos de apoyo</strong>
+                <small>Documento de consulta y soporte para historial</small>
+                <span class="option-format">Formatos: XLSX, XLS, CSV, PDF, DOCX</span>
+                <span class="check">✓</span>
+              </button>
+            </div>
+          </div>
+        </article>
 
         <article class="panel upload-panel"><div class="panel-heading"><div><h2>Archivo</h2><p>Tamaño maximo recomendado: 20 MB</p></div></div><div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="Seleccionar archivo">
           <div class="upload-icon">↑</div><h3>Arrastra el archivo aquí</h3><p>o selecciona un archivo desde tu equipo</p><button id="select-button" class="select-button" type="button">▣ &nbsp; Seleccionar archivo</button><small>Formatos admitidos: XLSX, XLS, CSV, PDF y DOCX</small><input id="file-input" type="file" hidden accept=".xlsx,.xls,.csv,.pdf,.docx">

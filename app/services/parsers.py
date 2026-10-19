@@ -222,7 +222,7 @@ _META_KEYWORDS: tuple[tuple[str, str], ...] = (
 )
 
 
-def read_meta_sheet(content: bytes) -> dict[str, Any]:
+def read_meta_sheet(content: bytes, sheet_name: str = "META") -> dict[str, Any]:
     """
     Lee la hoja META de ``ACTAS 2026.xlsx`` y devuelve las metas documentadas.
 
@@ -238,7 +238,7 @@ def read_meta_sheet(content: bytes) -> dict[str, Any]:
         rastrear de que celda salio cada cifra. Las metas no reconocidas no se
         incluyen: es preferible dejar un dato faltante que inventarlo.
     """
-    raw = pd.read_excel(BytesIO(content), sheet_name="META", header=None)
+    raw = pd.read_excel(BytesIO(content), sheet_name=sheet_name, header=None)
     fila_rotulos = None
     for indice in range(min(10, len(raw.index))):
         fila = [normalize_text(v) for v in raw.iloc[indice].tolist()]
@@ -538,7 +538,7 @@ def read_actas_csv_records(content: bytes) -> list[dict[str, Any]]:
     return _actas_records(_read_csv(content))
 
 
-def read_complementaria_records(content: bytes) -> list[dict[str, Any]]:
+def read_complementaria_records(content: bytes, sheet_name: str = "COMPLEMENTARIA") -> list[dict[str, Any]]:
     """
     Lee la hoja COMPLEMENTARIA.
 
@@ -553,7 +553,7 @@ def read_complementaria_records(content: bytes) -> list[dict[str, Any]]:
     list[dict[str, Any]]
         Registros ``{"canal", "fecha", "cantidad", "fila"}``.
     """
-    raw = pd.read_excel(BytesIO(content), sheet_name="COMPLEMENTARIA", header=None)
+    raw = pd.read_excel(BytesIO(content), sheet_name=sheet_name, header=None)
     # Cada canal ocupa una pareja de columnas: fecha y cantidad.
     canales = ((0, 1, "presencial"), (3, 4, "virtual"), (7, 8, "campesena"), (10, 11, "fullpopular"))
     registros: list[dict[str, Any]] = []
@@ -728,25 +728,26 @@ def read_actas_full(content: bytes) -> list[dict[str, Any]]:
     (certificados, pendientes, meta, etc.) pertenece cada dato.
     """
     sheets = list_excel_sheets(content)
+    sheet_map = {s.strip().upper(): s for s in sheets}
     resultado: list[dict[str, Any]] = []
 
-    if "CERTIFICADOS" in sheets:
-        for r in read_certificados_records(content):
+    if "CERTIFICADOS" in sheet_map:
+        for r in _actas_records(pd.read_excel(BytesIO(content), sheet_name=sheet_map["CERTIFICADOS"])):
             r["__type__"] = "certificados"
             resultado.append(r)
 
-    if "PENDIENTES" in sheets:
-        for r in read_pendientes_records(content):
+    if "PENDIENTES" in sheet_map:
+        for r in _actas_records(pd.read_excel(BytesIO(content), sheet_name=sheet_map["PENDIENTES"])):
             r["__type__"] = "pendientes"
             resultado.append(r)
 
-    if "COMPLEMENTARIA" in sheets:
-        for r in read_complementaria_records(content):
+    if "COMPLEMENTARIA" in sheet_map:
+        for r in read_complementaria_records(content, sheet_name=sheet_map["COMPLEMENTARIA"]):
             r["__type__"] = "complementaria"
             resultado.append(r)
 
-    if "META" in sheets:
-        metas = read_meta_sheet(content)
+    if "META" in sheet_map:
+        metas = read_meta_sheet(content, sheet_name=sheet_map["META"])
         if metas:
             metas["__type__"] = "meta"
             resultado.append(metas)

@@ -3,6 +3,7 @@ from pathlib import Path
 # Importamos el decorador asynccontextmanager del módulo contextlib para crear un contexto asíncrono que se puede usar con la declaración with.
 from contextlib import asynccontextmanager 
 from datetime import date
+from typing import Any
 
 # Importamos varias clases y funciones de FastAPI para crear la aplicación web, manejar dependencias, recibir archivos y formularios, y manejar excepciones HTTP.
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile 
@@ -93,10 +94,39 @@ class ActLearnerRequest(BaseModel):
 async def index() -> FileResponse:
     return FileResponse(BASE_DIR / "static" / "index.html")
 
-# Esta ruta devuelve una lista de tipos de información disponibles para la validación de archivos. Cada tipo se representa como un diccionario con un valor y una etiqueta.
+# Esta ruta devuelve una lista de tipos de información y las 4 categorías simplificadas para la carga de archivos.
 @app.get("/api/information-types")
-async def information_types() -> dict[str, list[dict[str, str]]]:
-    return {"items": [{"value": value, "label": label} for value, label in TYPE_LABELS.items()]}
+async def information_types() -> dict[str, Any]:
+    categories = [
+        {
+            "id": "datos_certificacion",
+            "name": "Datos de certificación",
+            "description": "Excel institucional ACTAS 2026.xlsx, DF14A o CSV alternativo",
+            "types": ["actas_completo", "df14a", "csv_certificacion"],
+        },
+        {
+            "id": "actas_revision",
+            "name": "Actas para revisión",
+            "description": "Actas individuales en Word o PDF para revisión",
+            "types": ["acta"],
+        },
+        {
+            "id": "requisitos_aprendices",
+            "name": "Requisitos de aprendices",
+            "description": "Matriz individual en Excel o CSV conectada con requisitos",
+            "types": ["requisitos"],
+        },
+        {
+            "id": "documentos_referencia",
+            "name": "Documentos de referencia",
+            "description": "Informe de Gestión Administrativa y otros documentos de apoyo",
+            "types": ["informe", "otro"],
+        },
+    ]
+    return {
+        "items": [{"value": value, "label": label} for value, label in TYPE_LABELS.items()],
+        "categories": categories,
+    }
 
 # Esta ruta permite subir un archivo y validarlo según el tipo de información especificado. Se recibe el tipo de información como un formulario y el archivo como un archivo cargado. Se llama a la función stage_file para procesar el archivo y se devuelve un diccionario con los resultados de la validación y un ID de validación.
 @app.post("/api/files/validate")

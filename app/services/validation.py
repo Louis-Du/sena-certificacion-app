@@ -28,6 +28,7 @@ SUPPORTED_TYPES: dict[str, set[str]] = {
     "acta": {".pdf", ".docx"},
     "requisitos": {".xlsx", ".xls", ".csv"},
     "actas_completo": {".xlsx", ".xls"},
+    "csv_certificacion": {".csv"},
     "otro": {".xlsx", ".xls", ".csv", ".pdf", ".docx"},
 }
 
@@ -40,7 +41,8 @@ TYPE_LABELS = {
     "informe": "Informe de gestion (tabla de referencia)",
     "acta": "Acta de certificacion",
     "requisitos": "Requisitos / pendientes",
-    "actas_completo": "Paquete completo ACTAS 2026",
+    "actas_completo": "Excel institucional (ACTAS 2026)",
+    "csv_certificacion": "CSV alternativo (Certificados / Pendientes)",
     "otro": "Otro archivo",
 }
 
@@ -113,9 +115,14 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
     extra_columns: list[str] = []
     try:
         frame = None
+        target_type = information_type
         if extension == ".csv":
             frame = _read_csv(content)
             checks.append({"label": "Columnas leidas correctamente", "status": "ok"})
+            if information_type == "csv_certificacion":
+                sub_type, sub_label = detect_csv_certificacion_type(frame)
+                target_type = sub_type
+                checks.append({"label": f"Contenido detectado: {sub_label}", "status": "ok"})
         elif extension in {".xlsx", ".xls"}:
             if information_type == "meta":
                 # La hoja META no es una tabla con encabezados: son rotulos y valores
@@ -133,12 +140,13 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
             elif information_type == "actas_completo":
                 from app.services.parsers import list_excel_sheets
                 sheets = list_excel_sheets(content)
+                sheet_map = {s.strip().upper(): s for s in sheets}
                 expected = ["CERTIFICADOS", "PENDIENTES", "COMPLEMENTARIA", "META"]
-                found = [s for s in expected if s in sheets]
-                missing = [s for s in expected if s not in sheets]
+                found = [s for s in expected if s in sheet_map]
+                missing = [s for s in expected if s not in sheet_map]
                 
                 for s in found:
-                    checks.append({"label": f"Hoja {s} detectada", "status": "ok"})
+                    checks.append({"label": f"Hoja {sheet_map[s]} detectada", "status": "ok"})
                 for s in missing:
                     checks.append({"label": f"Hoja {s} no encontrada", "status": "warning"})
                 
@@ -147,11 +155,11 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
                 
                 # Resumen rapido: sumamos registros de hojas de personas
                 records_found = 0
-                if "CERTIFICADOS" in found:
-                    records_found += len(pd.read_excel(BytesIO(content), sheet_name="CERTIFICADOS"))
-                if "PENDIENTES" in found:
-                    records_found += len(pd.read_excel(BytesIO(content), sheet_name="PENDIENTES"))
-                if "COMPLEMENTARIA" in found:
+                if "CERTIFICADOS" in sheet_map:
+                    records_found += len(pd.read_excel(BytesIO(content), sheet_name=sheet_map["CERTIFICADOS"]))
+                if "PENDIENTES" in sheet_map:
+                    records_found += len(pd.read_excel(BytesIO(content), sheet_name=sheet_map["PENDIENTES"]))
+                if "COMPLEMENTARIA" in sheet_map:
                     checks.append({"label": "La hoja COMPLEMENTARIA se procesara por canales", "status": "info"})
                 
                 valid_records = records_found
@@ -182,7 +190,7 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
         if frame is not None:
             detected_columns = [str(c) for c in frame.columns]
             missing_columns, extra_columns = check_required_columns(
-                information_type, detected_columns
+                target_type, detected_columns
             )
             if missing_columns:
                 checks.append(
@@ -248,6 +256,30 @@ def _read_csv(content: bytes) -> pd.DataFrame:
     if last_error is not None:
         raise last_error
     raise ValueError("No se pudo decodificar el archivo CSV.")
+
+
+def detect_csv_certificacion_type(frame: pd.DataFrame) -> tuple[str, str]:
+    from app.services.parsers import normalize_text
+
+    col_names = [normalize_column_name(str(c)) for c in frame.columns]
+    has_motivo = any("motivo" in c for c in col_names)
+    has_mes = any("mes" in c for c in col_names)
+
+    estado_col = next((c for c in frame.columns if normalize_column_name(str(c)) == "estado"), None)
+    estados: set[str] = set()
+    if estado_col is not None:
+        estados = {normalize_text(v) for v in frame[estado_col].dropna().unique()}
+
+    if has_motivo or any("pendiente" in e for e in estados):
+        return "pendientes", "Listado de pendientes"
+    if has_mes or any("certificado" in e for e in estados):
+        return "certificados", "Listado de certificados"
+
+    missing_cert, _ = check_required_columns("certificados", [str(c) for c in frame.columns])
+    missing_pend, _ = check_required_columns("pendientes", [str(c) for c in frame.columns])
+    if len(missing_pend) < len(missing_cert):
+        return "pendientes", "Listado de pendientes"
+    return "certificados", "Listado de certificados"
 
 
 def normalize_column_name(value: str) -> str:

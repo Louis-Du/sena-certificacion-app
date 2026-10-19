@@ -94,8 +94,11 @@ def test_acts_options_and_information_types_are_available(client: TestClient):
         "informe",
         "acta",
         "requisitos",
+        "actas_completo",
+        "csv_certificacion",
         "otro",
     }
+    assert "categories" in types.json()
 
 
 def test_create_act_rejects_blank_number_and_invalid_review_status(client: TestClient):
