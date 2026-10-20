@@ -456,3 +456,33 @@ def test_certificados_sheet_without_required_columns_reports_them():
     # Escenario del spec: faltan columnas obligatorias -> se informan, no se ocultan.
     missing, _ = check_required_columns("certificados", ["NIVEL", "ESTADO"])
     assert set(missing) == {"NÚMERO DE DOCUMENTO", "NOMBRE", "FICHA"}
+
+
+def test_clean_identification_and_actas_records_ignore_nat_and_deleted_rows():
+    from app.services.parsers import clean_identification, _actas_records
+    import numpy as np
+
+    # 1. clean_identification debe devolver None para NaT, NaN, 'NaT', 'nan', etc.
+    assert clean_identification(pd.NaT) is None
+    assert clean_identification("NaT") is None
+    assert clean_identification("nan") is None
+    assert clean_identification(np.nan) is None
+    assert clean_identification("1043966273.0") == "1043966273"
+
+    # 2. DataFrame simulando filas reales seguidas de filas borradas con fechas (que generan NaT)
+    data = {
+        "NIVEL": ["Tecnólogo", None, None],
+        "FICHA": [2999999.0, np.nan, np.nan],
+        "PROGRAMA": ["ADSO", None, None],
+        "NÚMERO DE DOCUMENTO": [100000001.0, np.nan, np.nan],
+        "NOMBRE": ["Aprendiz uno", None, None],
+        "FECHA TERMINACION": [pd.Timestamp("2025-01-10"), pd.NaT, pd.NaT],
+    }
+    df = pd.DataFrame(data)
+    records = _actas_records(df)
+
+    # Solo debe retornar 1 registro real, ignorando las filas que solo tienen NaT/NaN
+    assert len(records) == 1
+    assert records[0]["numero de documento"] == "100000001"
+    assert records[0]["ficha"] == "2999999"
+

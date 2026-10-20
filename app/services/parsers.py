@@ -68,10 +68,15 @@ def clean_identification(value: Any) -> str | None:
 
     Devuelve el documento limpio o ``None`` si la celda no tenia dato.
     """
-    if value is None or (isinstance(value, float) and pd.isna(value)):
+    if value is None:
         return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
     text = str(value).strip()
-    if not text:
+    if not text or text.lower() in {"nan", "nat", "none"}:
         return None
     # Numeros como 1.043966273e+09 o 1043966273.0 se reducen a su parte entera.
     try:
@@ -509,7 +514,8 @@ def _es_vacio(value: Any) -> bool:
             return True
     except (TypeError, ValueError):
         pass
-    return str(value).strip() == ""
+    text = str(value).strip()
+    return text == "" or text.lower() in {"nan", "nat", "none"}
 
 
 def read_certificados_records(content: bytes) -> list[dict[str, Any]]:

@@ -245,7 +245,7 @@ def _first_value(normalized: dict[str, Any], *candidates: str) -> str | None:
         if value is None:
             continue
         text_value = str(value).strip()
-        if text_value and text_value.lower() != "nan":
+        if text_value and text_value.lower() not in {"nan", "nat", "none"}:
             return text_value
     return None
 

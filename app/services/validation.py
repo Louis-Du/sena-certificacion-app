@@ -154,11 +154,12 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
                     raise ValueError("El archivo no contiene ninguna de las hojas esperadas del paquete ACTAS 2026.")
                 
                 # Resumen rapido: sumamos registros de hojas de personas
+                from app.services.parsers import _actas_records
                 records_found = 0
                 if "CERTIFICADOS" in sheet_map:
-                    records_found += len(pd.read_excel(BytesIO(content), sheet_name=sheet_map["CERTIFICADOS"]))
+                    records_found += len(_actas_records(pd.read_excel(BytesIO(content), sheet_name=sheet_map["CERTIFICADOS"])))
                 if "PENDIENTES" in sheet_map:
-                    records_found += len(pd.read_excel(BytesIO(content), sheet_name=sheet_map["PENDIENTES"]))
+                    records_found += len(_actas_records(pd.read_excel(BytesIO(content), sheet_name=sheet_map["PENDIENTES"])))
                 if "COMPLEMENTARIA" in sheet_map:
                     checks.append({"label": "La hoja COMPLEMENTARIA se procesara por canales", "status": "info"})
                 
