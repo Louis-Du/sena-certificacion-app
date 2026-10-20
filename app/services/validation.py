@@ -156,15 +156,60 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
                 # Resumen rapido: sumamos registros de hojas de personas
                 from app.services.parsers import _actas_records
                 records_found = 0
+                df_cert = None
+                df_pend = None
                 if "CERTIFICADOS" in sheet_map:
-                    records_found += len(_actas_records(pd.read_excel(BytesIO(content), sheet_name=sheet_map["CERTIFICADOS"])))
+                    df_cert = pd.read_excel(BytesIO(content), sheet_name=sheet_map["CERTIFICADOS"])
+                    records_found += len(_actas_records(df_cert))
                 if "PENDIENTES" in sheet_map:
-                    records_found += len(_actas_records(pd.read_excel(BytesIO(content), sheet_name=sheet_map["PENDIENTES"])))
+                    df_pend = pd.read_excel(BytesIO(content), sheet_name=sheet_map["PENDIENTES"])
+                    records_found += len(_actas_records(df_pend))
                 if "COMPLEMENTARIA" in sheet_map:
                     checks.append({"label": "La hoja COMPLEMENTARIA se procesara por canales", "status": "info"})
                 
                 valid_records = records_found
                 checks.append({"label": "Contenido multi-hoja validado", "status": "ok"})
+
+                # Verificación de coherencia cruzada y niveles en actas_completo
+                if df_cert is not None and df_pend is not None:
+                    cert_recs = _actas_records(df_cert)
+                    pend_recs = _actas_records(df_pend)
+                    cert_keys = {
+                        (r.get("numero de documento"), r.get("ficha"))
+                        for r in cert_recs
+                        if r.get("numero de documento") and r.get("ficha")
+                    }
+                    pend_keys = {
+                        (r.get("numero de documento"), r.get("ficha"))
+                        for r in pend_recs
+                        if r.get("numero de documento") and r.get("ficha")
+                    }
+                    conflictos = cert_keys & pend_keys
+                    if conflictos:
+                        inconsistencies += len(conflictos)
+                        checks.append({
+                            "label": f"Coherencia: {len(conflictos)} aprendices figuran simultáneamente en CERTIFICADOS y PENDIENTES con la misma ficha",
+                            "status": "warning",
+                        })
+
+                # Verificación de niveles sin clasificar en hojas de personas
+                u_total = 0
+                all_unclass = []
+                if df_cert is not None:
+                    uc, un = check_formation_levels(df_cert)
+                    u_total += uc
+                    all_unclass.extend(un)
+                if df_pend is not None:
+                    up, u_pnames = check_formation_levels(df_pend)
+                    u_total += up
+                    all_unclass.extend(u_pnames)
+                if u_total > 0:
+                    inconsistencies += u_total
+                    unclass_sample = ", ".join(sorted(set(all_unclass))[:3])
+                    checks.append({
+                        "label": f"{u_total} registros con nivel de formación sin clasificar ({unclass_sample})",
+                        "status": "warning",
+                    })
             else:
                 frame = pd.read_excel(BytesIO(content))
                 checks.append({"label": "Columnas leidas correctamente", "status": "ok"})
@@ -212,6 +257,18 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
             records_found, valid_records, inconsistencies, duplicate_rows = _tabular_summary(frame)
             if duplicate_rows:
                 checks.append({"label": f"{duplicate_rows} registros duplicados detectados", "status": "warning"})
+            u_count, u_names = check_formation_levels(frame)
+            if u_count > 0:
+                inconsistencies += u_count
+                checks.append({
+                    "label": f"{u_count} registros con nivel de formación sin clasificar ({', '.join(u_names[:3])})",
+                    "status": "warning",
+                })
+            date_warns = check_dates_and_periods(frame, target_type)
+            for dw in date_warns:
+                if dw["status"] == "warning":
+                    inconsistencies += 1
+                checks.append(dw)
     except Exception as error:
         return ValidationResult(
             file_name=file_name,
@@ -322,3 +379,60 @@ def _error(file_name: str, label: str, message: str) -> ValidationResult:
         checks=[{"label": message, "status": "error"}],
         message=message,
     )
+
+
+def check_formation_levels(frame: pd.DataFrame) -> tuple[int, list[str]]:
+    from app.services.parsers import classify_nivel, normalize_text
+
+    nivel_col = next((c for c in frame.columns if "nivel" in normalize_text(str(c))), None)
+    if nivel_col is None:
+        return 0, []
+    unclassified_names: set[str] = set()
+    count = 0
+    for val in frame[nivel_col].dropna():
+        text = str(val).strip()
+        if not text or text.lower() in {"nan", "nat", "none"}:
+            continue
+        if classify_nivel(val) is None:
+            count += 1
+            unclassified_names.add(text)
+    return count, sorted(unclassified_names)
+
+
+def check_dates_and_periods(frame: pd.DataFrame, target_type: str) -> list[dict[str, str]]:
+    from app.services.parsers import normalize_text
+
+    warnings: list[dict[str, str]] = []
+    meses_validos = {
+        "enero", "febrero", "marzo", "abril", "mayo", "junio",
+        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+    }
+    meses_periodo = {
+        "enero", "febrero", "marzo", "abril", "mayo", "junio",
+        "julio", "agosto", "septiembre",
+    }
+
+    mes_col = next((c for c in frame.columns if "mes" in normalize_text(str(c))), None)
+    if mes_col is not None:
+        fuera_periodo = 0
+        invalido = 0
+        for val in frame[mes_col].dropna():
+            texto = normalize_text(str(val))
+            if not texto or texto in {"nan", "nat", "none"}:
+                continue
+            if texto not in meses_validos:
+                invalido += 1
+            elif texto not in meses_periodo:
+                fuera_periodo += 1
+        if invalido:
+            warnings.append({
+                "label": f"{invalido} registros con mes de certificación no válido",
+                "status": "warning",
+            })
+        if fuera_periodo:
+            warnings.append({
+                "label": f"{fuera_periodo} registros corresponden a meses fuera del período de análisis (Ene-Sep 2026)",
+                "status": "info",
+            })
+
+    return warnings

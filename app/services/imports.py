@@ -75,61 +75,66 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
     if staged.result.status == "error":
         raise ValueError("El archivo tiene errores que impiden la importacion.")
 
-    records = parse_records(staged.file_name, staged.content, staged.information_type)
-    
-    # Procesamos los registros para extraer el tipo si viene incrustado (Smart Import)
-    final_records = []
-    keys = []
-    for r in records:
-        rtype = r.pop("__type__", staged.information_type)
-        final_records.append((r, rtype))
-        keys.append(record_key(rtype, r))
+    try:
+        records = parse_records(staged.file_name, staged.content, staged.information_type)
+        
+        # Procesamos los registros para extraer el tipo si viene incrustado (Smart Import)
+        final_records = []
+        keys = []
+        for r in records:
+            rtype = r.pop("__type__", staged.information_type)
+            final_records.append((r, rtype))
+            keys.append(record_key(rtype, r))
 
-    existing = _existing_records_multi(session, keys)
-    history = ImportHistory(
-        file_name=staged.file_name,
-        information_type=TYPE_LABELS.get(staged.information_type, staged.information_type),
-        records_count=len(records),
-        new_records=sum(key not in existing for key in keys),
-        updated_records=sum(key in existing for key in keys),
-        warning_count=sum(check["status"] == "warning" for check in staged.result.checks),
-        status="completed",
-        message="Importacion confirmada por el usuario.",
-    )
-    session.add(history)
-    session.flush()
+        existing = _existing_records_multi(session, keys)
+        history = ImportHistory(
+            file_name=staged.file_name,
+            information_type=TYPE_LABELS.get(staged.information_type, staged.information_type),
+            records_count=len(records),
+            new_records=sum(key not in existing for key in keys),
+            updated_records=sum(key in existing for key in keys),
+            warning_count=sum(check["status"] == "warning" for check in staged.result.checks),
+            error_count=0,
+            status="completed",
+            message="Importacion confirmada por el usuario.",
+        )
+        session.add(history)
+        session.flush()
 
-    for row_number, ((record, rtype), key) in enumerate(zip(final_records, keys), start=2):
-        current = existing.get(key)
-        payload = json.dumps(record, ensure_ascii=True, default=str)
-        if current is None:
-            session.add(
-                ImportedRecord(
-                    import_id=history.id,
-                    information_type=rtype,
-                    record_key=key,
-                    row_number=row_number,
-                    payload=payload,
+        for row_number, ((record, rtype), key) in enumerate(zip(final_records, keys), start=2):
+            current = existing.get(key)
+            payload = json.dumps(record, ensure_ascii=True, default=str)
+            if current is None:
+                session.add(
+                    ImportedRecord(
+                        import_id=history.id,
+                        information_type=rtype,
+                        record_key=key,
+                        row_number=row_number,
+                        payload=payload,
+                    )
                 )
-            )
-        else:
-            current.import_id = history.id
-            current.row_number = row_number
-            current.payload = payload
+            else:
+                current.import_id = history.id
+                current.row_number = row_number
+                current.payload = payload
 
-    # Si hay registros de aprendices, actualizamos la tabla maestra
-    learners_records = [r for r, t in final_records if t in {"df14a", "certificados", "pendientes"}]
-    if learners_records:
-        upsert_learners_from_records(session, learners_records)
+        # Si hay registros de aprendices, actualizamos la tabla maestra
+        learners_records = [r for r, t in final_records if t in {"df14a", "certificados", "pendientes"}]
+        if learners_records:
+            upsert_learners_from_records(session, learners_records)
 
-    # Si hay registros de requisitos, actualizamos los requisitos de los aprendices
-    requisitos_records = [r for r, t in final_records if t == "requisitos"]
-    if requisitos_records:
-        _sync_requirements_from_records(session, requisitos_records)
+        # Si hay registros de requisitos, actualizamos los requisitos de los aprendices
+        requisitos_records = [r for r, t in final_records if t == "requisitos"]
+        if requisitos_records:
+            _sync_requirements_from_records(session, requisitos_records)
 
-    session.commit()
-    _staged_imports.pop(validation_id, None)
-    return import_result(history)
+        session.commit()
+        _staged_imports.pop(validation_id, None)
+        return import_result(history)
+    except Exception:
+        session.rollback()
+        raise
 
 
 def import_result(history: ImportHistory) -> dict[str, Any]:
@@ -243,6 +248,32 @@ def record_key(information_type: str, record: dict[str, Any]) -> str:
             ficha = clean_identification(clean.get("ficha")) or ""
             return hashlib.sha256(f"{information_type}:{doc}:{ficha}".encode("utf-8")).hexdigest()
 
+    if information_type == "df14a":
+        doc = clean_identification(
+            clean.get("numero de documento")
+            or clean.get("documento")
+            or clean.get("identificacion")
+            or clean.get("nis")
+            or clean.get("DOCUMENTO")
+        )
+        if doc:
+            ficha = (
+                clean_identification(clean.get("ficha") or clean.get("codigo ficha") or clean.get("FICHA"))
+                or ""
+            )
+            return hashlib.sha256(f"{information_type}:{doc}:{ficha}".encode("utf-8")).hexdigest()
+
+    if information_type == "requisitos":
+        doc = clean_identification(
+            clean.get("documento")
+            or clean.get("numero de documento")
+            or clean.get("identificacion")
+            or clean.get("DOCUMENTO")
+        )
+        req = (clean.get("requisito") or clean.get("REQUISITO") or "").strip().lower()
+        if doc and req:
+            return hashlib.sha256(f"{information_type}:{doc}:{req}".encode("utf-8")).hexdigest()
+
     normalized = json.dumps(
         {"information_type": information_type, "record": clean},
         ensure_ascii=True,
@@ -326,12 +357,18 @@ def _upsert_learners(records: list[dict[str, Any]], session: Session) -> None:
         if learner is None:
             session.add(Learner(**row))
             continue
-        learner.name = row["name"]
-        learner.program = row["program"]
-        learner.group_code = row["group_code"]
-        learner.training_type = row["training_type"]
-        learner.certification_status = row["certification_status"]
-        learner.tracking_notes = row["tracking_notes"]
+        if row.get("name") and row["name"] != "Aprendiz sin nombre":
+            learner.name = row["name"]
+        if row.get("program"):
+            learner.program = row["program"]
+        if row.get("group_code"):
+            learner.group_code = row["group_code"]
+        if row.get("training_type"):
+            learner.training_type = row["training_type"]
+        if row.get("certification_status"):
+            learner.certification_status = row["certification_status"]
+        if row.get("tracking_notes"):
+            learner.tracking_notes = row["tracking_notes"]
 
 
 def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
