@@ -173,6 +173,10 @@ def upsert_learners_from_records(session: Session, records: list[dict[str, Any]]
             continue
         changed = False
         for field, value in row.items():
+            if value is None:
+                continue
+            if field == "name" and value == "Aprendiz sin nombre" and learner.name and learner.name != "Aprendiz sin nombre":
+                continue
             if getattr(learner, field) != value:
                 setattr(learner, field, value)
                 changed = True

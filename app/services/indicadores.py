@@ -526,6 +526,35 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
             f"{complementaria['sin_fecha']} registros de complementaria sin fecha no se pudieron ubicar en el periodo."
         )
 
+    # ---- Coherencia cruzada: Certificados vs. Pendientes ----
+    cert_pares = {
+        (
+            parsers.clean_identification(r.get("numero de documento")),
+            parsers.clean_identification(r.get("ficha")),
+        )
+        for r in registros_certificados
+        if parsers.normalize_text(r.get("estado")) == "certificados"
+        and parsers.normalize_text(r.get("mes de certificacion")) in MESES_DEL_PERIODO
+    }
+    cert_pares = {(d, f) for d, f in cert_pares if d is not None and f is not None}
+
+    pend_pares = {
+        (
+            parsers.clean_identification(r.get("numero de documento")),
+            parsers.clean_identification(r.get("ficha")),
+        )
+        for r in registros_pendientes
+        if parsers.normalize_text(r.get("estado")) == "pendiente"
+    }
+    pend_pares = {(d, f) for d, f in pend_pares if d is not None and f is not None}
+
+    conflictos_cert_pend = cert_pares & pend_pares
+    if conflictos_cert_pend:
+        advertencias.append(
+            f"Inconsistencia de coherencia: {len(conflictos_cert_pend)} aprendiz(ces) figuran "
+            "simultáneamente como certificados y pendientes para la misma ficha."
+        )
+
     # ---- Motivos de no certificacion --------------------------------------
     motivos_incidencias = pendientes["motivos"]
     total_incidencias = sum(motivos_incidencias.values())
@@ -603,4 +632,5 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
         "complementaria_canales": complementaria["por_canal"],
         "referencia_institucional": referencia,
         "ultimas_actas": ultimas_actas,
+        "conflictos_certificados_pendientes": len(conflictos_cert_pend),
     }
