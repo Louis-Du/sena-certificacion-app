@@ -19,8 +19,11 @@ const validationStatus = document.querySelector("#validation-status");
 const validationChecks = document.querySelector("#validation-checks");
 const confirmationPanel = document.querySelector("#confirmation-panel");
 const confirmFile = document.querySelector("#confirm-file");
+const confirmImportable = document.querySelector("#confirm-importable");
 const confirmNew = document.querySelector("#confirm-new");
 const confirmUpdated = document.querySelector("#confirm-updated");
+const confirmRejected = document.querySelector("#confirm-rejected");
+const confirmBreakdown = document.querySelector("#confirm-breakdown");
 const confirmWarnings = document.querySelector("#confirm-warnings");
 const historyList = document.querySelector("#history-list");
 const learnersList = document.querySelector("#learners-list");
@@ -199,7 +202,9 @@ function clearFile() {
 
 function renderValidation(result) {
   validationMessage.textContent = result.message || "Validacion completada.";
-  validationStatus.textContent = result.status === "error" ? "NO APTO" : result.status === "warning" ? "CON ADVERTENCIAS" : "APTO PARA REVISAR";
+  // Distingue "la validacion termino" (file-status) de "es apto para importar"
+  // (este estado). Un archivo con advertencias no se presenta como aprobado.
+  validationStatus.textContent = result.status === "error" ? "NO APTO" : result.status === "warning" ? "APTO CON ADVERTENCIAS" : "APTO PARA IMPORTAR";
   validationStatus.className = `result-badge ${result.status}`;
   validationChecks.replaceChildren(...result.checks.map((check) => {
     const item = document.createElement("div");
@@ -235,9 +240,34 @@ async function validateFile() {
       return;
     }
     const preview = await readResponse(await fetch(`/api/imports/${validationId}/preview`));
+    if (!preview.records_count) {
+      throw new Error("El archivo no contiene registros importables. Corrige los errores y vuelve a validar.");
+    }
     confirmFile.textContent = preview.file_name;
+    confirmImportable.textContent = preview.records_count;
     confirmNew.textContent = preview.new_records;
     confirmUpdated.textContent = preview.updated_records;
+    confirmRejected.textContent = preview.rejected_records ?? 0;
+    const breakdownLabels = {
+      certificados: "Certificados",
+      pendientes: "Pendientes",
+      complementaria: "Complementaria",
+      meta: "Meta",
+      requisitos: "Requisitos",
+      df14a: "DF14A",
+      acta: "Acta",
+      informe: "Informe",
+      otro: "Documento de apoyo",
+    };
+    const breakdownLines = Object.entries(preview.breakdown || {}).map(([type, counts]) => {
+      const label = breakdownLabels[type] || type;
+      return `${label}: ${counts.valid_records} de ${counts.records_found} registros importables`;
+    });
+    confirmBreakdown.replaceChildren(...breakdownLines.map((line) => {
+      const item = document.createElement("div");
+      item.textContent = line;
+      return item;
+    }));
     confirmWarnings.replaceChildren(...preview.warnings.map((warning) => {
       const item = document.createElement("div");
       item.textContent = `⚠ ${warning}`;

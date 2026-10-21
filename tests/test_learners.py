@@ -383,7 +383,7 @@ def test_learner_detail_exposes_dates_and_empty_acts_for_learner_without_associa
 
 
 def test_learner_detail_history_is_always_empty_even_with_imports(client: TestClient):
-    content = csv_bytes("identificacion,nombre\n1001,Ana\n")
+    content = csv_bytes("identificacion,nombre,FICHA\n1001,Ana,3001\n")
     response = client.post(
         "/api/files/validate",
         data={"information_type": "df14a"},

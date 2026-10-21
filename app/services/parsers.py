@@ -528,20 +528,71 @@ def read_pendientes_records(content: bytes) -> list[dict[str, Any]]:
     return _actas_records(pd.read_excel(BytesIO(content), sheet_name="PENDIENTES"))
 
 
+def read_csv_frame(content: bytes) -> pd.DataFrame:
+    """Lee un CSV probando codificaciones habituales del SENA.
+
+    Los archivos del SENA pueden venir en UTF-8 o en cp1252. Se intenta primero
+    UTF-8 y, si falla, se prueban las codificaciones de Windows. Las lineas con
+    problemas de formato se omiten solo cuando pandas no puede continuar; el
+    objetivo es no detener toda la validacion por una fila mal escapada.
+    """
+    last_error: Exception | None = None
+    for encoding in ("utf-8", "utf-8-sig", "cp1252", "latin-1"):
+        try:
+            return pd.read_csv(BytesIO(content), encoding=encoding)
+        except UnicodeDecodeError as error:
+            last_error = error
+        except pd.errors.ParserError as error:
+            try:
+                return pd.read_csv(BytesIO(content), encoding=encoding, on_bad_lines="skip")
+            except Exception as inner:
+                last_error = inner
+    if last_error is not None:
+        raise last_error
+    raise ValueError("No se pudo decodificar el archivo CSV.")
+
+
+def normalize_column_name(value: str) -> str:
+    """Normaliza un encabezado para compararlo sin tildes, mayusculas ni guiones."""
+    ascii_value = normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    return " ".join(ascii_value.lower().replace("_", " ").replace("-", " ").split())
+
+
+def detect_csv_certificacion_type(frame: pd.DataFrame) -> tuple[str, str]:
+    """Distingue si un CSV alternativo contiene certificados o pendientes.
+
+    La regla se apoya en el contenido declarado por el archivo (columna MOTIVO o
+    ESTADO) y, solo si no hay evidencia, conserva ``certificados`` como valor
+    explicito para que la validacion muestre las columnas faltantes. No inventa
+    un estado ni modifica los datos.
+    """
+    col_names = [normalize_column_name(str(c)) for c in frame.columns]
+    has_motivo = any("motivo" in c for c in col_names)
+    has_mes = any("mes" in c for c in col_names)
+
+    estado_col = next((c for c in frame.columns if normalize_column_name(str(c)) == "estado"), None)
+    estados: set[str] = set()
+    if estado_col is not None:
+        estados = {normalize_text(v) for v in frame[estado_col].dropna().unique()}
+
+    if has_motivo or any("pendiente" in e for e in estados):
+        return "pendientes", "Listado de pendientes"
+    if has_mes or any("certificado" in e for e in estados):
+        return "certificados", "Listado de certificados"
+    return "certificados", "Listado de certificados"
+
+
 def read_actas_csv_records(content: bytes) -> list[dict[str, Any]]:
     """
     Lee un CSV con la misma estructura de las hojas de personas de ACTAS 2026.xlsx.
 
-    Los CSV del SENA suelen venir en codificacion ``cp1252`` (por eso el archivo
-    trae "NÚMERO DE DOCUMENTO" con la letra Ñ/Ú). Se reutiliza el mismo
-    normalizador ``_actas_records`` que usan las hojas de Excel para que los
-    registros queden con los nombres de campo internos ("numero de documento",
-    "estado", ...). Si no se normalizaran, el calculo de indicadores no
-    encontraria las columnas y contaria 0 aprendices: un cero falso.
+    Los CSV del SENA suelen venir en codificacion ``cp1252``. Se reutiliza el
+    mismo normalizador ``_actas_records`` que usan las hojas de Excel para que
+    los registros queden con los nombres de campo internos ("numero de
+    documento", "estado", ...). Si no se normalizaran, el calculo de indicadores
+    no encontraria las columnas y contaria 0 aprendices: un cero falso.
     """
-    from app.services.validation import _read_csv
-
-    return _actas_records(_read_csv(content))
+    return _actas_records(read_csv_frame(content))
 
 
 def read_complementaria_records(content: bytes, sheet_name: str = "COMPLEMENTARIA") -> list[dict[str, Any]]:

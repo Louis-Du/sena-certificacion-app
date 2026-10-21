@@ -19,7 +19,9 @@ def _validate_csv(page, app_url, tmp_path, content: bytes) -> None:
 
 
 def test_confirm_import_persists_data(page, app_url, tmp_path):
-    _validate_csv(page, app_url, tmp_path, csv_bytes("identificacion,nombre\n1001,Ana\n"))
+    _validate_csv(
+        page, app_url, tmp_path, csv_bytes("identificacion,nombre,FICHA\n1001,Ana,3001\n")
+    )
     page.click("#confirm-button")
     page.wait_for_selector("#confirm-button", state="hidden")
     assert "IMPORTACION COMPLETA" in page.locator("#file-status").text_content()
@@ -32,7 +34,9 @@ def test_confirm_import_persists_data(page, app_url, tmp_path):
 
 
 def test_cancel_import_does_not_persist(page, app_url, tmp_path):
-    _validate_csv(page, app_url, tmp_path, csv_bytes("identificacion,nombre\n2001,Bruno\n"))
+    _validate_csv(
+        page, app_url, tmp_path, csv_bytes("identificacion,nombre,FICHA\n2001,Bruno,3001\n")
+    )
     page.click("#cancel-button")
     page.wait_for_selector("#file-panel", state="hidden")
     assert page.locator("#history-list").text_content() == "Aun no hay importaciones."

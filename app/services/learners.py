@@ -139,7 +139,23 @@ def sync_learners_from_imports(session: Session) -> int:
     return upsert_learners_from_records(session, [json.loads(record.payload) for record in records])
 
 
-def upsert_learners_from_records(session: Session, records: list[dict[str, Any]]) -> int:
+def upsert_learners_from_records(
+    session: Session,
+    records: list[dict[str, Any]],
+    skip_status_for: set[str] | None = None,
+) -> int:
+    """Crea o actualiza aprendices a partir de registros importables.
+
+    ``skip_status_for`` contiene identificaciones cuyo estado no debe elegirse
+    automaticamente (por ejemplo, un conflicto CERTIFICADOS/PENDIENTES). Para
+    esos aprendices se conserva el estado existente y, si son nuevos, queda sin
+    definir. El resto de campos se actualiza con la primera fila disponible.
+    """
+    skip_status = {
+        _clean_identification(value)
+        for value in (skip_status_for or set())
+        if value is not None and str(value).strip()
+    }
     prepared_rows = []
     for record in records:
         prepared = _prepare_learner_row(record)
@@ -166,6 +182,8 @@ def upsert_learners_from_records(session: Session, records: list[dict[str, Any]]
 
     updated = 0
     for row in deduplicated_rows:
+        if row["identification"] in skip_status:
+            row["certification_status"] = None
         learner = existing_by_identification.get(row["identification"])
         if learner is None:
             session.add(Learner(**row))

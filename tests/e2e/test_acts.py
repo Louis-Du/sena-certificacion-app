@@ -26,7 +26,7 @@ def test_act_detail_and_learner_link_unlink(page, app_url, tmp_path):
     page.goto(app_url)
     page.click('.type-option[data-type="df14a"]')
     csv_path = tmp_path / "learner.csv"
-    csv_path.write_bytes(csv_bytes("identificacion,nombre\n6001,Hugo\n"))
+    csv_path.write_bytes(csv_bytes("identificacion,nombre,FICHA\n6001,Hugo,4401\n"))
     page.set_input_files("#file-input", str(csv_path))
     page.click("#validate-button")
     page.wait_for_selector("#confirmation-panel:not([hidden])")
@@ -55,11 +55,11 @@ def test_act_review_status_filter(page, app_url):
     page.click("#act-form button[type='submit']")
     page.wait_for_selector("#acts-list tr")
 
-    page.select_option("#act-status", "reviewed")
+    page.select_option("#act-status-filter", "reviewed")
     page.wait_for_timeout(300)
     assert "ACT-E2E-03" in page.locator("#acts-list").text_content()
 
-    page.select_option("#act-status", "pending")
+    page.select_option("#act-status-filter", "pending")
     page.wait_for_timeout(300)
     assert "ACT-E2E-03" not in page.locator("#acts-list").text_content()
 
@@ -68,6 +68,7 @@ def test_acta_file_import_does_not_create_act_entity(page, app_url, tmp_path):
     from tests.conftest import pdf_bytes
 
     page.goto(app_url)
+    page.click('.category-option[data-category="actas_revision"]')
     page.click('.type-option[data-type="acta"]')
     pdf_path = tmp_path / "acta.pdf"
     pdf_path.write_bytes(pdf_bytes())
