@@ -29,7 +29,7 @@ def client(tmp_path) -> Generator[TestClient, None, None]:
     engine.dispose()
 
 
-def upload(client: TestClient, content: bytes = b"nombre,estado\nAna,Por Certificar\n") -> str:
+def upload(client: TestClient, content: bytes = b"FICHA,nombre,estado\n3001,Ana,Por Certificar\n") -> str:
     response = client.post(
         "/api/files/validate",
         data={"information_type": "df14a"},
@@ -55,7 +55,7 @@ def test_validation_reports_duplicate_rows(client: TestClient):
         files={
             "file": (
                 "df14a.csv",
-                b"nombre,estado\nAna,Por Certificar\nAna,Por Certificar\n",
+                b"FICHA,nombre,estado\n3001,Ana,Por Certificar\n3001,Ana,Por Certificar\n",
                 "text/csv",
             )
         },
@@ -69,7 +69,7 @@ def test_validation_reports_duplicate_rows(client: TestClient):
 def test_confirm_creates_history_and_updates_existing_records(client: TestClient):
     validation_id = upload(
         client,
-        b"nombre,estado\nAna,Por Certificar\nLuis,Por Certificar\n",
+        b"FICHA,nombre,estado\n3001,Ana,Por Certificar\n3002,Luis,Por Certificar\n",
     )
     preview = client.get(f"/api/imports/{validation_id}/preview")
     first_import = client.post(f"/api/imports/{validation_id}/confirm")
@@ -80,7 +80,7 @@ def test_confirm_creates_history_and_updates_existing_records(client: TestClient
 
     second_validation = upload(
         client,
-        b"nombre,estado\nAna,Por Certificar\nLuis,Por Certificar\n",
+        b"FICHA,nombre,estado\n3001,Ana,Por Certificar\n3002,Luis,Por Certificar\n",
     )
     second_preview = client.get(f"/api/imports/{second_validation}/preview")
     second_import = client.post(f"/api/imports/{second_validation}/confirm")
@@ -94,7 +94,7 @@ def test_confirm_creates_history_and_updates_existing_records(client: TestClient
 def test_confirm_updates_learners_list_in_sqlite(client: TestClient):
     validation_id = upload(
         client,
-        b"identificacion,nombre,programa,estado\n1001,Ana,Analisis y Desarrollo,Por certificar\n",
+        b"identificacion,nombre,programa,estado,FICHA\n1001,Ana,Analisis y Desarrollo,Por certificar,3001\n",
     )
 
     confirmed = client.post(f"/api/imports/{validation_id}/confirm")

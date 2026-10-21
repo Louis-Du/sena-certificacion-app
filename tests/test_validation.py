@@ -46,16 +46,19 @@ def test_validate_accepts_csv_and_counts_rows():
     assert "no se han guardado datos" in result.message
 
 
-def test_validate_warns_when_required_columns_missing():
+def test_validate_rejects_when_required_columns_missing():
     result = validate_file(
         "certificados.csv",
         csv_bytes("nombre,estado\nAna,Por Certificar\n"),
         "certificados",
     )
 
-    assert result.status == "warning"
+    assert result.status == "error"
     assert result.missing_columns
     assert "NÚMERO DE DOCUMENTO" in result.missing_columns
+
+
+    assert result.valid_records == 0
 
 
 def test_validate_xlsx_df14a_is_ready():
@@ -85,8 +88,10 @@ def test_validate_docx_acta_is_ready():
     assert any("Word" in check["label"] for check in result.checks)
 
 
-def test_validate_unreadable_xlsx_returns_warning_not_error():
+def test_validate_unreadable_xlsx_returns_error():
     result = validate_file("df14a.xlsx", b"esto no es un excel", "df14a")
 
-    assert result.status == "warning"
-    assert "no se pudo leer" in result.message
+    assert result.status == "error"
+    assert "No se pudo leer" in result.message
+    assert result.records_found == 0
+    assert result.valid_records == 0

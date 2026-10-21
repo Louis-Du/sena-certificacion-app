@@ -15,7 +15,17 @@ from sqlalchemy.orm import Session
 
 from app.models import ImportHistory, ImportedRecord, Learner
 from app.services.learners import upsert_learners_from_records
-from app.services.validation import TYPE_LABELS, ValidationResult, validate_file
+from app.services.records import (
+    parse_records,
+    prepare_records,
+    record_key,
+)
+from app.services.validation import (
+    TYPE_LABELS,
+    ValidationResult,
+    conflicting_pairs,
+    validate_file,
+)
 
 
 @dataclass
@@ -43,28 +53,35 @@ def get_staged(validation_id: str) -> StagedImport | None:
 
 
 def import_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
-    records = parse_records(staged.file_name, staged.content, staged.information_type)
-    
-    keys = []
-    for r in records:
-        # Copiamos para no modificar el original durante el preview
-        record_copy = r.copy()
-        rtype = record_copy.pop("__type__", staged.information_type)
-        keys.append(record_key(rtype, record_copy))
-        
+    prepared = prepare_records(staged.file_name, staged.content, staged.information_type)
+    if not prepared.importable:
+        raise ValueError(
+            "El archivo no contiene registros importables. Corrija los errores de "
+            "validacion antes de confirmar."
+        )
+
+    keys = [entry.key for entry in prepared.importable]
     existing = _existing_keys_multi(session, keys)
-    warnings = [check["label"] for check in staged.result.checks if check["status"] == "warning"]
+    warnings = [
+        check["label"]
+        for check in staged.result.checks
+        if check["status"] in {"warning", "error"}
+    ]
     return {
         "validation_id": staged.validation_id,
         "file_name": staged.file_name,
         "information_type": TYPE_LABELS.get(staged.information_type, staged.information_type),
-        "records_count": len(records),
+        "records_count": len(prepared.importable),
+        "parsed_records": prepared.records_found,
+        "rejected_records": prepared.rejected_records,
+        "duplicate_records": prepared.duplicate_records,
         "new_records": sum(key not in existing for key in keys),
         "updated_records": sum(key in existing for key in keys),
         "warnings": warnings,
         "status": staged.result.status,
         "detected_columns": staged.result.detected_columns,
         "missing_columns": staged.result.missing_columns,
+        "breakdown": prepared.breakdown(),
     }
 
 
@@ -76,24 +93,30 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
         raise ValueError("El archivo tiene errores que impiden la importacion.")
 
     try:
-        records = parse_records(staged.file_name, staged.content, staged.information_type)
-        
-        # Procesamos los registros para extraer el tipo si viene incrustado (Smart Import)
-        final_records = []
-        keys = []
-        for r in records:
-            rtype = r.pop("__type__", staged.information_type)
-            final_records.append((r, rtype))
-            keys.append(record_key(rtype, r))
+        prepared = prepare_records(staged.file_name, staged.content, staged.information_type)
+        if not prepared.importable:
+            raise ValueError(
+                "El archivo no contiene registros importables. Corrija los errores de "
+                "validacion antes de confirmar."
+            )
 
+        final_records = [
+            (entry.record, entry.information_type) for entry in prepared.importable
+        ]
+        keys = [entry.key for entry in prepared.importable]
         existing = _existing_records_multi(session, keys)
+
+        new_records = sum(key not in existing for key in keys)
+        updated_records = sum(key in existing for key in keys)
         history = ImportHistory(
             file_name=staged.file_name,
             information_type=TYPE_LABELS.get(staged.information_type, staged.information_type),
-            records_count=len(records),
-            new_records=sum(key not in existing for key in keys),
-            updated_records=sum(key in existing for key in keys),
-            warning_count=sum(check["status"] == "warning" for check in staged.result.checks),
+            records_count=len(final_records),
+            new_records=new_records,
+            updated_records=updated_records,
+            warning_count=sum(
+                check["status"] == "warning" for check in staged.result.checks
+            ),
             error_count=0,
             status="completed",
             message="Importacion confirmada por el usuario.",
@@ -101,7 +124,9 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
         session.add(history)
         session.flush()
 
-        for row_number, ((record, rtype), key) in enumerate(zip(final_records, keys), start=2):
+        for row_number, ((record, rtype), key) in enumerate(
+            zip(final_records, keys), start=2
+        ):
             current = existing.get(key)
             payload = json.dumps(record, ensure_ascii=True, default=str)
             if current is None:
@@ -119,13 +144,30 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
                 current.row_number = row_number
                 current.payload = payload
 
-        # Si hay registros de aprendices, actualizamos la tabla maestra
-        learners_records = [r for r, t in final_records if t in {"df14a", "certificados", "pendientes"}]
+        learners_records = [
+            record
+            for record, rtype in final_records
+            if rtype in {"df14a", "certificados", "pendientes"}
+        ]
+        conflicted_identifications = set()
+        if staged.information_type == "actas_completo":
+            # Un aprendiz que aparece en CERTIFICADOS y PENDIENTES no debe
+            # recibir un estado elegido automaticamente. Sus registros se
+            # guardan, pero el estado del aprendiz se deja como estaba (o sin
+            # definir si es nuevo) hasta que una persona lo resuelva.
+            conflicted_identifications = {
+                documento for documento, _ in conflicting_pairs(prepared)
+            }
         if learners_records:
-            upsert_learners_from_records(session, learners_records)
+            upsert_learners_from_records(
+                session,
+                learners_records,
+                skip_status_for=conflicted_identifications,
+            )
 
-        # Si hay registros de requisitos, actualizamos los requisitos de los aprendices
-        requisitos_records = [r for r, t in final_records if t == "requisitos"]
+        requisitos_records = [
+            record for record, rtype in final_records if rtype == "requisitos"
+        ]
         if requisitos_records:
             _sync_requirements_from_records(session, requisitos_records)
 
@@ -159,137 +201,6 @@ def list_imports(session: Session) -> list[dict[str, Any]]:
         select(ImportHistory).order_by(ImportHistory.imported_at.desc())
     ).all()
     return [import_result(history) for history in histories]
-
-
-def parse_records(file_name: str, content: bytes, information_type: str = "otro") -> list[dict[str, Any]]:
-    """
-    Convierte un archivo validado en una lista de registros (diccionarios).
-
-    Aqui se decide, segun el TIPO DE INFORMACION y la EXTENSION, que lector de
-    ``app.services.parsers`` corresponde. Cada lector devuelve ya los registros en
-    formato diccionario, con nombres de campo internos (en minusculas y sin
-    tildes) para que el resto de la aplicacion no dependa de los encabezados
-    exactos que traiga el archivo original.
-
-    Reglas:
-    * ``certificados`` / ``pendientes`` / ``complementaria`` -> leen su hoja
-      especifica dentro de ACTAS 2026.xlsx (no la primera hoja cualquiera).
-      ``certificados`` y ``pendientes`` tambien aceptan un CSV con la misma
-      estructura de columnas.
-    * ``meta`` -> lee la hoja META y devuelve UN solo registro con las metas.
-    * ``informe`` -> lee la tabla de referencia del Word de gestion.
-    * ``df14a`` -> lee el XML SpreadsheetML.
-    * Cualquier otro caso cae en la lectura tabular generica.
-    """
-    from app.services import parsers
-
-    extension = Path(file_name).suffix.lower()
-    if information_type == "df14a" and extension == ".xml":
-        frame = parsers.parse_df14a_xml(content)
-        return parsers.frame_to_records(frame)
-    if information_type == "certificados" and extension in {".xlsx", ".xls"}:
-        return parsers.read_certificados_records(content)
-    if information_type == "pendientes" and extension in {".xlsx", ".xls"}:
-        return parsers.read_pendientes_records(content)
-    # Los mismos listados de personas pueden venir en CSV (por ejemplo
-    # "ACTAS 2026(PENDIENTES).csv"). Se normalizan con el mismo lector para que
-    # las columnas queden con nombres internos; si no, se contarian 0 aprendices.
-    if information_type in {"certificados", "pendientes"} and extension == ".csv":
-        return parsers.read_actas_csv_records(content)
-    if information_type == "csv_certificacion" and extension == ".csv":
-        from app.services.validation import _read_csv, detect_csv_certificacion_type
-        frame = _read_csv(content)
-        sub_type, _ = detect_csv_certificacion_type(frame)
-        records = parsers.read_actas_csv_records(content)
-        for r in records:
-            r["__type__"] = sub_type
-        return records
-    if information_type == "complementaria" and extension in {".xlsx", ".xls"}:
-        return parsers.read_complementaria_records(content)
-    if information_type == "meta" and extension in {".xlsx", ".xls"}:
-        # La hoja META produce un unico registro "de cabecera" con todas las metas.
-        metas = parsers.read_meta_sheet(content)
-        return [metas] if metas else []
-    if information_type == "actas_completo" and extension in {".xlsx", ".xls"}:
-        return parsers.read_actas_full(content)
-    if information_type == "informe" and extension == ".docx":
-        return parsers.parse_informe_referencia(content)
-    if information_type == "requisitos":
-        if extension in {".xlsx", ".xls", ".csv"}:
-            return _parse_generic_tabular(extension, content)
-        return []
-    if information_type == "acta" and extension == ".docx":
-        result = parsers.parse_acta_docx(content)
-        return result.get("records", [])
-    if extension in {".pdf", ".docx"}:
-        return [{"file_name": file_name, "format": extension[1:]}]
-    return _parse_generic_tabular(extension, content)
-
-
-def _parse_generic_tabular(extension: str, content: bytes) -> list[dict[str, Any]]:
-    if extension == ".csv":
-        from app.services.validation import _read_csv
-
-        frame = _read_csv(content)
-        return _frame_records(frame)
-    if extension in {".xlsx", ".xls"}:
-        frame = pd.read_excel(BytesIO(content))
-        return _frame_records(frame)
-    return []
-
-
-def record_key(information_type: str, record: dict[str, Any]) -> str:
-    from app.services.parsers import clean_identification
-
-    clean = {k: v for k, v in record.items() if k != "__type__"}
-    if information_type in {"certificados", "pendientes"}:
-        doc = clean_identification(clean.get("numero de documento") or clean.get("documento"))
-        if doc:
-            ficha = clean_identification(clean.get("ficha")) or ""
-            return hashlib.sha256(f"{information_type}:{doc}:{ficha}".encode("utf-8")).hexdigest()
-
-    if information_type == "df14a":
-        doc = clean_identification(
-            clean.get("numero de documento")
-            or clean.get("documento")
-            or clean.get("identificacion")
-            or clean.get("nis")
-            or clean.get("DOCUMENTO")
-        )
-        if doc:
-            ficha = (
-                clean_identification(clean.get("ficha") or clean.get("codigo ficha") or clean.get("FICHA"))
-                or ""
-            )
-            return hashlib.sha256(f"{information_type}:{doc}:{ficha}".encode("utf-8")).hexdigest()
-
-    if information_type == "requisitos":
-        doc = clean_identification(
-            clean.get("documento")
-            or clean.get("numero de documento")
-            or clean.get("identificacion")
-            or clean.get("DOCUMENTO")
-        )
-        req = (clean.get("requisito") or clean.get("REQUISITO") or "").strip().lower()
-        if doc and req:
-            return hashlib.sha256(f"{information_type}:{doc}:{req}".encode("utf-8")).hexdigest()
-
-    normalized = json.dumps(
-        {"information_type": information_type, "record": clean},
-        ensure_ascii=True,
-        sort_keys=True,
-        default=str,
-    )
-    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-
-
-def _frame_records(frame: pd.DataFrame) -> list[dict[str, Any]]:
-    clean_frame = frame.where(pd.notna(frame), None)
-    return [
-        {str(key): value for key, value in row.items() if value is not None}
-        for row in clean_frame.to_dict(orient="records")
-        if any(value is not None for value in row.values())
-    ]
 
 
 def _existing_keys(session: Session, information_type: str, keys: list[str]) -> set[str]:

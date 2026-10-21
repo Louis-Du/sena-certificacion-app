@@ -8,8 +8,10 @@ Primer vertical del sistema de informacion para cargar y validar archivos usados
 - `POST /api/files/validate` valida un archivo en memoria y no modifica la base de datos.
 - `GET /api/learners` devuelve el listado de aprendices guardados en SQLite.
 - Se admiten `DF14A`, `Acta de certificacion`, `Requisitos / pendientes` y `Otro archivo`.
-- La validacion reconoce `XLSX`, `XLS`, `CSV`, `PDF` y `DOCX` segun el tipo seleccionado.
+- La validacion reconoce `XLSX`, `XLS`, `CSV`, `XML`, `PDF` y `DOCX` segun el tipo seleccionado.
 - El analisis de filas y encabezados se realiza para archivos tabulares cuando el formato puede abrirse.
+- Los contadores, las reglas por tipo y las decisiones administrativas pendientes
+  estan documentados en [`docs/validation_rules.md`](docs/validation_rules.md).
 
 ## Modelo inicial de datos
 

@@ -52,7 +52,7 @@ def test_validate_preview_confirm_persists_only_after_confirm(client: TestClient
 
 
 def test_second_confirm_of_same_validation_is_rejected(client: TestClient):
-    validated = _validate(client, "df14a.csv", csv_bytes("nombre\nAna\n"))
+    validated = _validate(client, "df14a.csv", csv_bytes("FICHA,nombre\n3001,Ana\n"))
     validation_id = validated["validation_id"]
 
     assert client.post(f"/api/imports/{validation_id}/confirm").status_code == 200
@@ -63,9 +63,9 @@ def test_second_confirm_of_same_validation_is_rejected(client: TestClient):
 
 
 def test_reimport_updates_learners_without_duplicating_sqlite_rows(client: TestClient):
-    first = csv_bytes("DOCUMENTO,NOMBRES,PROGRAMA\n1001,Ana,Software\n")
-    same = csv_bytes("DOCUMENTO,NOMBRES,PROGRAMA\n1001,Ana,Software\n")
-    changed = csv_bytes("DOCUMENTO,NOMBRES,PROGRAMA\n1001,Ana Maria,Redes\n")
+    first = csv_bytes("DOCUMENTO,NOMBRES,PROGRAMA,FICHA\n1001,Ana,Software,3001\n")
+    same = csv_bytes("DOCUMENTO,NOMBRES,PROGRAMA,FICHA\n1001,Ana,Software,3001\n")
+    changed = csv_bytes("DOCUMENTO,NOMBRES,PROGRAMA,FICHA\n1001,Ana Maria,Redes,3001\n")
 
     first_id = _validate(client, "df14a.csv", first)["validation_id"]
     client.post(f"/api/imports/{first_id}/confirm")
@@ -199,9 +199,10 @@ def test_acta_file_import_does_not_create_act_entity(client: TestClient):
 
 
 def test_search_and_pagination_keep_working_after_import(client: TestClient):
-    rows = ["DOCUMENTO,NOMBRES,PROGRAMA,ESTADO_ASPIRANTE"]
+    rows = ["DOCUMENTO,NOMBRES,PROGRAMA,ESTADO_ASPIRANTE,FICHA"]
     rows.extend(
-        f"{2000 + index},Aprendiz {index:02d},Software,Por Certificar" for index in range(26)
+        f"{2000 + index},Aprendiz {index:02d},Software,Por Certificar,3001"
+        for index in range(26)
     )
     validation_id = _validate(client, "df14a.csv", csv_bytes("\n".join(rows)))["validation_id"]
     client.post(f"/api/imports/{validation_id}/confirm")

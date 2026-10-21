@@ -4,9 +4,11 @@ from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 from typing import Any
-from unicodedata import normalize
 
 import pandas as pd
+
+from app.services import parsers
+from app.services.records import META_VALUE_KEYS, prepare_records
 
 
 MAX_FILE_SIZE = 20 * 1024 * 1024
@@ -53,6 +55,12 @@ REQUIRED_COLUMNS: dict[str, list[str]] = {
     "requisitos": ["DOCUMENTO", "NOMBRES", "REQUISITO", "ESTADO"],
 }
 
+# Se conservan estos alias porque otros modulos y pruebas los importan desde
+# este servicio. La implementacion vive en parsers/records para evitar ciclos.
+normalize_column_name = parsers.normalize_column_name
+detect_csv_certificacion_type = parsers.detect_csv_certificacion_type
+_read_csv = parsers.read_csv_frame
+
 
 @dataclass
 class ValidationResult:
@@ -62,11 +70,14 @@ class ValidationResult:
     checks: list[dict[str, str]]
     records_found: int | None = None
     valid_records: int | None = None
+    rejected_records: int = 0
+    duplicate_records: int = 0
     inconsistencies: int = 0
     message: str | None = None
     detected_columns: list[str] = field(default_factory=list)
     missing_columns: list[str] = field(default_factory=list)
     extra_columns: list[str] = field(default_factory=list)
+    breakdown: dict[str, dict[str, int]] = field(default_factory=dict)
 
     def as_dict(self) -> dict:
         return {
@@ -76,15 +87,30 @@ class ValidationResult:
             "checks": self.checks,
             "records_found": self.records_found,
             "valid_records": self.valid_records,
+            "rejected_records": self.rejected_records,
+            "duplicate_records": self.duplicate_records,
             "inconsistencies": self.inconsistencies,
             "message": self.message,
             "detected_columns": self.detected_columns,
             "missing_columns": self.missing_columns,
             "extra_columns": self.extra_columns,
+            "breakdown": self.breakdown,
         }
 
 
 def validate_file(file_name: str, content: bytes, information_type: str) -> ValidationResult:
+    """Valida estructura, legibilidad y registros importables de un archivo.
+
+    La validacion es preliminar: no escribe en la base de datos. El estado final
+    se decide con los contadores de :mod:`app.services.records`:
+
+    * ``error``: el archivo no se puede leer o no queda ningun registro
+      importable. La vista previa y la confirmacion se bloquean.
+    * ``warning``: hay registros importables, pero tambien advertencias o filas
+      rechazadas. Se permite importacion parcial de los registros validos.
+    * ``ready``: todos los registros detectados son importables y no hay
+      advertencias.
+    """
     checks: list[dict[str, str]] = []
     extension = Path(file_name).suffix.lower()
     label = TYPE_LABELS.get(information_type, information_type)
@@ -96,152 +122,76 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
     if len(content) > MAX_FILE_SIZE:
         return _error(file_name, label, "El archivo supera el limite recomendado de 20 MB.")
 
-    checks.append({"label": "Archivo abierto correctamente", "status": "ok"})
+    # "Archivo recibido" describe la recepcion, que si esta comprobada. No se
+    # afirma que el contenido se haya podido abrir: eso solo se sabe despues de
+    # leerlo, y en un archivo ilegible no debe aparecer como estado positivo.
+    checks.append({"label": "Archivo recibido", "status": "ok"})
     if extension not in SUPPORTED_TYPES[information_type]:
         return ValidationResult(
             file_name=file_name,
             information_type=label,
             status="error",
             checks=checks + [{"label": "Formato compatible", "status": "error"}],
+            records_found=0,
+            valid_records=0,
             message=f"{extension or 'Sin extension'} no es compatible con {label}.",
         )
 
     checks.append({"label": "Formato compatible", "status": "ok"})
-    records_found: int | None = None
-    valid_records: int | None = None
-    inconsistencies = 0
+
     detected_columns: list[str] = []
     missing_columns: list[str] = []
     extra_columns: list[str] = []
+    inconsistencies = 0
+    target_type = information_type
+    frame: pd.DataFrame | None = None
+
     try:
-        frame = None
-        target_type = information_type
-        if extension == ".csv":
-            frame = _read_csv(content)
+        if information_type == "actas_completo":
+            inconsistencies += _check_actas_sheets(content, checks)
+        elif extension == ".csv":
+            frame = parsers.read_csv_frame(content)
             checks.append({"label": "Columnas leidas correctamente", "status": "ok"})
             if information_type == "csv_certificacion":
-                sub_type, sub_label = detect_csv_certificacion_type(frame)
-                target_type = sub_type
+                target_type, sub_label = parsers.detect_csv_certificacion_type(frame)
                 checks.append({"label": f"Contenido detectado: {sub_label}", "status": "ok"})
         elif extension in {".xlsx", ".xls"}:
             if information_type == "meta":
-                # La hoja META no es una tabla con encabezados: son rotulos y valores
-                # en celdas sueltas. Por eso no se lee como DataFrame normal, sino con
-                # el lector especializado y se informa cuantas metas se reconocieron.
-                from app.services.parsers import read_meta_sheet
-
-                metas = read_meta_sheet(content)
-                if metas:
+                metas = parsers.read_meta_sheet(content)
+                recognized = [key for key in META_VALUE_KEYS if key in metas]
+                if recognized:
                     checks.append(
-                        {"label": f"{len([k for k in metas if not k.endswith('_celda') and k != 'fila_rotulos'])} metas reconocidas", "status": "ok"}
+                        {"label": f"{len(recognized)} metas reconocidas", "status": "ok"}
                     )
                 else:
-                    checks.append({"label": "No se reconocieron metas en la hoja META", "status": "warning"})
-            elif information_type == "actas_completo":
-                from app.services.parsers import list_excel_sheets
-                sheets = list_excel_sheets(content)
-                sheet_map = {s.strip().upper(): s for s in sheets}
-                expected = ["CERTIFICADOS", "PENDIENTES", "COMPLEMENTARIA", "META"]
-                found = [s for s in expected if s in sheet_map]
-                missing = [s for s in expected if s not in sheet_map]
-                
-                for s in found:
-                    checks.append({"label": f"Hoja {sheet_map[s]} detectada", "status": "ok"})
-                for s in missing:
-                    checks.append({"label": f"Hoja {s} no encontrada", "status": "warning"})
-                
-                if not found:
-                    raise ValueError("El archivo no contiene ninguna de las hojas esperadas del paquete ACTAS 2026.")
-                
-                # Resumen rapido: sumamos registros de hojas de personas
-                from app.services.parsers import _actas_records
-                records_found = 0
-                df_cert = None
-                df_pend = None
-                if "CERTIFICADOS" in sheet_map:
-                    df_cert = pd.read_excel(BytesIO(content), sheet_name=sheet_map["CERTIFICADOS"])
-                    records_found += len(_actas_records(df_cert))
-                if "PENDIENTES" in sheet_map:
-                    df_pend = pd.read_excel(BytesIO(content), sheet_name=sheet_map["PENDIENTES"])
-                    records_found += len(_actas_records(df_pend))
-                if "COMPLEMENTARIA" in sheet_map:
-                    checks.append({"label": "La hoja COMPLEMENTARIA se procesara por canales", "status": "info"})
-                
-                valid_records = records_found
-                checks.append({"label": "Contenido multi-hoja validado", "status": "ok"})
-
-                # Verificación de coherencia cruzada y niveles en actas_completo
-                if df_cert is not None and df_pend is not None:
-                    cert_recs = _actas_records(df_cert)
-                    pend_recs = _actas_records(df_pend)
-                    cert_keys = {
-                        (r.get("numero de documento"), r.get("ficha"))
-                        for r in cert_recs
-                        if r.get("numero de documento") and r.get("ficha")
-                    }
-                    pend_keys = {
-                        (r.get("numero de documento"), r.get("ficha"))
-                        for r in pend_recs
-                        if r.get("numero de documento") and r.get("ficha")
-                    }
-                    conflictos = cert_keys & pend_keys
-                    if conflictos:
-                        inconsistencies += len(conflictos)
-                        checks.append({
-                            "label": f"Coherencia: {len(conflictos)} aprendices figuran simultáneamente en CERTIFICADOS y PENDIENTES con la misma ficha",
-                            "status": "warning",
-                        })
-
-                # Verificación de niveles sin clasificar en hojas de personas
-                u_total = 0
-                all_unclass = []
-                if df_cert is not None:
-                    uc, un = check_formation_levels(df_cert)
-                    u_total += uc
-                    all_unclass.extend(un)
-                if df_pend is not None:
-                    up, u_pnames = check_formation_levels(df_pend)
-                    u_total += up
-                    all_unclass.extend(u_pnames)
-                if u_total > 0:
-                    inconsistencies += u_total
-                    unclass_sample = ", ".join(sorted(set(all_unclass))[:3])
-                    checks.append({
-                        "label": f"{u_total} registros con nivel de formación sin clasificar ({unclass_sample})",
-                        "status": "warning",
-                    })
+                    checks.append(
+                        {"label": "No se reconocieron metas en la hoja META", "status": "warning"}
+                    )
             else:
                 frame = pd.read_excel(BytesIO(content))
                 checks.append({"label": "Columnas leidas correctamente", "status": "ok"})
         elif extension == ".xml":
-            from app.services.parsers import parse_df14a_xml
-
-            frame = parse_df14a_xml(content)
+            frame = parsers.parse_df14a_xml(content)
             checks.append({"label": "Columnas leidas correctamente", "status": "ok"})
         elif extension == ".pdf":
-            import fitz
-
-            document = fitz.open(stream=content, filetype="pdf")
-            if document.page_count == 0:
-                raise ValueError("El PDF no contiene paginas.")
+            _validate_pdf(content)
             checks.append({"label": "Documento PDF abierto correctamente", "status": "ok"})
         elif extension == ".docx":
-            from docx import Document
-
-            document = Document(BytesIO(content))
-            if not document.paragraphs and not document.tables:
-                raise ValueError("El documento no contiene contenido.")
+            _validate_docx(content)
             checks.append({"label": "Documento Word abierto correctamente", "status": "ok"})
 
         if frame is not None:
-            detected_columns = [str(c) for c in frame.columns]
+            detected_columns = [str(column) for column in frame.columns]
             missing_columns, extra_columns = check_required_columns(
                 target_type, detected_columns
             )
             if missing_columns:
                 checks.append(
                     {
-                        "label": f"Faltan {len(missing_columns)} columna(s) obligatoria(s): {', '.join(missing_columns)}",
+                        "label": (
+                            f"Faltan {len(missing_columns)} columna(s) obligatoria(s): "
+                            f"{', '.join(missing_columns)}"
+                        ),
                         "status": "warning",
                     }
                 )
@@ -254,95 +204,330 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
                         "status": "info",
                     }
                 )
-            records_found, valid_records, inconsistencies, duplicate_rows = _tabular_summary(frame)
-            if duplicate_rows:
-                checks.append({"label": f"{duplicate_rows} registros duplicados detectados", "status": "warning"})
-            u_count, u_names = check_formation_levels(frame)
-            if u_count > 0:
-                inconsistencies += u_count
-                checks.append({
-                    "label": f"{u_count} registros con nivel de formación sin clasificar ({', '.join(u_names[:3])})",
+
+        prepared = prepare_records(file_name, content, information_type)
+        records_found = prepared.records_found
+        valid_records = prepared.valid_records
+        rejected_records = prepared.rejected_records
+        duplicate_records = prepared.duplicate_records
+        breakdown = prepared.breakdown()
+
+        if duplicate_records:
+            inconsistencies += 1
+            checks.append(
+                {
+                    "label": (
+                        f"{duplicate_records} registros duplicados dentro del archivo; "
+                        "se conservara el ultimo y no se insertaran filas repetidas"
+                    ),
                     "status": "warning",
-                })
-            date_warns = check_dates_and_periods(frame, target_type)
-            for dw in date_warns:
-                if dw["status"] == "warning":
+                }
+            )
+
+        if rejected_records:
+            reasons = sorted(
+                {entry.reason for entry in prepared.rejected if entry.reason}
+            )
+            checks.append(
+                {
+                    "label": (
+                        f"{rejected_records} registro(s) rechazado(s) por datos "
+                        f"incompletos: {', '.join(reasons)}"
+                    ),
+                    "status": "warning" if valid_records else "error",
+                }
+            )
+
+        if records_found == 0:
+            checks.append(
+                {
+                    "label": "No se encontraron registros para importar en el archivo",
+                    "status": "error",
+                }
+            )
+        elif valid_records == 0:
+            checks.append(
+                {
+                    "label": (
+                        "No hay registros importables; corrija los errores antes de "
+                        "confirmar la importacion"
+                    ),
+                    "status": "error",
+                }
+            )
+        else:
+            checks.append(
+                {"label": f"{valid_records:,} registro(s) importable(s)".replace(",", "."), "status": "ok"}
+            )
+
+        checks.append(
+            {"label": f"{records_found:,} registro(s) encontrado(s)".replace(",", "."), "status": "info"}
+        )
+
+        # Advertencias transversales: se calculan por separado sobre los
+        # registros importables y sobre los rechazados. Asi una advertencia
+        # nunca afirma que se importara una fila que en realidad fue descartada.
+        importable_people = _people_frame(prepared.importable)
+        rejected_people = _people_frame(prepared.rejected)
+
+        if importable_people is not None and not importable_people.empty:
+            u_count, u_names = check_formation_levels(importable_people)
+            if u_count > 0:
+                inconsistencies += 1
+                checks.append(
+                    {
+                        "label": (
+                            f"{u_count} registro(s) con nivel de formacion sin clasificar "
+                            f"({', '.join(sorted(set(u_names))[:3])}); se importan, pero no "
+                            "se asignan automaticamente a ninguna categoria"
+                        ),
+                        "status": "warning",
+                    }
+                )
+
+            date_warns = check_dates_and_periods(importable_people, target_type)
+            for warning in date_warns:
+                if warning["status"] == "warning":
                     inconsistencies += 1
-                checks.append(dw)
+                checks.append(warning)
+
+        if rejected_people is not None and not rejected_people.empty:
+            r_count, r_names = check_formation_levels(rejected_people)
+            if r_count > 0:
+                checks.append(
+                    {
+                        "label": (
+                            f"Se detectaron {r_count} registro(s) con nivel de formacion "
+                            f"sin clasificar ({', '.join(sorted(set(r_names))[:3])}) en filas "
+                            "rechazadas; no seran importadas"
+                        ),
+                        "status": "warning",
+                    }
+                )
+
+        if information_type == "actas_completo":
+            inconsistencies += _append_actas_warnings(prepared, checks)
+
+        if information_type == "informe" and records_found == 0:
+            checks.append(
+                {
+                    "label": "No se encontro la tabla de referencia institucional en el documento",
+                    "status": "error",
+                }
+            )
+
+        if inconsistencies:
+            checks.append(
+                {
+                    "label": (
+                        f"Advertencias detectadas: {inconsistencies} "
+                        "(el detalle de filas esta arriba; no bloquean los registros validos)"
+                    ),
+                    "status": "warning",
+                }
+            )
+
+        if valid_records == 0 or records_found == 0:
+            return ValidationResult(
+                file_name=file_name,
+                information_type=label,
+                status="error",
+                checks=checks,
+                records_found=records_found,
+                valid_records=valid_records,
+                rejected_records=rejected_records,
+                duplicate_records=duplicate_records,
+                inconsistencies=inconsistencies,
+                message=(
+                    "El archivo no contiene registros importables. Corrija los errores "
+                    "senalados; no se ha guardado ningun dato."
+                ),
+                detected_columns=detected_columns,
+                missing_columns=missing_columns,
+                extra_columns=extra_columns,
+                breakdown=breakdown,
+            )
+
+        status = (
+            "warning"
+            if inconsistencies or missing_columns or rejected_records or duplicate_records
+            else "ready"
+        )
+        return ValidationResult(
+            file_name=file_name,
+            information_type=label,
+            status=status,
+            checks=checks,
+            records_found=records_found,
+            valid_records=valid_records,
+            rejected_records=rejected_records,
+            duplicate_records=duplicate_records,
+            inconsistencies=inconsistencies,
+            message=(
+                "La validacion es preliminar y no se han guardado datos. "
+                f"Se importaran {valid_records} registro(s) valido(s)"
+                + (f" y se rechazaran {rejected_records}." if rejected_records else ".")
+            ),
+            detected_columns=detected_columns,
+            missing_columns=missing_columns,
+            extra_columns=extra_columns,
+            breakdown=breakdown,
+        )
     except Exception as error:
         return ValidationResult(
             file_name=file_name,
             information_type=label,
-            status="warning",
-            checks=checks + [{"label": "Contenido legible", "status": "warning"}],
-            message=f"El formato parece correcto, pero no se pudo leer su contenido: {error}",
+            status="error",
+            checks=checks + [{"label": "Contenido legible", "status": "error"}],
+            records_found=0,
+            valid_records=0,
+            message=f"No se pudo leer el contenido del archivo: {error}",
         )
 
-    if records_found is not None:
-        checks.append({"label": f"{records_found:,} registros encontrados".replace(",", "."), "status": "ok"})
-        checks.append({"label": f"{valid_records:,} registros validos".replace(",", "."), "status": "ok"})
-        if inconsistencies:
-            checks.append({"label": f"{inconsistencies} registros presentan inconsistencias", "status": "warning"})
 
-    return ValidationResult(
-        file_name=file_name,
-        information_type=label,
-        status="warning" if (inconsistencies or missing_columns) else "ready",
-        checks=checks,
-        records_found=records_found,
-        valid_records=valid_records,
-        inconsistencies=inconsistencies,
-        detected_columns=detected_columns,
-        missing_columns=missing_columns,
-        extra_columns=extra_columns,
-        message="La validacion es preliminar y no se han guardado datos.",
-    )
+def _check_actas_sheets(content: bytes, checks: list[dict[str, str]]) -> int:
+    """Verifica las hojas del paquete ACTAS 2026 sin aplicar reglas de otros tipos.
 
+    Devuelve cuantas hojas faltan para que la validacion pueda reflejar esa
+    advertencia en el estado y en el contador de inconsistencias. La ausencia de
+    COMPLEMENTARIA no se convierte en error: queda pendiente una decision
+    administrativa documentada.
+    """
+    sheets = parsers.list_excel_sheets(content)
+    if not sheets:
+        raise ValueError("El archivo no es un Excel legible.")
+    sheet_map = {sheet.strip().upper(): sheet for sheet in sheets}
+    expected = ["CERTIFICADOS", "PENDIENTES", "COMPLEMENTARIA", "META"]
+    found = [name for name in expected if name in sheet_map]
+    missing = [name for name in expected if name not in sheet_map]
 
-def _read_csv(content: bytes) -> pd.DataFrame:
-    last_error: Exception | None = None
-    for encoding in ("utf-8", "utf-8-sig", "cp1252", "latin-1"):
+    for name in found:
+        checks.append({"label": f"Hoja {sheet_map[name]} detectada", "status": "ok"})
+
+    if not found:
+        # Si el usuario selecciono por error el flujo ACTAS para una matriz de
+        # requisitos, se lo decimos sin volver a evaluar el archivo con reglas
+        # ajenas. Cada tipo conserva su propio lector y sus propios mensajes.
         try:
-            return pd.read_csv(BytesIO(content), encoding=encoding)
-        except UnicodeDecodeError as error:
-            last_error = error
-        except pd.errors.ParserError as error:
-            try:
-                return pd.read_csv(BytesIO(content), encoding=encoding, on_bad_lines="skip")
-            except Exception as inner:
-                last_error = inner
-    if last_error is not None:
-        raise last_error
-    raise ValueError("No se pudo decodificar el archivo CSV.")
+            frame = pd.read_excel(BytesIO(content))
+        except Exception:
+            frame = None
+        if frame is not None:
+            columns = {normalize_column_name(str(column)) for column in frame.columns}
+            if columns & {"documento", "nombres", "requisito", "estado"}:
+                raise ValueError(
+                    "El archivo parece ser una matriz de requisitos, no un paquete "
+                    "ACTAS 2026. Seleccione la categoria 'Requisitos de aprendices'."
+                )
+        raise ValueError(
+            "El archivo no contiene ninguna de las hojas esperadas del paquete ACTAS 2026."
+        )
+
+    for name in missing:
+        suffix = ""
+        if name == "COMPLEMENTARIA":
+            suffix = (
+                "; la ausencia se conserva como advertencia (decision administrativa "
+                "pendiente sobre si debe ser bloqueante)"
+            )
+        checks.append({"label": f"Hoja {name} no encontrada{suffix}", "status": "warning"})
+    return len(missing)
 
 
-def detect_csv_certificacion_type(frame: pd.DataFrame) -> tuple[str, str]:
-    from app.services.parsers import normalize_text
+def _people_frame(entries) -> pd.DataFrame | None:
+    """Construye una tabla con los registros de personas (certificados, pendientes, df14a).
 
-    col_names = [normalize_column_name(str(c)) for c in frame.columns]
-    has_motivo = any("motivo" in c for c in col_names)
-    has_mes = any("mes" in c for c in col_names)
-
-    estado_col = next((c for c in frame.columns if normalize_column_name(str(c)) == "estado"), None)
-    estados: set[str] = set()
-    if estado_col is not None:
-        estados = {normalize_text(v) for v in frame[estado_col].dropna().unique()}
-
-    if has_motivo or any("pendiente" in e for e in estados):
-        return "pendientes", "Listado de pendientes"
-    if has_mes or any("certificado" in e for e in estados):
-        return "certificados", "Listado de certificados"
-
-    missing_cert, _ = check_required_columns("certificados", [str(c) for c in frame.columns])
-    missing_pend, _ = check_required_columns("pendientes", [str(c) for c in frame.columns])
-    if len(missing_pend) < len(missing_cert):
-        return "pendientes", "Listado de pendientes"
-    return "certificados", "Listado de certificados"
+    Las advertencias de nivel y de mes se calculan sobre un grupo concreto de
+    registros (importables o rechazados), nunca mezclando ambos: mezclarlos hacia
+    que se anunciara como importada una fila que ya habia sido rechazada.
+    """
+    records = [
+        entry.record
+        for entry in entries
+        if entry.information_type in {"certificados", "pendientes", "df14a"}
+    ]
+    return pd.DataFrame(records) if records else None
 
 
-def normalize_column_name(value: str) -> str:
-    ascii_value = normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
-    return " ".join(ascii_value.lower().replace("_", " ").replace("-", " ").split())
+def conflicting_pairs(prepared) -> list[tuple[str, str]]:
+    """Devuelve ``(documento, ficha)`` que aparecen en CERTIFICADOS y PENDIENTES.
+
+    Solo considera registros importables: un conflicto con una fila rechazada no
+    debe mostrarse como si fuera a guardarse. No elige ni modifica ningun estado.
+    """
+    cert_records = [
+        entry.record
+        for entry in prepared.importable
+        if entry.information_type == "certificados"
+    ]
+    pend_records = [
+        entry.record
+        for entry in prepared.importable
+        if entry.information_type == "pendientes"
+    ]
+
+    def pairs(records):
+        result = set()
+        for record in records:
+            doc = parsers.clean_identification(
+                record.get("numero de documento") or record.get("documento")
+            )
+            ficha = parsers.clean_identification(record.get("ficha"))
+            if doc and ficha:
+                result.add((doc, ficha))
+        return result
+
+    return sorted(pairs(cert_records) & pairs(pend_records))
+
+
+def _append_actas_warnings(prepared, checks: list[dict[str, str]]) -> int:
+    """Agrega conflictos CERTIFICADOS/PENDIENTES con detalle y sin auto-resolver."""
+    conflicts = conflicting_pairs(prepared)
+    if not conflicts:
+        return 0
+
+    detail = ", ".join(f"{doc} (ficha {ficha})" for doc, ficha in conflicts[:3])
+    if len(conflicts) > 3:
+        detail += f" y {len(conflicts) - 3} mas"
+    checks.append(
+        {
+            "label": (
+                f"Coherencia: {len(conflicts)} aprendices figuran simultáneamente en "
+                f"CERTIFICADOS y PENDIENTES con la misma ficha ({detail}). No se resuelve "
+                "automaticamente: requiere revision administrativa."
+            ),
+            "status": "warning",
+        }
+    )
+    return 1
+
+
+def _validate_pdf(content: bytes) -> None:
+    """Abre el PDF y comprueba que tenga al menos una pagina legible."""
+    import fitz
+
+    try:
+        document = fitz.open(stream=content, filetype="pdf")
+    except Exception as error:
+        raise ValueError(f"PDF ilegible: {error}") from error
+    try:
+        if document.page_count == 0:
+            raise ValueError("El PDF no contiene paginas.")
+        document.load_page(0)
+    finally:
+        document.close()
+
+
+def _validate_docx(content: bytes) -> None:
+    """Abre el DOCX y exige contenido real (parrafos o tablas)."""
+    from docx import Document
+
+    try:
+        document = Document(BytesIO(content))
+    except Exception as error:
+        raise ValueError(f"DOCX ilegible: {error}") from error
+    if not document.paragraphs and not document.tables:
+        raise ValueError("El documento no contiene texto ni tablas interpretables.")
 
 
 def check_required_columns(
@@ -351,20 +536,22 @@ def check_required_columns(
     required = REQUIRED_COLUMNS.get(information_type)
     if not required:
         return [], []
-    normalized_columns = {normalize_column_name(str(c)): str(c) for c in columns}
+    normalized_columns = {normalize_column_name(str(column)): str(column) for column in columns}
     missing: list[str] = []
-    for col in required:
-        if normalize_column_name(col) not in normalized_columns:
-            missing.append(col)
+    for column in required:
+        if normalize_column_name(column) not in normalized_columns:
+            missing.append(column)
+    required_normalized = {normalize_column_name(column) for column in required}
     extra = [
         original
         for original in columns
-        if normalize_column_name(str(original)) not in {normalize_column_name(c) for c in required}
+        if normalize_column_name(str(original)) not in required_normalized
     ]
     return missing, extra
 
 
 def _tabular_summary(frame: pd.DataFrame) -> tuple[int, int, int, int]:
+    """Resumen heredado para compatibilidad; el flujo usa ``prepare_records``."""
     records_found = len(frame.index)
     invalid_rows = int(frame.isna().all(axis=1).sum())
     duplicate_rows = int(frame.duplicated(keep="first").sum())
@@ -377,31 +564,32 @@ def _error(file_name: str, label: str, message: str) -> ValidationResult:
         information_type=label,
         status="error",
         checks=[{"label": message, "status": "error"}],
+        records_found=0,
+        valid_records=0,
         message=message,
     )
 
 
 def check_formation_levels(frame: pd.DataFrame) -> tuple[int, list[str]]:
-    from app.services.parsers import classify_nivel, normalize_text
-
-    nivel_col = next((c for c in frame.columns if "nivel" in normalize_text(str(c))), None)
+    nivel_col = next(
+        (column for column in frame.columns if "nivel" in parsers.normalize_text(str(column))),
+        None,
+    )
     if nivel_col is None:
         return 0, []
     unclassified_names: set[str] = set()
     count = 0
-    for val in frame[nivel_col].dropna():
-        text = str(val).strip()
+    for value in frame[nivel_col].dropna():
+        text = str(value).strip()
         if not text or text.lower() in {"nan", "nat", "none"}:
             continue
-        if classify_nivel(val) is None:
+        if parsers.classify_nivel(value) is None:
             count += 1
             unclassified_names.add(text)
     return count, sorted(unclassified_names)
 
 
 def check_dates_and_periods(frame: pd.DataFrame, target_type: str) -> list[dict[str, str]]:
-    from app.services.parsers import normalize_text
-
     warnings: list[dict[str, str]] = []
     meses_validos = {
         "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -412,12 +600,15 @@ def check_dates_and_periods(frame: pd.DataFrame, target_type: str) -> list[dict[
         "julio", "agosto", "septiembre",
     }
 
-    mes_col = next((c for c in frame.columns if "mes" in normalize_text(str(c))), None)
+    mes_col = next(
+        (column for column in frame.columns if "mes" in parsers.normalize_text(str(column))),
+        None,
+    )
     if mes_col is not None:
         fuera_periodo = 0
         invalido = 0
-        for val in frame[mes_col].dropna():
-            texto = normalize_text(str(val))
+        for value in frame[mes_col].dropna():
+            texto = parsers.normalize_text(str(value))
             if not texto or texto in {"nan", "nat", "none"}:
                 continue
             if texto not in meses_validos:
@@ -425,14 +616,21 @@ def check_dates_and_periods(frame: pd.DataFrame, target_type: str) -> list[dict[
             elif texto not in meses_periodo:
                 fuera_periodo += 1
         if invalido:
-            warnings.append({
-                "label": f"{invalido} registros con mes de certificación no válido",
-                "status": "warning",
-            })
+            warnings.append(
+                {
+                    "label": f"{invalido} registros con mes de certificacion no valido",
+                    "status": "warning",
+                }
+            )
         if fuera_periodo:
-            warnings.append({
-                "label": f"{fuera_periodo} registros corresponden a meses fuera del período de análisis (Ene-Sep 2026)",
-                "status": "info",
-            })
-
+            warnings.append(
+                {
+                    "label": (
+                        f"{fuera_periodo} registros corresponden a meses fuera del período "
+                        "de análisis (Ene-Sep 2026); se importan como referencia, pero no "
+                        "se suman a los indicadores del período"
+                    ),
+                    "status": "info",
+                }
+            )
     return warnings

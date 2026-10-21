@@ -25,7 +25,11 @@ def test_learners_table_loads_after_import(page, app_url, tmp_path):
         page,
         app_url,
         tmp_path,
-        csv_bytes("identificacion,nombre,programa\n3001,Carla,Software\n3002,Diego,Redes\n"),
+        csv_bytes(
+            "identificacion,nombre,programa,FICHA\n"
+            "3001,Carla,Software,4101\n"
+            "3002,Diego,Redes,4102\n"
+        ),
     )
     page.click('a[data-view="aprendices"]')
     page.wait_for_selector("#learners-list tr")
@@ -38,7 +42,11 @@ def test_learner_search_filters_results(page, app_url, tmp_path):
         page,
         app_url,
         tmp_path,
-        csv_bytes("identificacion,nombre,programa\n4001,Elena,Software\n4002,Fabio,Redes\n"),
+        csv_bytes(
+            "identificacion,nombre,programa,FICHA\n"
+            "4001,Elena,Software,4201\n"
+            "4002,Fabio,Redes,4202\n"
+        ),
     )
     page.click('a[data-view="aprendices"]')
     page.wait_for_selector("#learners-list tr")
@@ -55,7 +63,7 @@ def test_open_learner_detail_shows_basic_info(page, app_url, tmp_path):
         page,
         app_url,
         tmp_path,
-        csv_bytes("identificacion,nombre,programa\n5001,Gema,Logistica\n"),
+        csv_bytes("identificacion,nombre,programa,FICHA\n5001,Gema,Logistica,4301\n"),
     )
     page.click('a[data-view="aprendices"]')
     page.wait_for_selector("#learners-list tr")
