@@ -62,14 +62,25 @@ def _labels(body: dict) -> str:
     return " ".join(check["label"] for check in body["checks"])
 
 
-def test_requisitos_file_uses_requisitos_rules_and_not_actas_rules(client: TestClient):
-    path = INCORRECTOS / "Requisitos_incorrecto_sin_columnas_clave.xlsx"
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Requisitos_incorrecto_sin_columnas_clave.xlsx",
+        "Requisitos_pendientes_demo_incorrecto.xlsx",
+    ],
+)
+def test_requisitos_file_uses_requisitos_rules_and_not_actas_rules(
+    client: TestClient, name: str
+):
+    path = INCORRECTOS / name
 
     body = _validate(client, path, "requisitos")
     labels = _labels(body)
 
     assert body["status"] == "error"
+    assert body["records_found"] == 2
     assert body["valid_records"] == 0
+    assert body["rejected_records"] == 2
     assert body["missing_columns"] == ["DOCUMENTO", "NOMBRES", "REQUISITO", "ESTADO"]
     for column in body["missing_columns"]:
         assert column in labels
@@ -79,8 +90,17 @@ def test_requisitos_file_uses_requisitos_rules_and_not_actas_rules(client: TestC
     assert "COMPLEMENTARIA" not in labels
 
 
-def test_requisitos_file_cannot_be_confirmed_without_importable_records(client: TestClient):
-    path = INCORRECTOS / "Requisitos_incorrecto_sin_columnas_clave.xlsx"
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Requisitos_incorrecto_sin_columnas_clave.xlsx",
+        "Requisitos_pendientes_demo_incorrecto.xlsx",
+    ],
+)
+def test_requisitos_file_cannot_be_confirmed_without_importable_records(
+    client: TestClient, name: str
+):
+    path = INCORRECTOS / name
     body = _validate(client, path, "requisitos")
     validation_id = body["validation_id"]
 
