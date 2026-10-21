@@ -1,0 +1,103 @@
+<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+  <Worksheet ss:Name="DF-14A">
+    <Table>
+      <Row><Cell><Data ss:Type="String">DF-14A_</Data></Cell></Row>
+      <Row><Cell><Data ss:Type="String">MATRICULADOS_RESUMEN_POR_FICHA</Data></Cell></Row>
+      <Row><Cell><Data ss:Type="String">23-09-2026</Data></Cell></Row>
+      <Row>
+        <Cell><Data ss:Type="String">CODIGO_REGIONAL</Data></Cell>
+        <Cell><Data ss:Type="String">REGIONAL</Data></Cell>
+        <Cell><Data ss:Type="String">CODIGO_CENTRO</Data></Cell>
+        <Cell><Data ss:Type="String">CENTRO</Data></Cell>
+        <Cell><Data ss:Type="String">CODIGO_PROGRAMA</Data></Cell>
+        <Cell><Data ss:Type="String">VERSION_PROGRAMA</Data></Cell>
+        <Cell><Data ss:Type="String">PROGRAMA</Data></Cell>
+        <Cell><Data ss:Type="String">NIVEL_FORMACION</Data></Cell>
+        <Cell><Data ss:Type="String">DURACION_MAXIMA</Data></Cell>
+        <Cell><Data ss:Type="String">DURACION_ETAPA_LECTIVA</Data></Cell>
+        <Cell><Data ss:Type="String">DURACION_ETAPA_PRODUCTIVA</Data></Cell>
+        <Cell><Data ss:Type="String">FICHA</Data></Cell>
+        <Cell><Data ss:Type="String">FECHA_INICIO_FICHA</Data></Cell>
+        <Cell><Data ss:Type="String">FECHA_FIN_FICHA</Data></Cell>
+        <Cell><Data ss:Type="String">CUPO</Data></Cell>
+        <Cell><Data ss:Type="String">ESTADO_FICHA</Data></Cell>
+        <Cell><Data ss:Type="String">TIPO_RESPUESTA</Data></Cell>
+        <Cell><Data ss:Type="String">PROGRAMA_ESPECIAL</Data></Cell>
+        <Cell><Data ss:Type="String">POR_CERTIFICAR</Data></Cell>
+        <Cell><Data ss:Type="String">CERTIFICADO</Data></Cell>
+      </Row>
+      <Row>
+        <Cell><Data ss:Type="String">13</Data></Cell>
+        <Cell><Data ss:Type="String">REGIONAL BOLÍVAR</Data></Cell>
+        <Cell><Data ss:Type="String">9304</Data></Cell>
+        <Cell><Data ss:Type="String">CENTRO DE COMERCIO Y SERVICIOS</Data></Cell>
+        <Cell><Data ss:Type="String">122115</Data></Cell>
+        <Cell><Data ss:Type="String">1</Data></Cell>
+        <Cell><Data ss:Type="String">GESTION EMPRESARIAL</Data></Cell>
+        <Cell><Data ss:Type="String">TECNÓLOGO</Data></Cell>
+        <Cell><Data ss:Type="String">24</Data></Cell>
+        <Cell><Data ss:Type="String">18</Data></Cell>
+        <Cell><Data ss:Type="String">6</Data></Cell>
+        <Cell><Data ss:Type="String">2558701</Data></Cell>
+        <Cell><Data ss:Type="String">2024-02-05 00:00:00.0</Data></Cell>
+        <Cell><Data ss:Type="String">2026-08-05 00:00:00.0</Data></Cell>
+        <Cell><Data ss:Type="String">35</Data></Cell>
+        <Cell><Data ss:Type="String">Terminada por fecha</Data></Cell>
+        <Cell><Data ss:Type="String">ABIERTA</Data></Cell>
+        <Cell><Data ss:Type="String">REGULAR</Data></Cell>
+        <Cell><Data ss:Type="String">1</Data></Cell>
+        <Cell><Data ss:Type="String">28</Data></Cell>
+      </Row>
+      <Row>
+        <Cell><Data ss:Type="String">13</Data></Cell>
+        <Cell><Data ss:Type="String">REGIONAL BOLÍVAR</Data></Cell>
+        <Cell><Data ss:Type="String">9304</Data></Cell>
+        <Cell><Data ss:Type="String">CENTRO DE COMERCIO Y SERVICIOS</Data></Cell>
+        <Cell><Data ss:Type="String">228106</Data></Cell>
+        <Cell><Data ss:Type="String">2</Data></Cell>
+        <Cell><Data ss:Type="String">ANALISIS Y DESARROLLO DE SOFTWARE</Data></Cell>
+        <Cell><Data ss:Type="String">TECNÓLOGO</Data></Cell>
+        <Cell><Data ss:Type="String">24</Data></Cell>
+        <Cell><Data ss:Type="String">18</Data></Cell>
+        <Cell><Data ss:Type="String">6</Data></Cell>
+        <Cell><Data ss:Type="String">2558702</Data></Cell>
+        <Cell><Data ss:Type="String">2024-02-05 00:00:00.0</Data></Cell>
+        <Cell><Data ss:Type="String">2026-08-05 00:00:00.0</Data></Cell>
+        <Cell><Data ss:Type="String">30</Data></Cell>
+        <Cell><Data ss:Type="String">Terminada por fecha</Data></Cell>
+        <Cell><Data ss:Type="String">ABIERTA</Data></Cell>
+        <Cell><Data ss:Type="String">REGULAR</Data></Cell>
+        <Cell><Data ss:Type="String">2</Data></Cell>
+        <Cell><Data ss:Type="String">25</Data></Cell>
+      </Row>
+      <Row>
+        <Cell><Data ss:Type="String">13</Data></Cell>
+        <Cell><Data ss:Type="String">REGIONAL BOLÍVAR</Data></Cell>
+        <Cell><Data ss:Type="String">9304</Data></Cell>
+        <Cell><Data ss:Type="String">CENTRO DE COMERCIO Y SERVICIOS</Data></Cell>
+        <Cell><Data ss:Type="String">134101</Data></Cell>
+        <Cell><Data ss:Type="String">1</Data></Cell>
+        <Cell><Data ss:Type="String">ASISTENCIA ADMINISTRATIVA</Data></Cell>
+        <Cell><Data ss:Type="String">TÉCNICO</Data></Cell>
+        <Cell><Data ss:Type="String">12</Data></Cell>
+        <Cell><Data ss:Type="String">6</Data></Cell>
+        <Cell><Data ss:Type="String">6</Data></Cell>
+        <Cell><Data ss:Type="String">2601145</Data></Cell>
+        <Cell><Data ss:Type="String">2025-01-20 00:00:00.0</Data></Cell>
+        <Cell><Data ss:Type="String">2026-07-20 00:00:00.0</Data></Cell>
+        <Cell><Data ss:Type="String">30</Data></Cell>
+        <Cell><Data ss:Type="String">Terminada por fecha</Data></Cell>
+        <Cell><Data ss:Type="String">ABIERTA</Data></Cell>
+        <Cell><Data ss:Type="String">REGULAR</Data></Cell>
+        <Cell><Data ss:Type="String">1</Data></Cell>
+        <Cell><Data ss:Type="String">22</Data></Cell>
+      </Row>
+    </Table>
+  </Worksheet>
+</Workbook>
