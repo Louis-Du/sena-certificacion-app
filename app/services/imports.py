@@ -85,6 +85,30 @@ def import_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
     }
 
 
+def _format_breakdown_message(breakdown: dict[str, dict[str, int]]) -> str:
+    labels = {
+        "certificados": "aprendices para certificar",
+        "pendientes": "aprendices con pendientes",
+        "complementaria": "registros de formación complementaria",
+        "meta": "metas institucionales",
+        "requisitos": "requisitos de aprendices",
+        "df14a": "aprendices (Base DF14A)",
+        "acta": "documentos de acta",
+        "informe": "tablas de informe de gestión",
+        "otro": "documentos de apoyo",
+    }
+    parts = []
+    for itype, counts in breakdown.items():
+        if counts.get("valid_records", 0) > 0:
+            label = labels.get(itype, itype)
+            parts.append(f"{counts['valid_records']} {label}")
+    
+    if not parts:
+        return "Importación confirmada sin registros nuevos."
+    
+    return "Se importaron: " + ", ".join(parts) + "."
+
+
 def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
     staged = get_staged(validation_id)
     if staged is None:
@@ -119,7 +143,7 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
             ),
             error_count=0,
             status="completed",
-            message="Importacion confirmada por el usuario.",
+            message=_format_breakdown_message(prepared.breakdown()),
         )
         session.add(history)
         session.flush()

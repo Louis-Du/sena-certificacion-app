@@ -194,7 +194,11 @@
   "tests/test_validation_regressions.py::test_positive_files_are_importable[Requisitos_correcto.xlsx-requisitos]",
   "tests/test_validation_regressions.py::test_positive_files_are_importable[Requisitos_pendientes_demo_correcto.xlsx-requisitos]",
   "tests/test_validation_regressions.py::test_requisitos_file_cannot_be_confirmed_without_importable_records",
+  "tests/test_validation_regressions.py::test_requisitos_file_cannot_be_confirmed_without_importable_records[Requisitos_incorrecto_sin_columnas_clave.xlsx]",
+  "tests/test_validation_regressions.py::test_requisitos_file_cannot_be_confirmed_without_importable_records[Requisitos_pendientes_demo_incorrecto.xlsx]",
   "tests/test_validation_regressions.py::test_requisitos_file_uses_requisitos_rules_and_not_actas_rules",
+  "tests/test_validation_regressions.py::test_requisitos_file_uses_requisitos_rules_and_not_actas_rules[Requisitos_incorrecto_sin_columnas_clave.xlsx]",
+  "tests/test_validation_regressions.py::test_requisitos_file_uses_requisitos_rules_and_not_actas_rules[Requisitos_pendientes_demo_incorrecto.xlsx]",
   "tests/test_validation_regressions.py::test_unclassified_level_is_importable_but_reported_as_warning",
   "tests/test_validation_regressions.py::test_unreadable_pdf_and_docx_are_rejected_without_records[Acta_certificacion_23_demo_incorrecto_vacio.docx-acta]",
   "tests/test_validation_regressions.py::test_unreadable_pdf_and_docx_are_rejected_without_records[Acta_certificacion_incorrecto_vacio.pdf-acta]"

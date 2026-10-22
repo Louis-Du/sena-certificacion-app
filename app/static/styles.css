@@ -255,6 +255,16 @@ h1 { margin-bottom: 2px; font: 700 22px/1.15 "Space Grotesk", sans-serif; }
 .history-item strong, .history-item small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .history-item strong { font-size: 11px; }
 .history-item small { margin-top: 3px; color: var(--muted); font-size: 9px; }
+.history-message {
+	margin-top: 5px;
+	padding: 4px 6px;
+	background: #eef3f0;
+	color: var(--green-dark);
+	border-radius: 4px;
+	font-size: 9.5px;
+	font-weight: 500;
+	line-height: 1.3;
+}
 .learners-list { display: grid; gap: 8px; }
 .learners-list > small { color: var(--muted); font-size: 10px; }
 .learner-item { padding: 8px; background: #f7faf8; border-radius: 6px; }

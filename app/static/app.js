@@ -249,19 +249,22 @@ async function validateFile() {
     confirmUpdated.textContent = preview.updated_records;
     confirmRejected.textContent = preview.rejected_records ?? 0;
     const breakdownLabels = {
-      certificados: "Certificados",
-      pendientes: "Pendientes",
-      complementaria: "Complementaria",
-      meta: "Meta",
-      requisitos: "Requisitos",
-      df14a: "DF14A",
-      acta: "Acta",
-      informe: "Informe",
-      otro: "Documento de apoyo",
+      certificados: "Aprendices para certificar",
+      pendientes: "Aprendices con pendientes",
+      complementaria: "Registros de formación complementaria",
+      meta: "Metas institucionales",
+      requisitos: "Requisitos de aprendices",
+      df14a: "Aprendices (Base DF14A)",
+      acta: "Documentos de acta",
+      informe: "Tablas de informe de gestión",
+      otro: "Documentos de apoyo",
     };
     const breakdownLines = Object.entries(preview.breakdown || {}).map(([type, counts]) => {
       const label = breakdownLabels[type] || type;
-      return `${label}: ${counts.valid_records} de ${counts.records_found} registros importables`;
+      if (counts.valid_records === counts.records_found) {
+        return `✓ ${counts.valid_records} ${label.toLowerCase()}`;
+      }
+      return `⚠ ${counts.valid_records} ${label.toLowerCase()} (de ${counts.records_found} detectados)`;
     });
     confirmBreakdown.replaceChildren(...breakdownLines.map((line) => {
       const item = document.createElement("div");
@@ -312,8 +315,12 @@ async function loadHistory() {
       const title = document.createElement("strong");
       title.textContent = item.file_name;
       const details = document.createElement("small");
-      details.textContent = `${item.information_type} · ${item.records_count} registros · ${new Date(item.imported_at).toLocaleString()}`;
-      element.append(title, details);
+      const timeStr = new Date(item.imported_at).toLocaleString();
+      details.textContent = `${item.information_type} · ${timeStr}`;
+      const msg = document.createElement("div");
+      msg.className = "history-message";
+      msg.textContent = item.message || "Importación exitosa";
+      element.append(title, details, msg);
       return element;
     }));
   } catch (error) {
