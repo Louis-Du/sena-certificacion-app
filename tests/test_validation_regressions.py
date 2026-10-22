@@ -207,7 +207,8 @@ def test_partial_import_saves_only_valid_unique_records(client: TestClient, tmp_
     with client.session_factory() as session:
         rows = session.query(ImportedRecord).all()
         assert len(rows) == 1
-        assert '"FICHA": "3001"' in rows[0].payload
+        payload = json.loads(rows[0].payload)
+        assert payload.get("FICHA") == "3001"
 
 
 def test_duplicate_rows_are_counted_once_in_valid_records(client: TestClient, tmp_path):
