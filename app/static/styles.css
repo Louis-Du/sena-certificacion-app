@@ -314,6 +314,43 @@ h1 { margin-bottom: 2px; font: 700 22px/1.15 "Space Grotesk", sans-serif; }
 .learners-data td[colspan] { color: var(--muted); text-align: center; }
 .pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 16px; color: var(--muted); font-size: 11px; }
 .pagination button:disabled { cursor: not-allowed; opacity: .45; }
+
+/* ---------------------------------------------------------------------------
+   Indicadores: KPI, graficos y advertencias
+   --------------------------------------------------------------------------- */
+
+/* Barra de progreso de los KPI de porcentaje (% Avance y Efectividad). La pista
+   usa un tono translucido para verse igual sobre fondo blanco o verde suave. */
+.kpi-progress { margin-top: 8px; }
+.kpi-progress-track { height: 7px; width: 100%; background: rgba(24, 61, 49, .12); border-radius: 999px; overflow: hidden; }
+.kpi-progress-fill { display: block; height: 100%; background: var(--green); border-radius: 999px; transition: width .35s ease; }
+.kpi-progress.is-empty .kpi-progress-track { background: rgba(24, 61, 49, .08); }
+
+/* Contenedor de cada grafico. La altura se fija para que Chart.js respete el
+   responsive sin crecer de forma descontrolada. */
+.chart-canvas-wrap { position: relative; width: 100%; height: 320px; }
+.chart-canvas-wrap canvas { width: 100% !important; height: 100% !important; }
+.chart-canvas-wrap canvas[hidden], .chart-empty[hidden] { display: none; }
+.chart-empty { display: grid; place-items: center; height: 100%; margin: 0; padding: 28px 12px; color: var(--muted); background: #f7faf8; border: 1px dashed var(--line); border-radius: 10px; font-size: 12px; text-align: center; }
+.chart-note { margin-top: 8px; margin-bottom: 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
+
+/* Tabla detallada de causas: se conserva, solo queda plegable bajo el grafico. */
+.chart-details { margin-top: 12px; }
+.chart-details summary { cursor: pointer; color: var(--green-dark); font-size: 11px; font-weight: 700; }
+.chart-details[open] summary { margin-bottom: 10px; }
+
+/* Advertencias: panel colapsable con contador visible. La informacion no se
+   oculta, solo se pliega para no competir con los indicadores. */
+.avisos-panel { padding: 14px 16px; background: var(--paper); border: 1px solid var(--line); border-left: 4px solid #b87d00; border-radius: 12px; box-shadow: var(--shadow); }
+.avisos-panel summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
+.avisos-panel summary::-webkit-details-marker { display: none; }
+.avisos-title { font: 700 15px/1.2 "Space Grotesk", sans-serif; }
+.avisos-badge { padding: 3px 9px; color: #956000; background: var(--amber-soft); border-radius: 999px; font-size: 10px; font-weight: 700; }
+.avisos-toggle { margin-left: auto; color: var(--muted); font-size: 10px; }
+.avisos-panel[open] .avisos-toggle { visibility: hidden; }
+.avisos-subtitle { margin: 8px 0 0; color: var(--muted); font-size: 11px; }
+.avisos-list { margin: 10px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+
 @keyframes reveal { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
 @media (max-width: 980px) {
