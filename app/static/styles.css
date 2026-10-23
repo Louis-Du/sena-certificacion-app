@@ -29,7 +29,8 @@ body {
 button { font: inherit; }
 
 .shell {
-	width: min(1152px, calc(100% - 34px));
+	width: calc(100% - 40px);
+	max-width: none;
 	margin: 0 auto;
 	padding: 22px 0 42px;
 }
