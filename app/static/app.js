@@ -17,6 +17,9 @@ const validationPanel = document.querySelector("#validation-panel");
 const validationMessage = document.querySelector("#validation-message");
 const validationStatus = document.querySelector("#validation-status");
 const validationChecks = document.querySelector("#validation-checks");
+const cargaView = document.querySelector("#carga-view");
+const stepsNav = document.querySelector(".steps");
+const stepElements = stepsNav ? [...stepsNav.querySelectorAll(".step")] : [];
 const confirmationPanel = document.querySelector("#confirmation-panel");
 const confirmFile = document.querySelector("#confirm-file");
 const confirmImportable = document.querySelector("#confirm-importable");
@@ -150,6 +153,26 @@ function updateAcceptedFormats() {
   dropZone.querySelector("small").textContent = `Formatos admitidos: ${extensions.map((item) => item.slice(1).toUpperCase()).join(", ")}`;
 }
 
+const ESTADOS_PASOS = {
+  seleccionar: ["active", "", ""],
+  validar: ["done", "active", ""],
+  confirmar: ["done", "done", "active"],
+  completado: ["done", "done", "done"],
+};
+
+function setCargaStep(etapa) {
+  const estados = ESTADOS_PASOS[etapa] || ESTADOS_PASOS.seleccionar;
+  stepElements.forEach((step, index) => {
+    step.classList.toggle("active", estados[index] === "active");
+    step.classList.toggle("done", estados[index] === "done");
+    if (estados[index] === "active") {
+      step.setAttribute("aria-current", "step");
+    } else {
+      step.removeAttribute("aria-current");
+    }
+  });
+}
+
 function hideReview() {
   validationPanel.hidden = true;
   confirmationPanel.hidden = true;
@@ -157,6 +180,8 @@ function hideReview() {
   validateButton.hidden = false;
   validateButton.disabled = !selectedFile;
   validationId = null;
+  cargaView.classList.remove("carga-en-revision");
+  setCargaStep("seleccionar");
 }
 
 function setType(type) {
@@ -234,6 +259,7 @@ async function validateFile() {
     const result = await readResponse(await fetch("/api/files/validate", { method: "POST", body: formData }));
     validationId = result.validation_id;
     renderValidation(result);
+    setCargaStep("validar");
     fileStatus.textContent = result.status === "error" ? "REVISAR ARCHIVO" : "VALIDACION COMPLETA";
     if (result.status === "error") {
       showFeedback("Corrige los errores antes de continuar.", true);
@@ -261,14 +287,17 @@ async function validateFile() {
     };
     const breakdownLines = Object.entries(preview.breakdown || {}).map(([type, counts]) => {
       const label = breakdownLabels[type] || type;
-      if (counts.valid_records === counts.records_found) {
-        return `✓ ${counts.valid_records} ${label.toLowerCase()}`;
-      }
-      return `⚠ ${counts.valid_records} ${label.toLowerCase()} (de ${counts.records_found} detectados)`;
+      return {
+        warning: counts.valid_records !== counts.records_found,
+        text: counts.valid_records === counts.records_found
+          ? `✓ ${counts.valid_records} ${label.toLowerCase()}`
+          : `⚠ ${counts.valid_records} ${label.toLowerCase()} (de ${counts.records_found} detectados)`,
+      };
     });
     confirmBreakdown.replaceChildren(...breakdownLines.map((line) => {
       const item = document.createElement("div");
-      item.textContent = line;
+      if (line.warning) item.className = "is-warning";
+      item.textContent = line.text;
       return item;
     }));
     confirmWarnings.replaceChildren(...preview.warnings.map((warning) => {
@@ -279,6 +308,8 @@ async function validateFile() {
     confirmationPanel.hidden = false;
     confirmButton.hidden = false;
     validateButton.hidden = true;
+    cargaView.classList.add("carga-en-revision");
+    setCargaStep("confirmar");
     showFeedback("Revisa el resumen y confirma para importar. Aun no se han guardado datos.");
   } catch (error) {
     fileStatus.textContent = "ERROR DE VALIDACION";
@@ -296,6 +327,7 @@ async function confirmImport() {
     fileStatus.textContent = "IMPORTACION COMPLETA";
     showFeedback(`${result.message} ${result.records_count} registros procesados.`);
     confirmButton.hidden = true;
+    setCargaStep("completado");
     await loadHistory();
     await loadLearners();
   } catch (error) {
