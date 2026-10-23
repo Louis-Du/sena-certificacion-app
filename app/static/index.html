@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/styles.css?v=20261021-2" rel="stylesheet">
+  <link href="/static/styles.css?v=20261021-3" rel="stylesheet">
 </head>
 
 <body>
@@ -219,11 +219,27 @@
         <div id="indicadores-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;"></div>
         <div id="indicadores-avisos" style="margin-bottom:16px;"></div>
         <section class="panel"><div class="panel-heading"><div><h2>Ejecución por Nivel y Tipo de Formación</h2><p>Consolidado acumulado sin duplicidad de aprendices (base de datos)</p></div></div><div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Categoría</th><th>Meta</th><th>Certificados</th><th>Pendientes</th><th>% Avance</th><th>Brecha</th><th>Efectividad</th></tr></thead><tbody id="indicadores-table"></tbody></table></div></section>
+
+        <section class="panel" style="margin-top:16px;">
+          <div class="panel-heading"><div><h2>Avance por Nivel y Tipo de Formación</h2><p>Comparación gráfica de la tabla anterior (Meta vs. Certificados vs. Pendientes)</p></div></div>
+          <div class="chart-canvas-wrap">
+            <canvas id="indicadores-avance-chart" role="img" aria-label="Gráfico de barras agrupadas comparando meta, certificados y pendientes por categoría"></canvas>
+            <p class="chart-empty" id="indicadores-avance-empty" hidden>Sin datos cargados</p>
+          </div>
+          <p class="chart-note">Las categorías sin meta o sin pendientes registrados aparecen sin barra: no se asumen valores que las fuentes no reportan.</p>
+        </section>
         
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-top:16px;">
           <section class="panel">
             <div class="panel-heading"><div><h2>Causas de No Certificación</h2><p id="indicadores-causas-summary">Distribución de incidencias vs. aprendices únicos</p></div></div>
-            <div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Causa / Requisito</th><th>Incidencias</th><th>%</th></tr></thead><tbody id="indicadores-causas-table"></tbody></table></div>
+            <div class="chart-canvas-wrap">
+              <canvas id="indicadores-causas-chart" role="img" aria-label="Gráfico de barras horizontales con la distribución de causas de no certificación"></canvas>
+              <p class="chart-empty" id="indicadores-causas-empty" hidden>Aún no hay causas registradas</p>
+            </div>
+            <details class="chart-details">
+              <summary>Ver tabla detallada de causas</summary>
+              <div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Causa / Requisito</th><th>Incidencias</th><th>%</th></tr></thead><tbody id="indicadores-causas-table"></tbody></table></div>
+            </details>
             <p id="indicadores-causas-note" style="margin-top:10px;font-size:12px;color:var(--muted);line-height:1.4;"></p>
           </section>
 
@@ -236,6 +252,7 @@
       </section>
     </div>
   </main>
-  <script src="/static/app.js?v=20261021-2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="/static/app.js?v=20261021-3"></script>
 </body>
 </html>

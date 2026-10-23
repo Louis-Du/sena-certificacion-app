@@ -580,6 +580,172 @@ function formatPorcentajeIndicador(valor) {
   return `${valor}%`;
 }
 
+// ---------------------------------------------------------------------------
+// Indicadores: graficos (Chart.js)
+// ---------------------------------------------------------------------------
+// Los graficos son un COMPLEMENTO de las tablas existentes: reutilizan
+// exactamente los mismos datos que ya entrega el backend (``metricas`` para el
+// avance por categoria y ``motivos`` para las causas). Aqui NO se calcula ni se
+// inventa ninguna metrica nueva.
+const COLOR_IND_CERTIFICADOS = "#15945d"; // verde
+const COLOR_IND_PENDIENTES = "#d9930a";   // ambar / naranja
+const COLOR_IND_META = "#6b8ba4";         // azul grisaceo
+const COLOR_IND_PROBLEMA = "#c0554f";     // rojo (causas / problemas)
+
+// Las instancias se conservan para destruirlas antes de redibujar; si no,
+// Chart.js reutiliza el canvas y los datos se duplican al pulsar "Actualizar".
+let graficoAvance = null;
+let graficoCausas = null;
+
+// Alterna entre el canvas y el mensaje de estado vacio dentro del mismo panel.
+// Devuelve ``true`` solo cuando corresponde dibujar el grafico.
+function alternarPanelGrafico(canvas, mensajeVacio, textoVacio) {
+  const contenedor = canvas.parentElement;
+  if (typeof Chart === "undefined") {
+    canvas.hidden = true;
+    mensajeVacio.hidden = false;
+    mensajeVacio.textContent = "No se pudo cargar la librería de gráficos (Chart.js).";
+    contenedor.style.height = "";
+    return false;
+  }
+  if (!textoVacio) {
+    canvas.hidden = false;
+    mensajeVacio.hidden = true;
+    return true;
+  }
+  canvas.hidden = true;
+  mensajeVacio.hidden = false;
+  mensajeVacio.textContent = textoVacio;
+  contenedor.style.height = "";
+  return false;
+}
+
+// Barra de progreso de los KPI de porcentaje. El ancho se limita a 100% para
+// que un avance superior (por ejemplo 120%) no rompa la barra, pero el numero
+// mostrado conserva siempre el valor real.
+function kpiBarraProgreso(valor) {
+  if (valor === null || valor === undefined) {
+    return '<div class="kpi-progress is-empty"><div class="kpi-progress-track"></div></div>';
+  }
+  const ancho = Math.max(0, Math.min(100, Number(valor)));
+  return `<div class="kpi-progress"><div class="kpi-progress-track"><span class="kpi-progress-fill" style="width:${ancho}%"></span></div></div>`;
+}
+
+// Grafico 1: barras horizontales agrupadas (Meta | Certificados | Pendientes).
+function renderAvanceChart(metricas) {
+  const canvas = document.querySelector("#indicadores-avance-chart");
+  const vacio = document.querySelector("#indicadores-avance-empty");
+  if (!canvas || !vacio) return;
+
+  if (graficoAvance) { graficoAvance.destroy(); graficoAvance = null; }
+
+  // Se omite una fila solo si no aporta ninguna barra (sin meta, sin
+  // certificados y sin pendientes): en ese caso no hay nada que comparar.
+  const filas = (metricas || []).filter(
+    (m) => m.meta !== null && m.meta !== undefined
+      || Number(m.certificados) > 0
+      || Number(m.pendientes) > 0,
+  );
+
+  if (!alternarPanelGrafico(canvas, vacio, filas.length ? "" : "Sin datos cargados")) return;
+
+  graficoAvance = new Chart(canvas.getContext("2d"), {
+    type: "bar",
+    data: {
+      labels: filas.map((m) => m.category_label),
+      datasets: [
+        { label: "Meta", data: filas.map((m) => m.meta), backgroundColor: COLOR_IND_META, borderRadius: 4 },
+        { label: "Certificados", data: filas.map((m) => m.certificados), backgroundColor: COLOR_IND_CERTIFICADOS, borderRadius: 4 },
+        { label: "Pendientes", data: filas.map((m) => m.pendientes), backgroundColor: COLOR_IND_PENDIENTES, borderRadius: 4 },
+      ],
+    },
+    options: {
+      indexAxis: "y", // barras horizontales agrupadas
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: { beginAtZero: true, ticks: { precision: 0 } },
+        y: { ticks: { autoSkip: false } },
+      },
+      plugins: {
+        legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            // Un valor nulo significa "no calculable", no cero.
+            label: (ctx) => {
+              const valor = ctx.parsed.x;
+              return `${ctx.dataset.label}: ${valor === null || valor === undefined ? "No calculable" : valor.toLocaleString("es-CO")}`;
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+// Grafico 2: barras horizontales de causas de no certificacion. La altura del
+// panel crece con el numero de causas para que ninguna quede aplastada.
+function renderCausasChart(motivos) {
+  const canvas = document.querySelector("#indicadores-causas-chart");
+  const vacio = document.querySelector("#indicadores-causas-empty");
+  if (!canvas || !vacio) return;
+
+  if (graficoCausas) { graficoCausas.destroy(); graficoCausas = null; }
+
+  const filas = motivos || [];
+  if (!alternarPanelGrafico(canvas, vacio, filas.length ? "" : "Aún no hay causas registradas")) return;
+
+  canvas.parentElement.style.height = `${Math.max(260, filas.length * 34 + 40)}px`;
+
+  graficoCausas = new Chart(canvas.getContext("2d"), {
+    type: "bar",
+    data: {
+      labels: filas.map((m) => m.motivo),
+      datasets: [
+        {
+          label: "Incidencias",
+          data: filas.map((m) => m.cantidad),
+          backgroundColor: COLOR_IND_PROBLEMA,
+          borderRadius: 4,
+        },
+      ],
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: { x: { beginAtZero: true, ticks: { precision: 0 } } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const fila = filas[ctx.dataIndex];
+              const porcentaje = fila.porcentaje === null || fila.porcentaje === undefined
+                ? "—"
+                : `${fila.porcentaje}%`;
+              return `${fila.cantidad.toLocaleString("es-CO")} incidencias (${porcentaje} del total)`;
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+// Limpia los graficos cuando la carga falla o la vista se vacia, para no dejar
+// visualizaciones de datos anteriores.
+function limpiarGraficosIndicadores() {
+  if (graficoAvance) { graficoAvance.destroy(); graficoAvance = null; }
+  if (graficoCausas) { graficoCausas.destroy(); graficoCausas = null; }
+  const avance = document.querySelector("#indicadores-avance-chart");
+  const avanceVacio = document.querySelector("#indicadores-avance-empty");
+  if (avance && avanceVacio) alternarPanelGrafico(avance, avanceVacio, "Sin datos cargados");
+  const causas = document.querySelector("#indicadores-causas-chart");
+  const causasVacio = document.querySelector("#indicadores-causas-empty");
+  if (causas && causasVacio) alternarPanelGrafico(causas, causasVacio, "Aún no hay causas registradas");
+}
+
 async function loadIndicadores() {
   const kpis = document.querySelector("#indicadores-kpis");
   const avisos = document.querySelector("#indicadores-avisos");
@@ -597,17 +763,31 @@ async function loadIndicadores() {
       <div class="panel"><div><small>META ANUAL</small><h2>${formatNumeroIndicador(data.total_meta)}</h2><small>Aprendices proyectados</small></div></div>
       <div class="panel" style="border-left:4px solid var(--green)"><div><small style="color:var(--green-dark)">CERTIFICADOS (ENE-SEP)</small><h2 style="color:var(--green-dark)">${formatNumeroIndicador(data.total_certificados)}</h2><small>Aprendices únicos</small></div></div>
       <div class="panel" style="border-left:4px solid #b87d00"><div><small style="color:#b87d00">PENDIENTES</small><h2 style="color:#b87d00">${formatNumeroIndicador(data.total_pendientes)}</h2><small>Aprendices únicos</small></div></div>
-      <div class="panel" style="background:var(--green-soft)"><div><small style="color:var(--green-dark)">% AVANCE</small><h2 style="color:var(--green-dark)">${formatPorcentajeIndicador(data.avance_global)}</h2><small>Acumulado</small></div></div>
-      <div class="panel"><div><small>EFECTIVIDAD</small><h2>${formatPorcentajeIndicador(data.efectividad_global)}</h2><small>Tasa de cierre</small></div></div>
+      <div class="panel" style="background:var(--green-soft)"><div><small style="color:var(--green-dark)">% AVANCE</small><h2 style="color:var(--green-dark)">${formatPorcentajeIndicador(data.avance_global)}</h2>${kpiBarraProgreso(data.avance_global)}<small>Acumulado</small></div></div>
+      <div class="panel"><div><small>EFECTIVIDAD</small><h2>${formatPorcentajeIndicador(data.efectividad_global)}</h2>${kpiBarraProgreso(data.efectividad_global)}<small>Tasa de cierre</small></div></div>
     `;
 
     // Muestra por que algunos indicadores no se pudieron calcular (datos
     // faltantes, registros sin clasificar, filas fuera del periodo, etc.).
+    // Se conserva toda la informacion: el panel solo queda colapsable y con un
+    // contador visible para no perder las advertencias de vista.
     if (avisos) {
       const lista = data.advertencias || [];
-      avisos.innerHTML = lista.length
-        ? `<div class="panel" style="border-left:4px solid #b87d00"><div class="panel-heading"><div><h3>Datos y advertencias</h3><p>${data.datos_suficientes ? "Resultados calculados con los documentos cargados." : "Aún no hay documentos suficientes para calcular los indicadores."}</p></div></div><ul style="margin:0;padding-left:18px;font-size:13px;color:var(--muted);line-height:1.6;">${lista.map((texto) => `<li>${texto}</li>`).join("")}</ul></div>`
-        : "";
+      if (!lista.length) {
+        avisos.innerHTML = "";
+      } else {
+        const etiqueta = lista.length === 1 ? "advertencia" : "advertencias";
+        avisos.innerHTML = `
+          <details class="avisos-panel">
+            <summary>
+              <span class="avisos-title">Datos y advertencias</span>
+              <span class="avisos-badge">${lista.length} ${etiqueta}</span>
+              <span class="avisos-toggle">Ver detalle</span>
+            </summary>
+            <p class="avisos-subtitle">${data.datos_suficientes ? "Resultados calculados con los documentos cargados." : "Aún no hay documentos suficientes para calcular los indicadores."}</p>
+            <ul class="avisos-list">${lista.map((texto) => `<li>${texto}</li>`).join("")}</ul>
+          </details>`;
+      }
     }
 
     table.innerHTML = data.metricas.map(m => `
@@ -663,8 +843,13 @@ async function loadIndicadores() {
         actasTable.innerHTML = `<tr><td colspan="4" style="color:var(--muted)">Sin actas adicionales en la base de datos en este período.</td></tr>`;
       }
     }
+    // Graficos complementarios (usan los mismos datos de las tablas de arriba).
+    renderAvanceChart(data.metricas);
+    renderCausasChart(data.motivos);
   } catch (err) {
     kpis.innerHTML = `<p class="error">No fue posible calcular indicadores: ${err.message}</p>`;
+    // Sin datos validos no se deben dejar graficos con informacion anterior.
+    limpiarGraficosIndicadores();
   }
 }
 
