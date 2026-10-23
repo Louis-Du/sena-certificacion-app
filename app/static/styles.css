@@ -351,6 +351,23 @@ h1 { margin-bottom: 2px; font: 700 22px/1.15 "Space Grotesk", sans-serif; }
 .avisos-subtitle { margin: 8px 0 0; color: var(--muted); font-size: 11px; }
 .avisos-list { margin: 10px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 
+/* Layout principal: tabla de ejecucion (izquierda) y grafico de % de avance
+   (derecha). En pantallas pequenas se apilan en ese mismo orden. */
+.indicadores-main { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .indicadores-main { grid-template-columns: minmax(0, 1fr); } }
+
+/* Pestañas del detalle complementario (Causas / Actas en el periodo). Reducen el
+   desplazamiento vertical sin ocultar informacion. */
+.indicadores-tabs { margin-top: 16px; }
+.tab-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.tab-button { display: inline-flex; align-items: center; gap: 7px; padding: 9px 14px; background: transparent; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); cursor: pointer; font: 600 12px/1 "Space Grotesk", sans-serif; transition: background .15s ease, color .15s ease, border-color .15s ease; }
+.tab-button:hover { color: var(--green-dark); border-color: #b9d3c6; }
+.tab-button.is-active { background: var(--green-dark); border-color: var(--green-dark); color: #fff; }
+.tab-count { padding: 2px 7px; background: rgba(24, 61, 49, .1); border-radius: 999px; font-size: 10px; }
+.tab-button.is-active .tab-count { background: rgba(255, 255, 255, .22); }
+.tab-count:empty { display: none; }
+.tab-panel[hidden] { display: none !important; }
+
 @keyframes reveal { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
 @media (max-width: 980px) {
