@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/styles.css?v=20261021-3" rel="stylesheet">
+  <link href="/static/styles.css?v=20261021-4" rel="stylesheet">
 </head>
 
 <body>
@@ -218,19 +218,26 @@
         <header class="topbar"><div class="brand-mark">%</div><div><p class="eyebrow">Sena Certificación</p><h1>Indicadores de Certificación 2026</h1><p class="subtitle">Seguimiento de metas, ejecución y pendientes (Enero - Septiembre 2026).</p></div><button id="refresh-indicadores" class="primary-button refresh-button" type="button">↻ Actualizar</button></header>
         <div id="indicadores-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;"></div>
         <div id="indicadores-avisos" style="margin-bottom:16px;"></div>
-        <section class="panel"><div class="panel-heading"><div><h2>Ejecución por Nivel y Tipo de Formación</h2><p>Consolidado acumulado sin duplicidad de aprendices (base de datos)</p></div></div><div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Categoría</th><th>Meta</th><th>Certificados</th><th>Pendientes</th><th>% Avance</th><th>Brecha</th><th>Efectividad</th></tr></thead><tbody id="indicadores-table"></tbody></table></div></section>
+        <div class="indicadores-main">
+          <section class="panel"><div class="panel-heading"><div><h2>Ejecución por Nivel y Tipo de Formación</h2><p>Consolidado acumulado sin duplicidad de aprendices (base de datos)</p></div></div><div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Categoría</th><th>Meta</th><th>Certificados</th><th>Pendientes</th><th>% Avance</th><th>Brecha</th><th>Efectividad</th></tr></thead><tbody id="indicadores-table"></tbody></table></div></section>
 
-        <section class="panel" style="margin-top:16px;">
-          <div class="panel-heading"><div><h2>Avance por Nivel y Tipo de Formación</h2><p>Comparación gráfica de la tabla anterior (Meta vs. Certificados vs. Pendientes)</p></div></div>
-          <div class="chart-canvas-wrap">
-            <canvas id="indicadores-avance-chart" role="img" aria-label="Gráfico de barras agrupadas comparando meta, certificados y pendientes por categoría"></canvas>
-            <p class="chart-empty" id="indicadores-avance-empty" hidden>Sin datos cargados</p>
-          </div>
-          <p class="chart-note">Las categorías sin meta o sin pendientes registrados aparecen sin barra: no se asumen valores que las fuentes no reportan.</p>
-        </section>
-        
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-top:16px;">
           <section class="panel">
+            <div class="panel-heading"><div><h2>Porcentaje de Avance por Nivel y Tipo de Formación</h2><p>Certificados sobre la meta de cada categoría</p></div></div>
+            <div class="chart-canvas-wrap">
+              <canvas id="indicadores-avance-chart" role="img" aria-label="Gráfico de barras con el porcentaje de avance de cada categoría frente a su meta"></canvas>
+              <p class="chart-empty" id="indicadores-avance-empty" hidden>Sin datos cargados</p>
+            </div>
+            <p class="chart-note">En lugar de valores absolutos se grafica el % de avance, para que una meta muy alta no aplaste al resto de categorías. Pase el cursor sobre cada barra para ver meta, certificados y pendientes.</p>
+          </section>
+        </div>
+
+        <div class="indicadores-tabs">
+          <div class="tab-list" role="tablist" aria-label="Detalle complementario de indicadores">
+            <button class="tab-button is-active" type="button" role="tab" id="tab-causas" data-tab="causas" aria-controls="panel-causas" aria-selected="true">Causas de No Certificación<span class="tab-count" id="indicadores-causas-count"></span></button>
+            <button class="tab-button" type="button" role="tab" id="tab-actas" data-tab="actas" aria-controls="panel-actas" aria-selected="false">Actas en el Período<span class="tab-count" id="indicadores-actas-count"></span></button>
+          </div>
+
+          <section class="panel tab-panel" id="panel-causas" data-tab="causas" role="tabpanel" aria-labelledby="tab-causas">
             <div class="panel-heading"><div><h2>Causas de No Certificación</h2><p id="indicadores-causas-summary">Distribución de incidencias vs. aprendices únicos</p></div></div>
             <div class="chart-canvas-wrap">
               <canvas id="indicadores-causas-chart" role="img" aria-label="Gráfico de barras horizontales con la distribución de causas de no certificación"></canvas>
@@ -240,10 +247,10 @@
               <summary>Ver tabla detallada de causas</summary>
               <div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Causa / Requisito</th><th>Incidencias</th><th>%</th></tr></thead><tbody id="indicadores-causas-table"></tbody></table></div>
             </details>
-            <p id="indicadores-causas-note" style="margin-top:10px;font-size:12px;color:var(--muted);line-height:1.4;"></p>
+            <p id="indicadores-causas-note" class="chart-note"></p>
           </section>
 
-          <section class="panel">
+          <section class="panel tab-panel" id="panel-actas" data-tab="actas" role="tabpanel" aria-labelledby="tab-actas" hidden>
             <div class="panel-heading"><div><h2>Actas en Período (Ene - Sep 2026)</h2><p id="indicadores-actas-summary">Asociaciones reales de aprendices</p></div></div>
             <div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Número</th><th>Fecha</th><th>Tipo</th><th>Certificados</th></tr></thead><tbody id="indicadores-actas-table"></tbody></table></div>
           </section>
@@ -253,6 +260,6 @@
     </div>
   </main>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="/static/app.js?v=20261021-3"></script>
+  <script src="/static/app.js?v=20261021-4"></script>
 </body>
 </html>

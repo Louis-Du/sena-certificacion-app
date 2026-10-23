@@ -588,8 +588,7 @@ function formatPorcentajeIndicador(valor) {
 // avance por categoria y ``motivos`` para las causas). Aqui NO se calcula ni se
 // inventa ninguna metrica nueva.
 const COLOR_IND_CERTIFICADOS = "#15945d"; // verde
-const COLOR_IND_PENDIENTES = "#d9930a";   // ambar / naranja
-const COLOR_IND_META = "#6b8ba4";         // azul grisaceo
+const COLOR_IND_META = "#6b8ba4";         // azul grisaceo (linea del 100%)
 const COLOR_IND_PROBLEMA = "#c0554f";     // rojo (causas / problemas)
 
 // Las instancias se conservan para destruirlas antes de redibujar; si no,
@@ -631,7 +630,72 @@ function kpiBarraProgreso(valor) {
   return `<div class="kpi-progress"><div class="kpi-progress-track"><span class="kpi-progress-fill" style="width:${ancho}%"></span></div></div>`;
 }
 
-// Grafico 1: barras horizontales agrupadas (Meta | Certificados | Pendientes).
+// Linea punteada en el 100% de la meta. Solo se dibuja cuando la escala visible
+// la incluye; si todas las categorias estan muy por debajo, la escala se ajusta
+// al mayor avance y la linea quedaria fuera del area del grafico.
+const lineaMeta100 = {
+  id: "lineaMeta100",
+  afterDatasetsDraw(chart) {
+    const { ctx, chartArea, scales } = chart;
+    if (!scales.x || scales.x.max < 100) return;
+    const x = scales.x.getPixelForValue(100);
+    ctx.save();
+    ctx.strokeStyle = COLOR_IND_META;
+    ctx.setLineDash([5, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, chartArea.top);
+    ctx.lineTo(x, chartArea.bottom);
+    ctx.stroke();
+    ctx.restore();
+  },
+};
+
+// Rotulo con el valor exacto al final de cada barra. Es necesario porque una
+// categoria puede tener un % muy pequeno y su barra seria casi invisible.
+const etiquetasAvance = {
+  id: "etiquetasAvance",
+  afterDatasetsDraw(chart) {
+    const { ctx } = chart;
+    chart.data.datasets.forEach((dataset, indiceDataset) => {
+      const meta = chart.getDatasetMeta(indiceDataset);
+      if (meta.hidden) return;
+      meta.data.forEach((barra, indice) => {
+        const valor = dataset.data[indice];
+        if (valor === null || valor === undefined) return;
+        ctx.save();
+        ctx.fillStyle = "#0f3c28";
+        ctx.font = "600 11px system-ui, sans-serif";
+        ctx.textBaseline = "middle";
+        ctx.fillText(`${valor}%`, barra.x + 6, barra.y);
+        ctx.restore();
+      });
+    });
+  },
+};
+
+// Parte las etiquetas largas en varias lineas: en la columna del grafico los
+// nombres de categoria no caben en una sola linea.
+function partirEtiqueta(texto, maximo = 24) {
+  if (texto.length <= maximo) return texto;
+  const lineas = [];
+  let actual = "";
+  texto.split(" ").forEach((palabra) => {
+    if (actual && `${actual} ${palabra}`.length > maximo) {
+      lineas.push(actual);
+      actual = palabra;
+    } else {
+      actual = actual ? `${actual} ${palabra}` : palabra;
+    }
+  });
+  if (actual) lineas.push(actual);
+  return lineas;
+}
+
+// Grafico 1: % de Avance por categoria (Certificados / Meta * 100).
+// Se abandono la comparacion de valores absolutos en un mismo eje porque la meta
+// de Formacion Complementaria (decenas de miles) aplastaba a las demas
+// categorias, cuyas metas son de cientos o miles.
 function renderAvanceChart(metricas) {
   const canvas = document.querySelector("#indicadores-avance-chart");
   const vacio = document.querySelector("#indicadores-avance-empty");
@@ -639,13 +703,8 @@ function renderAvanceChart(metricas) {
 
   if (graficoAvance) { graficoAvance.destroy(); graficoAvance = null; }
 
-  // Se omite una fila solo si no aporta ninguna barra (sin meta, sin
-  // certificados y sin pendientes): en ese caso no hay nada que comparar.
-  const filas = (metricas || []).filter(
-    (m) => m.meta !== null && m.meta !== undefined
-      || Number(m.certificados) > 0
-      || Number(m.pendientes) > 0,
-  );
+  // Solo las categorias con avance calculable: sin meta no hay porcentaje.
+  const filas = (metricas || []).filter((m) => m.avance !== null && m.avance !== undefined);
 
   if (!alternarPanelGrafico(canvas, vacio, filas.length ? "" : "Sin datos cargados")) return;
 
@@ -654,32 +713,43 @@ function renderAvanceChart(metricas) {
     data: {
       labels: filas.map((m) => m.category_label),
       datasets: [
-        { label: "Meta", data: filas.map((m) => m.meta), backgroundColor: COLOR_IND_META, borderRadius: 4 },
-        { label: "Certificados", data: filas.map((m) => m.certificados), backgroundColor: COLOR_IND_CERTIFICADOS, borderRadius: 4 },
-        { label: "Pendientes", data: filas.map((m) => m.pendientes), backgroundColor: COLOR_IND_PENDIENTES, borderRadius: 4 },
+        {
+          label: "% Avance",
+          data: filas.map((m) => m.avance),
+          backgroundColor: COLOR_IND_CERTIFICADOS,
+          borderRadius: 4,
+          maxBarThickness: 30,
+        },
       ],
     },
     options: {
-      indexAxis: "y", // barras horizontales agrupadas
+      indexAxis: "y", // barras horizontales: los nombres de categoria son largos
       responsive: true,
       maintainAspectRatio: false,
+      layout: { padding: { right: 52 } }, // espacio para el rotulo del valor
       scales: {
-        x: { beginAtZero: true, ticks: { precision: 0 } },
-        y: { ticks: { autoSkip: false } },
+        x: { beginAtZero: true, maxTicksLimit: 6, ticks: { callback: (valor) => `${valor}%` } },
+        y: { ticks: { autoSkip: false, callback: (valor, indice) => partirEtiqueta(filas[indice] ? filas[indice].category_label : valor) } },
       },
       plugins: {
-        legend: { position: "bottom", labels: { boxWidth: 12, font: { size: 11 } } },
+        legend: { display: false },
         tooltip: {
           callbacks: {
-            // Un valor nulo significa "no calculable", no cero.
-            label: (ctx) => {
-              const valor = ctx.parsed.x;
-              return `${ctx.dataset.label}: ${valor === null || valor === undefined ? "No calculable" : valor.toLocaleString("es-CO")}`;
+            label: (ctx) => `% Avance: ${ctx.parsed.x}%`,
+            // El detalle absoluto acompania al porcentaje en el mismo tooltip.
+            afterLabel: (ctx) => {
+              const m = filas[ctx.dataIndex];
+              return [
+                `Meta: ${formatNumeroIndicador(m.meta)}`,
+                `Certificados: ${formatNumeroIndicador(m.certificados)}`,
+                `Pendientes: ${formatNumeroIndicador(m.pendientes)}`,
+              ];
             },
           },
         },
       },
     },
+    plugins: [lineaMeta100, etiquetasAvance],
   });
 }
 
@@ -746,6 +816,27 @@ function limpiarGraficosIndicadores() {
   if (causas && causasVacio) alternarPanelGrafico(causas, causasVacio, "Aún no hay causas registradas");
 }
 
+// Pestañas de la zona inferior de Indicadores (Causas / Actas). Reorganizan el
+// contenido complementario para reducir el desplazamiento vertical sin ocultar
+// informacion: todo sigue a un clic de distancia.
+function activarTabIndicadores(nombre) {
+  document.querySelectorAll(".indicadores-tabs .tab-button").forEach((boton) => {
+    const activo = boton.dataset.tab === nombre;
+    boton.classList.toggle("is-active", activo);
+    boton.setAttribute("aria-selected", String(activo));
+  });
+  document.querySelectorAll(".indicadores-tabs .tab-panel").forEach((panel) => {
+    panel.hidden = panel.dataset.tab !== nombre;
+  });
+  // Chart.js mide el lienzo cuando se crea; si el panel estaba oculto el ancho
+  // es 0, asi que al mostrarlo hay que pedirle que recalcule.
+  if (nombre === "causas" && graficoCausas) graficoCausas.resize();
+}
+
+document.querySelectorAll(".indicadores-tabs .tab-button").forEach((boton) => {
+  boton.addEventListener("click", () => activarTabIndicadores(boton.dataset.tab));
+});
+
 async function loadIndicadores() {
   const kpis = document.querySelector("#indicadores-kpis");
   const avisos = document.querySelector("#indicadores-avisos");
@@ -755,6 +846,8 @@ async function loadIndicadores() {
   const causasNote = document.querySelector("#indicadores-causas-note");
   const actasTable = document.querySelector("#indicadores-actas-table");
   const actasSummary = document.querySelector("#indicadores-actas-summary");
+  const causasCount = document.querySelector("#indicadores-causas-count");
+  const actasCount = document.querySelector("#indicadores-actas-count");
   if (!kpis || !table) return;
 
   try {
@@ -806,6 +899,7 @@ async function loadIndicadores() {
       if (causasSummary) {
         causasSummary.textContent = `${data.total_incidencias_causas} incidencias de requisitos (${formatNumeroIndicador(data.total_pendientes)} aprendices únicos)`;
       }
+      if (causasCount) causasCount.textContent = formatNumeroIndicador(data.total_incidencias_causas);
       causasTable.innerHTML = data.motivos.map(mot => `
         <tr>
           <td>${mot.motivo}</td>
@@ -830,6 +924,7 @@ async function loadIndicadores() {
       if (actasSummary) {
         actasSummary.textContent = `${data.ultimas_actas.length} actas en el corte (Ene - Sep 2026)`;
       }
+      if (actasCount) actasCount.textContent = data.ultimas_actas.length;
       if (data.ultimas_actas.length > 0) {
         actasTable.innerHTML = data.ultimas_actas.map(act => `
           <tr>
@@ -848,8 +943,10 @@ async function loadIndicadores() {
     renderCausasChart(data.motivos);
   } catch (err) {
     kpis.innerHTML = `<p class="error">No fue posible calcular indicadores: ${err.message}</p>`;
-    // Sin datos validos no se deben dejar graficos con informacion anterior.
+    // Sin datos validos no se deben dejar graficos ni contadores desactualizados.
     limpiarGraficosIndicadores();
+    if (causasCount) causasCount.textContent = "";
+    if (actasCount) actasCount.textContent = "";
   }
 }
 
