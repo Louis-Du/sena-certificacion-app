@@ -214,6 +214,7 @@ h1 { margin-bottom: 2px; font: 700 22px/1.15 "Space Grotesk", sans-serif; }
 .actions { display: flex; justify-content: flex-end; gap: 8px; }
 .actions button { padding: 9px 15px; border-radius: 7px; cursor: pointer; font-size: 12px; }
 .cancel-button { color: var(--ink); background: white; border: 1px solid #c9d5d0; }
+.cancel-button.is-active { color: #fff; background: var(--green-dark); border-color: var(--green-dark); font-weight: 700; }
 .primary-button { color: white; background: var(--green-dark); border: 1px solid var(--green-dark); }
 .primary-button:disabled { cursor: not-allowed; opacity: .45; }
 
@@ -289,9 +290,15 @@ h1 { margin-bottom: 2px; font: 700 22px/1.15 "Space Grotesk", sans-serif; }
 .learners-data th { color: var(--muted); background: #f7faf8; font-size: 10px; text-align: left; text-transform: uppercase; }
 .learners-data th, .learners-data td { padding: 11px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .learners-data td { color: var(--ink); }
-.learners-data tbody tr:hover { background: #fbfdfc; }
+.learners-data tbody tr { cursor: pointer; }
+.learners-data tbody tr:hover { background: #f1f8f4; }
 .detail-button { padding: 6px 9px; color: var(--green-dark); background: var(--green-soft); border: 1px solid var(--green); border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 700; }
 .detail-button:hover { background: var(--green); color: #fff; }
+.status-chip { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.status-chip.is-ok { color: var(--green-dark); background: var(--green-soft); }
+.status-chip.is-warning { color: #956000; background: var(--amber-soft); }
+.status-chip.is-info { color: #1f5f9e; background: var(--blue-soft); }
+.status-chip.is-neutral { color: var(--muted); background: #eef3f0; }
 .detail-hint { display: block; color: var(--muted); margin-top: 5px; }
 .learner-detail-frame { display: grid; gap: 18px; }
 .detail-heading { display: flex; align-items: center; gap: 18px; }

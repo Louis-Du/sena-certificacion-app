@@ -330,15 +330,80 @@ async function loadHistory() {
 
 let learnerPageNumber = 1;
 const learnerPageSize = 25;
+let learnerStatusCounts = null;
+let pendingFilterActive = false;
+
+function normalizeStatusText(status) {
+  return (status || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function statusChipVariant(status) {
+  const normalized = normalizeStatusText(status);
+  if (normalized.startsWith("certificado")) return "is-ok";
+  if (normalized.startsWith("pendiente")) return "is-warning";
+  if (normalized.startsWith("por certificar")) return "is-info";
+  return "is-neutral";
+}
+
+function renderStatusCell(status) {
+  const cell = document.createElement("td");
+  const chip = document.createElement("span");
+  chip.className = `status-chip ${statusChipVariant(status)}`;
+  chip.textContent = status || "Sin estado";
+  cell.appendChild(chip);
+  return cell;
+}
+
+function syncLearnerFilterButtons() {
+  const porCertificarActivo = normalizeStatusText(learnerStatus.value) === "por certificar";
+  porCertificarLearnersButton.classList.toggle("is-active", porCertificarActivo);
+  porCertificarLearnersButton.setAttribute("aria-pressed", porCertificarActivo ? "true" : "false");
+  pendingLearnersButton.classList.toggle("is-active", pendingFilterActive);
+  pendingLearnersButton.setAttribute("aria-pressed", pendingFilterActive ? "true" : "false");
+}
+
+async function refreshLearnerStatusCounts(statuses) {
+  try {
+    const entries = await Promise.all(
+      statuses.map(async (status) => {
+        const params = new URLSearchParams({ status, page: 1, page_size: 1 });
+        const result = await readResponse(await fetch(`/api/learners?${params}`));
+        return [normalizeStatusText(status), result.total];
+      }),
+    );
+    learnerStatusCounts = new Map(entries);
+  } catch (error) {
+    learnerStatusCounts = null;
+  }
+}
+
+function learnerSummaryLabel(result, conDesglose) {
+  const total = result.total;
+  const base = `${total} ${total === 1 ? "aprendiz registrado" : "aprendices registrados"}`;
+  if (!conDesglose || !learnerStatusCounts) {
+    return `${base} · ${result.por_certificar_total} por certificar`;
+  }
+  let certificados = 0;
+  learnerStatusCounts.forEach((count, status) => {
+    if (status.startsWith("certificado")) certificados += count;
+  });
+  const pendientes = Math.max(total - certificados, 0);
+  return `${base} · ${certificados} ${certificados === 1 ? "certificado" : "certificados"} · ${pendientes} ${pendientes === 1 ? "pendiente" : "pendientes"}`;
+}
 
 function renderLearnerRow(item) {
   const row = document.createElement("tr");
-  [item.name, item.identification, item.program || "Sin programa", item.group_code || "Sin ficha", item.certification_status || "Sin estado"]
+  [item.name, item.identification, item.program || "Sin programa", item.group_code || "Sin ficha"]
     .forEach((value) => {
       const cell = document.createElement("td");
       cell.textContent = value;
       row.appendChild(cell);
     });
+  row.appendChild(renderStatusCell(item.certification_status));
   const pendingCell = document.createElement("td");
   pendingCell.textContent = item.pending_count ?? "—";
   row.appendChild(pendingCell);
@@ -467,6 +532,7 @@ async function loadLearnerDetail(learnerId) {
 
 async function loadLearners() {
   try {
+    pendingFilterActive = false;
     const params = new URLSearchParams({
       search: learnerSearch.value.trim(),
       status: learnerStatus.value,
@@ -479,11 +545,12 @@ async function loadLearners() {
     result.statuses.forEach((status) => learnerStatus.add(new Option(status, status)));
     if (selectedStatus) setLearnerStatus(selectedStatus);
     porCertificarLearnersButton.textContent = `Por Certificar (${result.por_certificar_total})`;
-    porCertificarLearnersButton.setAttribute(
-      "aria-pressed",
-      learnerStatus.value.toLowerCase() === "por certificar" ? "true" : "false",
-    );
-    learnersSummary.textContent = `${result.total} ${result.total === 1 ? "aprendiz" : "aprendices"} registrados`;
+    syncLearnerFilterButtons();
+    const sinFiltros = !learnerSearch.value.trim() && !learnerStatus.value;
+    if (sinFiltros) {
+      await refreshLearnerStatusCounts(result.statuses);
+    }
+    learnersSummary.textContent = learnerSummaryLabel(result, sinFiltros);
     learnersPage.textContent = `Pagina ${result.page} de ${Math.max(result.pages, 1)}`;
     learnersPrev.disabled = result.page <= 1;
     learnersNext.disabled = result.page >= result.pages;
@@ -502,8 +569,10 @@ async function loadLearners() {
 
 async function loadPendingLearners() {
   try {
+    pendingFilterActive = true;
+    syncLearnerFilterButtons();
     const result = await readResponse(await fetch("/api/learners/with-pending-requirements"));
-    learnersSummary.textContent = `${result.items.length} aprendices con requisitos pendientes`;
+    learnersSummary.textContent = `${result.items.length} ${result.items.length === 1 ? "aprendiz" : "aprendices"} con requisitos pendientes`;
     learnersList.replaceChildren(...result.items.map((item) => {
       const row = renderLearnerRow(item);
       row.cells[5].textContent = item.pending_count;
@@ -539,7 +608,14 @@ porCertificarLearnersButton.addEventListener("click", () => {
   learnerPageNumber = 1;
   loadLearners();
 });
-pendingLearnersButton.addEventListener("click", loadPendingLearners);
+pendingLearnersButton.addEventListener("click", () => {
+  if (pendingFilterActive) {
+    learnerPageNumber = 1;
+    loadLearners();
+    return;
+  }
+  loadPendingLearners();
+});
 learnersPrev.addEventListener("click", () => {
   if (learnerPageNumber > 1) {
     learnerPageNumber -= 1;
