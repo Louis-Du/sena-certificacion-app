@@ -75,17 +75,50 @@ def test_validate_xlsx_df14a_is_ready():
 
 
 def test_validate_pdf_acta_is_ready():
-    result = validate_file("acta.pdf", pdf_bytes(), "acta")
+    content = pdf_bytes(
+        "ACTA DE CERTIFICACION No. 41\n"
+        "Fecha: 15 de marzo de 2026\n"
+        "1 LAURA SOFIA PEREZ GOMEZ 1043000100"
+    )
+    result = validate_file("acta.pdf", content, "acta")
 
     assert result.status == "ready"
     assert any("PDF" in check["label"] for check in result.checks)
 
 
 def test_validate_docx_acta_is_ready():
-    result = validate_file("acta.docx", docx_bytes(), "acta")
+    content = docx_bytes(
+        "ACTA DE CERTIFICACION No. 41\n"
+        "Fecha: 15 de marzo de 2026\n"
+        "1 LAURA SOFIA PEREZ GOMEZ 1043000100"
+    )
+    result = validate_file("acta.docx", content, "acta")
 
     assert result.status == "ready"
     assert any("Word" in check["label"] for check in result.checks)
+
+
+def test_validate_acta_without_number_is_error():
+    result = validate_file("acta.pdf", pdf_bytes(), "acta")
+
+    assert result.status == "error"
+    assert any(
+        "numero del acta" in check["label"] and check["status"] == "error"
+        for check in result.checks
+    )
+
+
+def test_validate_acta_with_number_but_no_learners_is_warning():
+    result = validate_file(
+        "acta.pdf",
+        pdf_bytes("ACTA DE CERTIFICACION No. 41\nFecha: 15 de marzo de 2026"),
+        "acta",
+    )
+
+    assert result.status == "warning"
+    assert any(
+        "no aporta aprendices" in check["label"] for check in result.checks
+    )
 
 
 def test_validate_unreadable_xlsx_returns_error():

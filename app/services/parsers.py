@@ -81,6 +81,21 @@ def clean_identification(value: Any) -> str | None:
     text = str(value).strip()
     if not text or text.lower() in {"nan", "nat", "none"}:
         return None
+    # En PDFs, una misma celda puede partir el numero en varias lineas
+    # ("10474177\n32"). Si al quitar los espacios queda un numero puro, se usa
+    # esa forma para que coincida con la identificacion de las otras fuentes.
+    compact = re.sub(r"\s+", "", text)
+    if re.fullmatch(r"\d{5,15}", compact):
+        return compact
+    # Documentos escritos con separador de miles ("1.043.000.100") se reducen a
+    # digitos para que coincidan con la identificacion de las otras fuentes.
+    # Solo se aplica cuando hay al menos dos grupos de miles o cinco digitos en
+    # total, para no confundir un decimal corto (por ejemplo "1.234").
+    thousands = re.fullmatch(r"(\d{1,3})((?:[.\s]\d{3})+)", compact)
+    if thousands:
+        digits = re.sub(r"[.\s]", "", compact)
+        if len(digits) >= 5:
+            return digits
     # Numeros como 1.043966273e+09 o 1043966273.0 se reducen a su parte entera.
     try:
         if "." in text or "e" in text.lower():
@@ -795,15 +810,44 @@ _MESES_ES = {
     "diciembre": 12,
 }
 
-# "ACTA DE CERTIFICACIÓN No. 23" / "ACTA ORDINARIA No. 101-2026".
-_ACTA_NUMBER_RE = re.compile(r"\bACTA\b[^\n]{0,80}?\bNo\.?\s*([0-9][0-9A-Za-z\-/]*)", re.IGNORECASE)
+# "ACTA DE CERTIFICACIÓN No. 23", "ACTA ORDINARIA N° 101-2026" o "ACTA 41".
+_ACTA_NUMBER_RE = re.compile(
+    r"\bACTA\b[^\n]{0,80}?\b(?:N(?:o|ro)?\.?\s*|[Nn][°º]\s*)"
+    r"([0-9][0-9A-Za-z\-/]*)"
+    r"|\bACTA\b(?:\s+(?:DE\s+)?(?:CERTIFICACI[OÓ]N|ORDINARIA|EXTRAORDINARIA))?\s+"
+    r"([0-9][0-9A-Za-z\-/]*)",
+    re.IGNORECASE,
+)
 _ACTA_ASUNTO_RE = re.compile(r"Asunto\s*:\s*(.+)", re.IGNORECASE)
 _FECHA_TEXTO_RE = re.compile(r"(\d{1,2})\s+de\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)\s+de\s+(\d{4})")
 _FECHA_ISO_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
-# Aprendices listados en texto: "- C.C. 1001001001 - GOMEZ PEREZ LAURA SOFIA".
+# Numero de documento tal como suele aparecer en los documentos: digitos
+# corridos ("1043000100") o con separador de miles ("1.043.000.100").
+_DOCUMENTO_PATTERN = r"(?:[0-9]{1,3}(?:\.[0-9]{3}){1,4}|[0-9]{5,15})"
+
+# Nombre de una persona: al menos dos palabras capitalizadas. Se admiten
+# conectores en minuscula ("de", "del", "la", "los", "y") para nombres como
+# "Laura de los Ángeles Pérez". Exigir dos palabras evita confundir frases del
+# documento ("programa 2500001 para los aprendices") con un aprendiz.
+_ACTA_NOMBRE_TOKEN = r"[A-ZÁÉÍÓÚÜÑ][A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’.\-]*"
+_ACTA_NOMBRE_CONECTOR = r"(?:de|del|la|las|los|y|e)"
+_ACTA_NOMBRE = (
+    rf"{_ACTA_NOMBRE_TOKEN}"
+    rf"(?:\s+(?:{_ACTA_NOMBRE_CONECTOR}\s+)*{_ACTA_NOMBRE_TOKEN})+"
+)
+
+# Aprendices listados en texto: "- C.C. 1001001001 - GOMEZ PEREZ LAURA SOFIA" o
+# "1001001001 GOMEZ PEREZ LAURA SOFIA" (PDF sin separador explicito).
 _ACTA_APRENDIZ_TEXTO_RE = re.compile(
     r"(?:[-•*]\s*)?(?:C\.?\s?C\.?|T\.?\s?I\.?|CC|TI|CE|PAS)?\s*:?\s*"
-    r"([0-9]{5,15})\s*[-–:]\s*([A-Za-zÁÉÍÓÚÜÑáéíóúüñ][^0-9\n]{2,80})"
+    rf"({_DOCUMENTO_PATTERN})\s*(?:[-–:]\s*|\s+)"
+    rf"({_ACTA_NOMBRE})"
+)
+
+# Algunos documentos listan primero el nombre y despues el documento (por
+# ejemplo cuando la columna DOCUMENTOS esta a la derecha del nombre).
+_ACTA_APRENDIZ_NOMBRE_PRIMERO_RE = re.compile(
+    rf"({_ACTA_NOMBRE})\s+({_DOCUMENTO_PATTERN})(?:\s|$)"
 )
 
 # Encabezados reconocidos en las tablas de un acta. Se comparan normalizados
@@ -811,21 +855,46 @@ _ACTA_APRENDIZ_TEXTO_RE = re.compile(
 _ACTA_HEADER_ALIASES: dict[str, tuple[str, ...]] = {
     "documento": (
         "documento",
+        "documentos",
         "no documento",
         "no. documento",
+        "nro documento",
         "numero de documento",
         "numero documento",
+        "numero de documentos",
+        "documento de identidad",
+        "documento del aprendiz",
+        "documento aprendiz",
         "identificacion",
+        "numero de identificacion",
+        "identificacion del aprendiz",
         "cedula",
+        "cedula de ciudadania",
         "c c",
         "cc",
         "t i",
         "ti",
     ),
-    "nombre": ("nombre", "nombres", "nombre completo", "aprendiz", "nombre aprendiz"),
-    "ficha": ("ficha", "codigo ficha", "codigo de ficha", "grupo"),
+    "nombre": (
+        "nombre",
+        "nombres",
+        "nombre completo",
+        "nombres completos",
+        "nombre aprendiz",
+        "nombres y apellidos",
+        "apellidos y nombres",
+        "aprendiz",
+    ),
+    "apellidos": ("apellidos", "apellido"),
+    "ficha": ("ficha", "codigo ficha", "codigo de ficha", "grupo", "numero de ficha"),
     "programa": ("programa", "programa de formacion", "programa formacion"),
     "resultado": ("resultado", "estado", "condicion", "observaciones"),
+}
+
+# Encabezados que mencionan la palabra "documento" pero no contienen el numero
+# de identificacion (por ejemplo "TIPO DE DOCUMENTO" con valores CC/TI).
+_ACTA_HEADER_EXCLUSIONS: dict[str, tuple[str, ...]] = {
+    "documento": ("tipo de documento", "tipo documento", "clase de documento"),
 }
 
 
@@ -834,7 +903,8 @@ def extract_acta_number(text: str) -> str | None:
     match = _ACTA_NUMBER_RE.search(text or "")
     if not match:
         return None
-    return match.group(1).strip().rstrip(".") or None
+    value = match.group(1) or match.group(2) or ""
+    return value.strip().rstrip(".") or None
 
 
 def parse_fecha_documento(text: str) -> str | None:
@@ -860,47 +930,151 @@ def parse_fecha_documento(text: str) -> str | None:
     return None
 
 
+def _compact_header(value: str) -> str:
+    """Version sin espacios del encabezado.
+
+    En PDFs las columnas suelen ser angostas y el encabezado se parte en varias
+    lineas ("DOCUM\\nENTO", "FICH\\nA"). Al quitar los espacios se recupera la
+    palabra completa para compararla con los alias conocidos.
+    """
+    return re.sub(r"\s+", "", normalize_column_name("" if value is None else str(value)))
+
+
 def _map_acta_header(header: list[str]) -> dict[str, int]:
     """Asocia cada campo del acta con la columna de la tabla que lo contiene."""
     mapping: dict[str, int] = {}
+    used: set[int] = set()
     for index, cell in enumerate(header):
-        normalized = normalize_column_name(cell)
+        normalized = normalize_column_name("" if cell is None else str(cell))
         if not normalized:
             continue
+        compact = _compact_header(cell)
         for field_name, aliases in _ACTA_HEADER_ALIASES.items():
             if field_name in mapping:
                 continue
-            if any(alias == normalized or alias in normalized for alias in aliases):
+            exclusions = _ACTA_HEADER_EXCLUSIONS.get(field_name, ())
+            if any(
+                exclusion in normalized or _compact_header(exclusion) == compact
+                for exclusion in exclusions
+            ):
+                continue
+            if any(
+                alias == normalized
+                or (len(alias) > 3 and alias in normalized)
+                or _compact_header(alias) == compact
+                for alias in aliases
+            ):
+                # Una misma columna no puede ser a la vez nombre y apellidos.
+                if index in used and field_name != "nombre":
+                    continue
                 mapping[field_name] = index
+                used.add(index)
                 break
     return mapping
+
+
+def _find_acta_header(
+    rows: list[list[str]], max_rows: int = 30
+) -> tuple[int, dict[str, int]] | None:
+    """Ubica la fila de encabezado de la tabla de aprendices.
+
+    Muchos documentos oficiales agregan filas de titulo antes del encabezado
+    real (por ejemplo el nombre del centro, el asunto o el desarrollo del acta).
+    Se revisan las primeras filas en lugar de asumir que la primera es el
+    encabezado.
+    """
+    for index, row in enumerate(rows[:max_rows]):
+        mapping = _map_acta_header(row)
+        if {"documento", "nombre"} <= set(mapping):
+            return index, mapping
+    return None
+
+
+def _learners_from_rows(
+    rows: list[list[str]], mapping: dict[str, int]
+) -> list[dict[str, str]]:
+    """Extrae aprendices de las filas de datos usando un mapeo de columnas."""
+    learners: list[dict[str, str]] = []
+    for row in rows:
+        if not any(str(cell).strip() for cell in row if cell is not None):
+            continue
+        learner: dict[str, str] = {}
+        for field_name, index in mapping.items():
+            if index < len(row):
+                raw = "" if row[index] is None else str(row[index])
+                # Colapsa saltos de linea y espacios repetidos dentro de la celda.
+                value = " ".join(raw.split())
+                if value:
+                    learner[field_name] = value
+        document = clean_identification(learner.get("documento"))
+        name = learner.get("nombre")
+        if not document or not name:
+            # Sin identificacion o sin nombre no se puede asociar a una persona
+            # con certeza; se omite en lugar de inventar una relacion.
+            continue
+        learner["documento"] = document
+        if learner.get("ficha"):
+            ficha = clean_identification(learner["ficha"])
+            if ficha:
+                learner["ficha"] = ficha
+        # Si nombre y apellidos vienen en columnas separadas se conserva el
+        # nombre completo en el orden en que aparecen en el documento.
+        if learner.get("apellidos") and learner.get("nombre"):
+            if mapping.get("apellidos", 0) < mapping.get("nombre", 0):
+                learner["nombre"] = f"{learner['apellidos']} {learner['nombre']}".strip()
+            else:
+                learner["nombre"] = f"{learner['nombre']} {learner['apellidos']}".strip()
+        learner.pop("apellidos", None)
+        learners.append(learner)
+    return learners
+
+
+def _extract_table_learners(
+    rows: list[list[str]], mapping: dict[str, int] | None = None
+) -> tuple[list[dict[str, str]], dict[str, int] | None]:
+    """Extrae aprendices de una tabla y conserva el mapeo para tablas siguientes.
+
+    Las tablas de un acta pueden continuar en otra pagina sin repetir el
+    encabezado. En ese caso se reutiliza el ultimo mapeo reconocido.
+    """
+    found = _find_acta_header(rows)
+    if found is not None:
+        header_index, current = found
+        return _learners_from_rows(rows[header_index + 1 :], current), current
+    if mapping is not None:
+        return _learners_from_rows(rows, mapping), mapping
+    return [], mapping
 
 
 def _learners_from_table(rows: list[list[str]]) -> list[dict[str, str]]:
     """Extrae aprendices de una tabla cuyo encabezado identifica documento y nombre."""
     if len(rows) < 2:
         return []
-    mapping = _map_acta_header(rows[0] or [])
-    if not {"documento", "nombre"} <= set(mapping):
-        return []
-
-    learners: list[dict[str, str]] = []
-    for row in rows[1:]:
-        if not any(str(cell).strip() for cell in row):
-            continue
-        learner: dict[str, str] = {}
-        for field_name, index in mapping.items():
-            if index < len(row):
-                value = str(row[index]).strip()
-                if value:
-                    learner[field_name] = value
-        document = clean_identification(learner.get("documento"))
-        if not document:
-            # Sin identificacion no se puede asociar a una persona con certeza.
-            continue
-        learner["documento"] = document
-        learners.append(learner)
+    learners, _ = _extract_table_learners(rows)
     return learners
+
+
+def _select_table_learners(
+    results: list[tuple[list[dict[str, str]], dict[str, int] | None]]
+) -> list[dict[str, str]]:
+    """Prefiere las tablas con columnas de contexto (ficha o programa).
+
+    Un acta puede incluir una tabla de asistencia de coordinadores ademas de la
+    tabla de aprendices. Si alguna tabla trae ficha o programa, se usan solo esas
+    tablas para no asociar asistentes que no son aprendices. Cuando ninguna
+    tabla trae esas columnas se conservan todas las que identifican documento y
+    nombre, para no perder actas con una estructura minima.
+    """
+    rich = any(
+        mapping is not None and ({"ficha", "programa"} & set(mapping))
+        for _, mapping in results
+    )
+    selected: list[dict[str, str]] = []
+    for table_learners, mapping in results:
+        if rich and not (mapping is not None and ({"ficha", "programa"} & set(mapping))):
+            continue
+        selected.extend(table_learners)
+    return selected
 
 
 def _learners_from_text(text: str) -> list[dict[str, str]]:
@@ -911,13 +1085,21 @@ def _learners_from_text(text: str) -> list[dict[str, str]]:
         if not line:
             continue
         match = _ACTA_APRENDIZ_TEXTO_RE.search(line)
+        if match:
+            document = clean_identification(match.group(1))
+            name = match.group(2).strip(" -–\t.")
+            if document and name:
+                learners.append({"documento": document, "nombre": name})
+                continue
+        # Si el documento aparece despues del nombre (columna DOCUMENTOS a la
+        # derecha), se reconoce la pareja nombre + identificacion.
+        match = _ACTA_APRENDIZ_NOMBRE_PRIMERO_RE.search(line)
         if not match:
             continue
-        document = clean_identification(match.group(1))
-        name = match.group(2).strip(" -–\t.")
-        if not document or not name:
-            continue
-        learners.append({"documento": document, "nombre": name})
+        name = match.group(1).strip(" -–\t.,")
+        document = clean_identification(match.group(2))
+        if document and name:
+            learners.append({"documento": document, "nombre": name})
     return learners
 
 
@@ -961,9 +1143,13 @@ def extract_acta_data(file_name: str, content: bytes) -> dict[str, Any]:
         paragraph_count = len(paragraphs)
         text_parts.extend(paragraphs)
         tables_count = len(document.tables)
+        mapping: dict[str, int] | None = None
+        table_results: list[tuple[list[dict[str, str]], dict[str, int] | None]] = []
         for table in document.tables:
             rows = [[cell.text.strip() for cell in row.cells] for row in table.rows]
-            learners.extend(_learners_from_table(rows))
+            table_learners, mapping = _extract_table_learners(rows, mapping)
+            table_results.append((table_learners, mapping))
+        learners.extend(_select_table_learners(table_results))
         if not learners:
             learners.extend(_learners_from_text("\n".join(paragraphs)))
     elif extension == ".pdf":
@@ -973,19 +1159,36 @@ def extract_acta_data(file_name: str, content: bytes) -> dict[str, Any]:
         try:
             if document.page_count == 0:
                 raise ValueError("El PDF no contiene paginas.")
+            mapping = None
+            table_results = []
             for page in document:
                 text_parts.append(page.get_text("text"))
                 find_tables = getattr(page, "find_tables", None)
                 if find_tables is None:
                     continue
-                try:
-                    for table in find_tables():
-                        learners.extend(_learners_from_table(table.extract()))
-                except Exception:
-                    # Un PDF sin tablas nativas no es un error: se usa el texto.
-                    continue
+                # Los PDF oficiales no siempre traen lineas dibujadas. Se intenta
+                # primero la deteccion por lineas (mas fiable cuando existen) y
+                # luego por posicion del texto. El mapeo de columnas se conserva
+                # entre paginas porque la tabla puede continuar sin repetir el
+                # encabezado.
+                page_learners: list[dict[str, str]] = []
+                for strategy in ("lines", "text"):
+                    try:
+                        tables = find_tables(strategy=strategy)
+                    except Exception:
+                        continue
+                    tables_count += len(tables.tables)
+                    for table in tables:
+                        table_learners, mapping = _extract_table_learners(
+                            table.extract(), mapping
+                        )
+                        page_learners.extend(table_learners)
+                        table_results.append((table_learners, mapping))
+                    if page_learners:
+                        break
         finally:
             document.close()
+        learners = _select_table_learners(table_results)
         if not learners:
             learners.extend(_learners_from_text("\n".join(text_parts)))
     else:
@@ -999,11 +1202,22 @@ def extract_acta_data(file_name: str, content: bytes) -> dict[str, Any]:
     learners = _dedupe_learners(learners)
 
     warnings: list[str] = []
+    if not full_text.strip():
+        warnings.append(
+            "El documento no contiene texto legible. Si es un PDF escaneado, "
+            "requiere reconocimiento optico de caracteres (OCR) antes de importarlo."
+        )
     if not number:
         warnings.append("No se pudo identificar el numero del acta en el documento.")
     if not act_date:
         warnings.append("No se pudo identificar la fecha del acta.")
     if not learners:
+        if tables_count:
+            warnings.append(
+                "Se encontraron tablas en el acta, pero ninguna con encabezados "
+                "reconocibles de documento y nombre. Verifique que la tabla de "
+                "aprendices tenga esas columnas."
+            )
         warnings.append("El acta no aporta aprendices con numero de documento.")
 
     return {
