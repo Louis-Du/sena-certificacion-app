@@ -94,33 +94,43 @@ class ActLearnerRequest(BaseModel):
 async def index() -> FileResponse:
     return FileResponse(BASE_DIR / "static" / "index.html")
 
-# Esta ruta devuelve una lista de tipos de información y las 4 categorías simplificadas para la carga de archivos.
+# Esta ruta devuelve una lista de tipos de informacion y las categorias simplificadas para la carga de archivos.
 @app.get("/api/information-types")
 async def information_types() -> dict[str, Any]:
+    # Las tres fuentes principales determinan por si mismas el tipo de
+    # procesamiento, por eso ya no hay selectores de subtipos redundantes. La
+    # carga de requisitos se conserva como opcion secundaria y los documentos de
+    # referencia y el CSV alternativo dejan de ofrecerse, aunque sus tipos
+    # internos siguen disponibles para datos historicos y compatibilidad.
     categories = [
         {
-            "id": "datos_certificacion",
-            "name": "Datos de certificación",
-            "description": "Excel institucional ACTAS 2026.xlsx, DF14A o CSV alternativo",
-            "types": ["actas_completo", "df14a", "csv_certificacion"],
+            "id": "actas_oficiales",
+            "name": "Actas oficiales",
+            "description": "Documentos PDF o DOCX con la información oficial del acta y sus aprendices",
+            "types": ["acta"],
+            "formats": ["PDF", "DOCX"],
         },
         {
-            "id": "actas_revision",
-            "name": "Actas para revisión",
-            "description": "Actas individuales en Word o PDF para revisión",
-            "types": ["acta"],
+            "id": "df14a",
+            "name": "DF14A",
+            "description": "Archivo institucional con la información de los aprendices",
+            "types": ["df14a"],
+            "formats": ["XML", "XLSX", "XLS", "CSV"],
+        },
+        {
+            "id": "actas_2026",
+            "name": "ACTAS 2026 / seguimiento",
+            "description": "Excel con las hojas de seguimiento y los datos de los indicadores",
+            "types": ["actas_completo"],
+            "formats": ["XLSX", "XLS"],
         },
         {
             "id": "requisitos_aprendices",
             "name": "Requisitos de aprendices",
-            "description": "Matriz individual en Excel o CSV conectada con requisitos",
+            "description": "Carga secundaria: matriz de requisitos por aprendiz",
             "types": ["requisitos"],
-        },
-        {
-            "id": "documentos_referencia",
-            "name": "Documentos de referencia",
-            "description": "Informe de Gestión Administrativa y otros documentos de apoyo",
-            "types": ["informe", "otro"],
+            "formats": ["XLSX", "XLS", "CSV"],
+            "secondary": True,
         },
     ]
     return {

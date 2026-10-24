@@ -1,6 +1,5 @@
 const categoryOptions = document.querySelectorAll(".category-option");
-const typeOptions = document.querySelectorAll(".type-option");
-let selectedCategory = "datos_certificacion";
+const secondaryOptions = document.querySelectorAll(".type-option");
 const dropZone = document.querySelector("#drop-zone");
 const fileInput = document.querySelector("#file-input");
 const selectButton = document.querySelector("#select-button");
@@ -80,60 +79,21 @@ const extensionsByType = {
   otro: [".xlsx", ".xls", ".csv", ".pdf", ".docx"],
 };
 
-let selectedType = "actas_completo";
+let selectedType = "acta";
 let selectedFile = null;
 let validationId = null;
 
-function setCategory(category) {
-  selectedCategory = category;
-  categoryOptions.forEach((btn) => btn.classList.toggle("selected", btn.dataset.category === category));
+// La fuente elegida determina el tipo de procesamiento: no hay selectores de
+// subtipos. La carga de requisitos vive en la seccion secundaria.
+function selectOption(button) {
+  const type = button.dataset.type;
+  if (!type) return;
+  setType(type);
+}
 
-  typeOptions.forEach((btn) => {
-    btn.hidden = btn.dataset.category !== category;
-  });
-
-  const categoryHeadings = {
-    datos_certificacion: {
-      title: "Opciones de Datos de certificación",
-      description: "Selecciona el origen: Excel institucional, DF14A o CSV alternativo",
-    },
-    actas_revision: {
-      title: "Actas para revisión",
-      description: "Acta individual en formato Word o PDF para revisión y vinculación",
-    },
-    requisitos_aprendices: {
-      title: "Requisitos de aprendices",
-      description: "Matriz de seguimiento de requisitos por aprendiz",
-    },
-    documentos_referencia: {
-      title: "Documentos de referencia",
-      description: "Informe de gestión institucional o documentos de apoyo",
-    },
-  };
-
-  const headingInfo = categoryHeadings[category] || {
-    title: "Opciones disponibles",
-    description: "Selecciona el tipo de archivo",
-  };
-
-  const titleEl = document.querySelector("#subtype-title");
-  const descEl = document.querySelector("#subtype-description");
-  if (titleEl) titleEl.textContent = headingInfo.title;
-  if (descEl) descEl.textContent = headingInfo.description;
-
-  const currentOption = Array.from(typeOptions).find(
-    (opt) => opt.dataset.type === selectedType && opt.dataset.category === category
-  );
-  if (currentOption) {
-    setType(selectedType);
-  } else {
-    const firstAvailable = Array.from(typeOptions).find(
-      (opt) => opt.dataset.category === category
-    );
-    if (firstAvailable) {
-      setType(firstAvailable.dataset.type);
-    }
-  }
+function resetSelection() {
+  const first = categoryOptions[0];
+  if (first) selectOption(first);
 }
 
 function showFeedback(message, isError = false) {
@@ -186,7 +146,8 @@ function hideReview() {
 
 function setType(type) {
   selectedType = type;
-  typeOptions.forEach((option) => option.classList.toggle("selected", option.dataset.type === type));
+  categoryOptions.forEach((option) => option.classList.toggle("selected", option.dataset.type === type));
+  secondaryOptions.forEach((option) => option.classList.toggle("selected", option.dataset.type === type));
   updateAcceptedFormats();
   hideReview();
   if (selectedFile && !isSupported(selectedFile)) clearFile();
@@ -281,7 +242,7 @@ async function validateFile() {
       meta: "Metas institucionales",
       requisitos: "Requisitos de aprendices",
       df14a: "Aprendices (Base DF14A)",
-      acta: "Documentos de acta",
+      acta: "Registros de acta",
       informe: "Tablas de informe de gestión",
       otro: "Documentos de apoyo",
     };
@@ -300,6 +261,18 @@ async function validateFile() {
       item.textContent = line.text;
       return item;
     }));
+    const acta = preview.acta;
+    if (acta) {
+      const detalle = document.createElement("div");
+      const notas = [`📋 Acta ${acta.number}`];
+      if (acta.act_date) notas.push(acta.act_date);
+      notas.push(acta.exists ? "acta ya registrada" : "acta nueva");
+      notas.push(`${acta.learners_to_link} aprendices por vincular`);
+      if (acta.learners_already_linked) notas.push(`${acta.learners_already_linked} ya vinculados`);
+      if (acta.learners_not_registered) notas.push(`${acta.learners_not_registered} sin registrar`);
+      detalle.textContent = notas.join(" · ");
+      confirmBreakdown.prepend(detalle);
+    }
     confirmWarnings.replaceChildren(...preview.warnings.map((warning) => {
       const item = document.createElement("div");
       item.textContent = `⚠ ${warning}`;
@@ -1131,8 +1104,7 @@ actSearch.addEventListener("input", loadActs);
 actStatusFilter.addEventListener("change", loadActs);
 document.querySelector("#back-to-acts").addEventListener("click", () => { document.querySelectorAll("#actas-view > .panel").forEach((panel) => { panel.hidden = false; }); actDetail.hidden = true; });
 
-categoryOptions.forEach((btn) => btn.addEventListener("click", () => setCategory(btn.dataset.category)));
-typeOptions.forEach((option) => option.addEventListener("click", () => setType(option.dataset.type)));
+[...categoryOptions, ...secondaryOptions].forEach((option) => option.addEventListener("click", () => selectOption(option)));
 selectButton.addEventListener("click", (event) => { event.stopPropagation(); fileInput.click(); });
 dropZone.addEventListener("click", () => fileInput.click());
 dropZone.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") fileInput.click(); });
@@ -1141,10 +1113,10 @@ fileInput.addEventListener("change", () => setFile(fileInput.files[0]));
 ["dragleave", "drop"].forEach((eventName) => dropZone.addEventListener(eventName, (event) => { event.preventDefault(); dropZone.classList.remove("dragging"); }));
 dropZone.addEventListener("drop", (event) => setFile(event.dataTransfer.files[0]));
 removeButton.addEventListener("click", clearFile);
-cancelButton.addEventListener("click", () => { clearFile(); clearFeedback(); setCategory("datos_certificacion"); });
+cancelButton.addEventListener("click", () => { clearFile(); clearFeedback(); resetSelection(); });
 validateButton.addEventListener("click", validateFile);
 confirmButton.addEventListener("click", confirmImport);
-setCategory("datos_certificacion");
+resetSelection();
 loadHistory();
 loadLearners();
 showView(window.location.hash === "#aprendices" ? "aprendices" : "carga", false);

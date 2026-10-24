@@ -12,6 +12,97 @@ from app.models import Act, ActLearner, Learner
 REVIEW_STATUSES = {"pending", "reviewed", "rejected"}
 
 
+def import_act_from_document(
+    session: Session,
+    extraction: dict[str, Any],
+    original_file: str,
+    import_id: int | None,
+) -> dict[str, Any]:
+    """Crea o actualiza el acta y vincula los aprendices identificados.
+
+    Se apoya en la extraccion hecha por :mod:`app.services.parsers`. No inventa
+    numero, fecha, documento ni nombre: si no hay numero no se registra el acta y
+    los aprendices sin identificacion se informan sin asociarse. Reimportar el
+    mismo documento no duplica el acta ni las relaciones, y los campos ya
+    guardados no se sobrescriben con valores vacios.
+
+    La funcion no confirma la transaccion: la atomicidad la garantiza el flujo de
+    importacion, que revierte todo si algo falla.
+    """
+    number = (extraction.get("number") or "").strip()
+    if not number:
+        raise ValueError(
+            "No se pudo identificar el numero del acta; no se registra un acta sin numero."
+        )
+
+    act = session.scalar(select(Act).where(Act.number == number))
+    created = act is None
+    if created:
+        act = Act(
+            number=number,
+            original_file=original_file,
+            review_status="pending",
+            import_id=import_id,
+        )
+        session.add(act)
+        session.flush()
+    else:
+        if extraction.get("act_date") and not act.act_date:
+            act.act_date = date.fromisoformat(extraction["act_date"])
+        if extraction.get("act_type") and not act.act_type:
+            act.act_type = extraction["act_type"]
+        act.import_id = import_id
+
+    linked = 0
+    already_linked = 0
+    not_linked = 0
+    for item in extraction.get("learners") or []:
+        document = str(item.get("documento") or "").strip()
+        if not document:
+            not_linked += 1
+            continue
+        learner = session.scalar(select(Learner).where(Learner.identification == document))
+        if learner is None:
+            # Se crea el aprendiz solo con los datos del acta. No se deduce un
+            # estado de certificacion: figurar en un acta no equivale a tener el
+            # certificado expedido.
+            learner = Learner(
+                identification=document,
+                name=str(item.get("nombre") or "").strip() or "Aprendiz sin nombre",
+                group_code=str(item.get("ficha") or "").strip() or None,
+                program=str(item.get("programa") or "").strip() or None,
+            )
+            session.add(learner)
+            session.flush()
+
+        existing_link = session.scalar(
+            select(ActLearner).where(
+                ActLearner.act_id == act.id,
+                ActLearner.learner_id == learner.id,
+            )
+        )
+        if existing_link is not None:
+            already_linked += 1
+            continue
+        session.add(
+            ActLearner(
+                act_id=act.id,
+                learner_id=learner.id,
+                observations=str(item.get("resultado") or "").strip() or None,
+            )
+        )
+        linked += 1
+
+    return {
+        "act_id": act.id,
+        "number": number,
+        "created": created,
+        "linked": linked,
+        "already_linked": already_linked,
+        "not_linked": not_linked,
+    }
+
+
 def list_acts(
     session: Session,
     search: str = "",

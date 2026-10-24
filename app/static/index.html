@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/styles.css?v=20261023-2" rel="stylesheet">
+  <link href="/static/styles.css?v=20261023-3" rel="stylesheet">
 </head>
 
 <body>
@@ -41,89 +41,44 @@
           <div class="panel-heading">
             <div>
               <h2>Tipo de información</h2>
-              <p>Selecciona una de las 4 categorías para cargar documentos</p>
+              <p>Selecciona una de las tres fuentes principales</p>
             </div>
           </div>
           <div class="category-options" id="category-options">
-            <button class="category-option selected" data-category="datos_certificacion" type="button">
-              <span class="category-icon">📊</span>
-              <strong>Datos de certificación</strong>
-              <small>ACTAS 2026, DF14A, CSV</small>
-              <span class="check">✓</span>
-            </button>
-            <button class="category-option" data-category="actas_revision" type="button">
+            <button class="category-option selected" data-category="actas_oficiales" data-type="acta" type="button">
               <span class="category-icon">📋</span>
-              <strong>Actas para revisión</strong>
-              <small>Actas individuales en Word o PDF</small>
+              <strong>Actas oficiales</strong>
+              <small>Documento del acta y los aprendices que cumplen los requisitos</small>
+              <span class="option-format">Formatos: PDF, DOCX</span>
               <span class="check">✓</span>
             </button>
-            <button class="category-option" data-category="requisitos_aprendices" type="button">
-              <span class="category-icon">👤</span>
-              <strong>Requisitos de aprendices</strong>
-              <small>Matriz de requisitos en Excel o CSV</small>
+            <button class="category-option" data-category="df14a" data-type="df14a" type="button">
+              <span class="category-icon">▦</span>
+              <strong>DF14A</strong>
+              <small>Archivo institucional con la información de los aprendices</small>
+              <span class="option-format">Formatos: XML, XLSX, XLS, CSV</span>
               <span class="check">✓</span>
             </button>
-            <button class="category-option" data-category="documentos_referencia" type="button">
-              <span class="category-icon">📁</span>
-              <strong>Documentos de referencia</strong>
-              <small>Informe de gestión y apoyo</small>
+            <button class="category-option" data-category="actas_2026" data-type="actas_completo" type="button">
+              <span class="category-icon">📊</span>
+              <strong>ACTAS 2026 / seguimiento</strong>
+              <small>Excel con las hojas de seguimiento y los datos de los indicadores</small>
+              <span class="option-format">Formatos: XLSX, XLS</span>
               <span class="check">✓</span>
             </button>
           </div>
 
-          <div class="subtype-section" id="subtype-section">
+          <div class="subtype-section" id="secondary-section">
             <div class="subtype-heading">
-              <h3 id="subtype-title">Opciones de Datos de certificación</h3>
-              <p id="subtype-description">Selecciona el origen: Excel institucional, DF14A o CSV alternativo</p>
+              <h3>Cargas secundarias</h3>
+              <p>Opciones adicionales fuera de las tres fuentes principales</p>
             </div>
-            <div class="type-options" id="type-options">
-              <button class="type-option selected" data-type="actas_completo" data-category="datos_certificacion" type="button">
-                <span class="option-icon">🚀</span>
-                <strong>Excel institucional (ACTAS 2026.xlsx)</strong>
-                <small>Procesa en un solo flujo: Certificados, Pendientes, Complementaria y Meta</small>
-                <span class="option-format">Formatos: XLSX, XLS</span>
-                <span class="check">✓</span>
-              </button>
-              <button class="type-option" data-type="df14a" data-category="datos_certificacion" type="button">
-                <span class="option-icon">▦</span>
-                <strong>DF14A</strong>
-                <small>Lista base de aprendices y novedades</small>
-                <span class="option-format">Formatos: XML, XLSX, XLS, CSV</span>
-                <span class="check">✓</span>
-              </button>
-              <button class="type-option" data-type="csv_certificacion" data-category="datos_certificacion" type="button">
-                <span class="option-icon">◷</span>
-                <strong>CSV alternativo (Certificados / Pendientes)</strong>
-                <small>Carga individual de certificados o pendientes en CSV</small>
-                <span class="option-format">Formatos: CSV</span>
-                <span class="check">✓</span>
-              </button>
-              <button class="type-option" data-type="acta" data-category="actas_revision" type="button" hidden>
-                <span class="option-icon">♧</span>
-                <strong>Acta individual de certificación</strong>
-                <small>Documento para revisión y asociación en el módulo de actas</small>
-                <span class="option-format">Formatos: DOCX, PDF</span>
-                <span class="check">✓</span>
-              </button>
-              <button class="type-option" data-type="requisitos" data-category="requisitos_aprendices" type="button" hidden>
+            <div class="type-options" id="secondary-options">
+              <button class="type-option" data-category="requisitos_aprendices" data-type="requisitos" type="button">
                 <span class="option-icon">☷</span>
-                <strong>Matriz de requisitos por aprendiz</strong>
-                <small>Seguimiento de RAP, documentos, etapa productiva, paz y salvo y TyT</small>
+                <strong>Requisitos de aprendices</strong>
+                <small>Matriz de seguimiento de requisitos por aprendiz</small>
                 <span class="option-format">Formatos: XLSX, XLS, CSV</span>
-                <span class="check">✓</span>
-              </button>
-              <button class="type-option" data-type="informe" data-category="documentos_referencia" type="button" hidden>
-                <span class="option-icon">▤</span>
-                <strong>Informe de gestión (Word)</strong>
-                <small>Tabla de referencia institucional y metas anuales</small>
-                <span class="option-format">Formatos: DOCX</span>
-                <span class="check">✓</span>
-              </button>
-              <button class="type-option" data-type="otro" data-category="documentos_referencia" type="button" hidden>
-                <span class="option-icon">□</span>
-                <strong>Otros documentos de apoyo</strong>
-                <small>Documento de consulta y soporte para historial</small>
-                <span class="option-format">Formatos: XLSX, XLS, CSV, PDF, DOCX</span>
                 <span class="check">✓</span>
               </button>
             </div>
