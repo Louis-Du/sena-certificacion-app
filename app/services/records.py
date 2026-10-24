@@ -297,17 +297,7 @@ def parse_records(
             return _parse_generic_tabular(extension, content)
         return []
     if information_type == "acta":
-        if extension == ".docx":
-            result = parsers.parse_acta_docx(content)
-            records = result.get("records", [])
-            if records:
-                return records
-            if result.get("paragraphs"):
-                return [_document_metadata(file_name, extension, result.get("paragraphs"))]
-            return []
-        if extension == ".pdf":
-            return [_pdf_metadata(file_name, content)]
-        return []
+        return _acta_records(file_name, content)
     if extension in {".pdf", ".docx"}:
         # Documentos de referencia ("otro"): se conserva un registro de
         # metadatos, pero solo si el archivo pudo abrirse y tiene contenido. Un
@@ -374,17 +364,55 @@ def _frame_records(frame: pd.DataFrame) -> list[dict[str, Any]]:
     ]
 
 
-def _document_metadata(
-    file_name: str,
-    extension: str,
-    paragraphs: list[str] | None = None,
-) -> dict[str, Any]:
-    """Registro de metadatos para un DOCX valido que no aporta filas de tabla."""
-    return {
-        "file_name": file_name,
-        "format": extension.lstrip("."),
-        "paragraphs": len(paragraphs or []),
+def _acta_records(file_name: str, content: bytes) -> list[dict[str, Any]]:
+    """Registros importables de un acta oficial (PDF o DOCX).
+
+    Un acta se representa con un registro por aprendiz identificado, de modo que
+    la vista previa y el historial reflejen cuantas personas aporta el documento.
+    Si el acta se identifica pero no aporta aprendices con documento, se devuelve
+    un unico registro de cabecera para conservar la trazabilidad del acta.
+
+    Si no se puede identificar el numero del acta no se devuelve ningun registro:
+    la validacion lo informa y bloquea la confirmacion en lugar de guardar un
+    acta sin identificar.
+    """
+    extraction = parsers.extract_acta_data(file_name, content)
+    number = extraction.get("number")
+    if not number:
+        return []
+
+    header = {
+        "numero de acta": number,
+        "fecha del acta": extraction.get("act_date"),
+        "tipo de acta": extraction.get("act_type"),
     }
+    header = {key: value for key, value in header.items() if value}
+
+    records: list[dict[str, Any]] = []
+    for learner in extraction.get("learners", []):
+        record = dict(header)
+        record.update(
+            {
+                key: value
+                for key, value in {
+                    "documento": learner.get("documento"),
+                    "nombre": learner.get("nombre"),
+                    "ficha": learner.get("ficha"),
+                    "programa": learner.get("programa"),
+                    "resultado": learner.get("resultado"),
+                }.items()
+                if value
+            }
+        )
+        record["__type__"] = "acta"
+        records.append(record)
+
+    if not records:
+        cabecera = dict(header)
+        cabecera["archivo"] = file_name
+        cabecera["__type__"] = "acta"
+        records.append(cabecera)
+    return records
 
 
 def _docx_metadata(file_name: str, content: bytes) -> dict[str, Any]:
@@ -415,32 +443,6 @@ def _pdf_page_count(content: bytes) -> int:
         return document.page_count
     finally:
         document.close()
-
-
-def _pdf_metadata(file_name: str, content: bytes) -> dict[str, Any]:
-    """Registro de metadatos de un PDF valido.
-
-    No se inventan aprendices ni filas: solo se deja constancia del documento.
-    Si el PDF no se puede abrir, la excepcion se propaga para que la validacion
-    lo rechace y no se genere ningun registro ficticio.
-    """
-    import fitz
-
-    document = fitz.open(stream=content, filetype="pdf")
-    try:
-        if document.page_count == 0:
-            raise ValueError("El PDF no contiene paginas.")
-        pages = document.page_count
-        first_page = document.load_page(0)
-        text_preview = " ".join(first_page.get_text("text").split())[:200]
-    finally:
-        document.close()
-    return {
-        "file_name": file_name,
-        "format": "pdf",
-        "pages": pages,
-        "text_preview": text_preview,
-    }
 
 
 def record_key(information_type: str, record: dict[str, Any]) -> str:
@@ -489,6 +491,18 @@ def record_key(information_type: str, record: dict[str, Any]) -> str:
         if doc and req:
             return hashlib.sha256(
                 f"{information_type}:{doc}:{parsers.normalize_text(req)}".encode("utf-8")
+            ).hexdigest()
+
+    if information_type == "acta":
+        # Llave estable por acta + documento: reimportar el mismo acta no crea
+        # registros nuevos ni pierde la trazabilidad del aprendiz.
+        number = _first_present(clean, "numero de acta", "acta") or ""
+        document = parsers.clean_identification(
+            _first_present(clean, "documento", "numero de documento")
+        ) or ""
+        if number or document:
+            return hashlib.sha256(
+                f"acta:{number}:{document}".encode("utf-8")
             ).hexdigest()
 
     normalized = json.dumps(

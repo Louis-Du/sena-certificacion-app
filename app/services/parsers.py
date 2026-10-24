@@ -24,7 +24,10 @@ Librerias utilizadas y su proposito:
 
 from __future__ import annotations
 
+import re
+from datetime import date
 from io import BytesIO
+from pathlib import Path
 from typing import Any
 from unicodedata import normalize
 from xml.etree import ElementTree as ET
@@ -764,6 +767,255 @@ def parse_acta_docx(content: bytes) -> dict[str, Any]:
         "header": header,
         "records": records,
         "tables_count": len(document.tables),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Actas oficiales (PDF / DOCX): extraccion de datos del acta y de sus aprendices
+# ---------------------------------------------------------------------------
+#
+# La extraccion es deliberadamente conservadora: solo devuelve los datos que se
+# pueden leer con evidencia en el documento. Cuando un campo no se puede
+# interpretar con fiabilidad se deja en ``None`` y se explica en ``warnings``;
+# nunca se genera un numero de acta, una fecha, una identificacion ni un nombre.
+
+_MESES_ES = {
+    "enero": 1,
+    "febrero": 2,
+    "marzo": 3,
+    "abril": 4,
+    "mayo": 5,
+    "junio": 6,
+    "julio": 7,
+    "agosto": 8,
+    "septiembre": 9,
+    "setiembre": 9,
+    "octubre": 10,
+    "noviembre": 11,
+    "diciembre": 12,
+}
+
+# "ACTA DE CERTIFICACIÓN No. 23" / "ACTA ORDINARIA No. 101-2026".
+_ACTA_NUMBER_RE = re.compile(r"\bACTA\b[^\n]{0,80}?\bNo\.?\s*([0-9][0-9A-Za-z\-/]*)", re.IGNORECASE)
+_ACTA_ASUNTO_RE = re.compile(r"Asunto\s*:\s*(.+)", re.IGNORECASE)
+_FECHA_TEXTO_RE = re.compile(r"(\d{1,2})\s+de\s+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+)\s+de\s+(\d{4})")
+_FECHA_ISO_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+# Aprendices listados en texto: "- C.C. 1001001001 - GOMEZ PEREZ LAURA SOFIA".
+_ACTA_APRENDIZ_TEXTO_RE = re.compile(
+    r"(?:[-•*]\s*)?(?:C\.?\s?C\.?|T\.?\s?I\.?|CC|TI|CE|PAS)?\s*:?\s*"
+    r"([0-9]{5,15})\s*[-–:]\s*([A-Za-zÁÉÍÓÚÜÑáéíóúüñ][^0-9\n]{2,80})"
+)
+
+# Encabezados reconocidos en las tablas de un acta. Se comparan normalizados
+# (sin tildes, minusculas y sin guiones) para tolerar variantes de redaccion.
+_ACTA_HEADER_ALIASES: dict[str, tuple[str, ...]] = {
+    "documento": (
+        "documento",
+        "no documento",
+        "no. documento",
+        "numero de documento",
+        "numero documento",
+        "identificacion",
+        "cedula",
+        "c c",
+        "cc",
+        "t i",
+        "ti",
+    ),
+    "nombre": ("nombre", "nombres", "nombre completo", "aprendiz", "nombre aprendiz"),
+    "ficha": ("ficha", "codigo ficha", "codigo de ficha", "grupo"),
+    "programa": ("programa", "programa de formacion", "programa formacion"),
+    "resultado": ("resultado", "estado", "condicion", "observaciones"),
+}
+
+
+def extract_acta_number(text: str) -> str | None:
+    """Devuelve el numero de acta legible en el texto, o ``None`` si no aparece."""
+    match = _ACTA_NUMBER_RE.search(text or "")
+    if not match:
+        return None
+    return match.group(1).strip().rstrip(".") or None
+
+
+def parse_fecha_documento(text: str) -> str | None:
+    """Convierte una fecha legible ("02 de octubre de 2026" o ISO) a ``YYYY-MM-DD``."""
+    if not text:
+        return None
+    match = _FECHA_TEXTO_RE.search(text)
+    if match:
+        day, month_name, year = match.groups()
+        month = _MESES_ES.get(normalize_text(month_name))
+        if not month:
+            return None
+        try:
+            return date(int(year), month, int(day)).isoformat()
+        except ValueError:
+            return None
+    match = _FECHA_ISO_RE.search(text)
+    if match:
+        try:
+            return date(*(int(part) for part in match.groups())).isoformat()
+        except ValueError:
+            return None
+    return None
+
+
+def _map_acta_header(header: list[str]) -> dict[str, int]:
+    """Asocia cada campo del acta con la columna de la tabla que lo contiene."""
+    mapping: dict[str, int] = {}
+    for index, cell in enumerate(header):
+        normalized = normalize_column_name(cell)
+        if not normalized:
+            continue
+        for field_name, aliases in _ACTA_HEADER_ALIASES.items():
+            if field_name in mapping:
+                continue
+            if any(alias == normalized or alias in normalized for alias in aliases):
+                mapping[field_name] = index
+                break
+    return mapping
+
+
+def _learners_from_table(rows: list[list[str]]) -> list[dict[str, str]]:
+    """Extrae aprendices de una tabla cuyo encabezado identifica documento y nombre."""
+    if len(rows) < 2:
+        return []
+    mapping = _map_acta_header(rows[0] or [])
+    if not {"documento", "nombre"} <= set(mapping):
+        return []
+
+    learners: list[dict[str, str]] = []
+    for row in rows[1:]:
+        if not any(str(cell).strip() for cell in row):
+            continue
+        learner: dict[str, str] = {}
+        for field_name, index in mapping.items():
+            if index < len(row):
+                value = str(row[index]).strip()
+                if value:
+                    learner[field_name] = value
+        document = clean_identification(learner.get("documento"))
+        if not document:
+            # Sin identificacion no se puede asociar a una persona con certeza.
+            continue
+        learner["documento"] = document
+        learners.append(learner)
+    return learners
+
+
+def _learners_from_text(text: str) -> list[dict[str, str]]:
+    """Extrae aprendices de texto corrido (util en PDF sin tablas nativas)."""
+    learners: list[dict[str, str]] = []
+    for raw_line in (text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        match = _ACTA_APRENDIZ_TEXTO_RE.search(line)
+        if not match:
+            continue
+        document = clean_identification(match.group(1))
+        name = match.group(2).strip(" -–\t.")
+        if not document or not name:
+            continue
+        learners.append({"documento": document, "nombre": name})
+    return learners
+
+
+def _dedupe_learners(learners: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Evita repetir a la misma persona dentro del mismo documento."""
+    result: list[dict[str, str]] = []
+    seen: dict[str, dict[str, str]] = {}
+    for learner in learners:
+        document = learner.get("documento")
+        if not document:
+            continue
+        current = seen.get(document)
+        if current is None:
+            seen[document] = learner
+            result.append(learner)
+            continue
+        for key, value in learner.items():
+            if value and not current.get(key):
+                current[key] = value
+    return result
+
+
+def extract_acta_data(file_name: str, content: bytes) -> dict[str, Any]:
+    """Lee un acta oficial (PDF o DOCX) y devuelve sus datos interpretables.
+
+    Reutiliza ``python-docx`` para DOCX y PyMuPDF para PDF. En PDF se intentan
+    primero las tablas nativas y, si no las hay, se leen las lineas de texto. El
+    resultado incluye una lista de ``warnings`` con lo que no pudo extraerse.
+    """
+    extension = Path(file_name).suffix.lower()
+    text_parts: list[str] = []
+    learners: list[dict[str, str]] = []
+    tables_count = 0
+    paragraph_count = 0
+
+    if extension == ".docx":
+        from docx import Document
+
+        document = Document(BytesIO(content))
+        paragraphs = [p.text.strip() for p in document.paragraphs if p.text.strip()]
+        paragraph_count = len(paragraphs)
+        text_parts.extend(paragraphs)
+        tables_count = len(document.tables)
+        for table in document.tables:
+            rows = [[cell.text.strip() for cell in row.cells] for row in table.rows]
+            learners.extend(_learners_from_table(rows))
+        if not learners:
+            learners.extend(_learners_from_text("\n".join(paragraphs)))
+    elif extension == ".pdf":
+        import fitz
+
+        document = fitz.open(stream=content, filetype="pdf")
+        try:
+            if document.page_count == 0:
+                raise ValueError("El PDF no contiene paginas.")
+            for page in document:
+                text_parts.append(page.get_text("text"))
+                find_tables = getattr(page, "find_tables", None)
+                if find_tables is None:
+                    continue
+                try:
+                    for table in find_tables():
+                        learners.extend(_learners_from_table(table.extract()))
+                except Exception:
+                    # Un PDF sin tablas nativas no es un error: se usa el texto.
+                    continue
+        finally:
+            document.close()
+        if not learners:
+            learners.extend(_learners_from_text("\n".join(text_parts)))
+    else:
+        raise ValueError("El acta debe estar en formato PDF o DOCX.")
+
+    full_text = "\n".join(text_parts)
+    number = extract_acta_number(full_text)
+    act_date = parse_fecha_documento(full_text)
+    asunto = _ACTA_ASUNTO_RE.search(full_text)
+    act_type = asunto.group(1).strip() if asunto else None
+    learners = _dedupe_learners(learners)
+
+    warnings: list[str] = []
+    if not number:
+        warnings.append("No se pudo identificar el numero del acta en el documento.")
+    if not act_date:
+        warnings.append("No se pudo identificar la fecha del acta.")
+    if not learners:
+        warnings.append("El acta no aporta aprendices con numero de documento.")
+
+    return {
+        "file_name": file_name,
+        "format": extension.lstrip("."),
+        "number": number,
+        "act_date": act_date,
+        "act_type": act_type,
+        "learners": learners,
+        "paragraph_count": paragraph_count,
+        "tables_count": tables_count,
+        "warnings": warnings,
     }
 
 

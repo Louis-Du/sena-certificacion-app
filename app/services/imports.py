@@ -13,7 +13,9 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ImportHistory, ImportedRecord, Learner
+from app.models import Act, ActLearner, ImportHistory, ImportedRecord, Learner
+from app.services import parsers
+from app.services.acts import import_act_from_document
 from app.services.learners import upsert_learners_from_records
 from app.services.records import (
     parse_records,
@@ -67,7 +69,7 @@ def import_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
         for check in staged.result.checks
         if check["status"] in {"warning", "error"}
     ]
-    return {
+    preview = {
         "validation_id": staged.validation_id,
         "file_name": staged.file_name,
         "information_type": TYPE_LABELS.get(staged.information_type, staged.information_type),
@@ -83,6 +85,73 @@ def import_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
         "missing_columns": staged.result.missing_columns,
         "breakdown": prepared.breakdown(),
     }
+    if staged.information_type == "acta":
+        # Una acta no se revisa como una tabla: la vista previa explica si el
+        # acta es nueva, que aprendices se asociaran y cuales ya lo estaban.
+        preview["acta"] = _acta_preview(staged, session)
+    return preview
+
+
+def _acta_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
+    """Resume la relacion propuesta entre el acta y los aprendices leidos."""
+    extraction = parsers.extract_acta_data(staged.file_name, staged.content)
+    number = extraction.get("number")
+    act = session.scalar(select(Act).where(Act.number == number)) if number else None
+
+    documents = [item.get("documento") for item in extraction.get("learners") or [] if item.get("documento")]
+    registered: set[str] = set()
+    if documents:
+        registered = set(
+            session.scalars(
+                select(Learner.identification).where(Learner.identification.in_(documents))
+            ).all()
+        )
+    already_linked: set[str] = set()
+    if act is not None:
+        already_linked = set(
+            session.scalars(
+                select(Learner.identification)
+                .join(ActLearner, ActLearner.learner_id == Learner.id)
+                .where(ActLearner.act_id == act.id)
+            ).all()
+        )
+
+    to_link = 0
+    already = 0
+    not_registered: list[str] = []
+    for document in documents:
+        if document in already_linked:
+            already += 1
+        else:
+            to_link += 1
+        if document not in registered:
+            not_registered.append(document)
+
+    return {
+        "number": number,
+        "act_date": extraction.get("act_date"),
+        "act_type": extraction.get("act_type"),
+        "exists": act is not None,
+        "act_id": act.id if act is not None else None,
+        "learners_found": len(documents),
+        "learners_to_link": to_link,
+        "learners_already_linked": already,
+        "learners_not_registered": not_registered,
+        "warnings": extraction.get("warnings", []),
+    }
+
+
+def _format_acta_message(result: dict[str, Any]) -> str:
+    estado = "creada" if result["created"] else "actualizada"
+    parts = [
+        f"Acta No. {result['number']} {estado}",
+        f"{result['linked']} aprendiz(es) vinculado(s)",
+    ]
+    if result["already_linked"]:
+        parts.append(f"{result['already_linked']} ya estaba(n) asociado(s)")
+    if result["not_linked"]:
+        parts.append(f"{result['not_linked']} registro(s) sin identificacion, no vinculados")
+    return ". ".join(parts) + "."
 
 
 def _format_breakdown_message(breakdown: dict[str, dict[str, int]]) -> str:
@@ -194,6 +263,16 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
         ]
         if requisitos_records:
             _sync_requirements_from_records(session, requisitos_records)
+
+        if staged.information_type == "acta":
+            # El acta y sus relaciones se guardan en la misma transaccion que el
+            # historial: si algo falla no queda un acta a medias ni relaciones
+            # incompletas.
+            extraction = parsers.extract_acta_data(staged.file_name, staged.content)
+            acta_result = import_act_from_document(
+                session, extraction, staged.file_name, history.id
+            )
+            history.message = _format_acta_message(acta_result)
 
         session.commit()
         _staged_imports.pop(validation_id, None)
