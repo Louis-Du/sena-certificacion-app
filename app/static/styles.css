@@ -252,15 +252,69 @@ h1 { margin-bottom: 2px; font: 700 22px/1.15 "Space Grotesk", sans-serif; }
 .result-badge { padding: 5px 9px; border-radius: 999px; color: var(--green-dark); background: var(--green-soft); font-size: 10px; font-weight: 700; }
 .result-badge.warning { color: #956000; background: var(--amber-soft); }
 .result-badge.error { color: #b92f2f; background: var(--red-soft); }
-.confirmation-grid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 8px; }
-.confirmation-grid div { padding: 10px; background: #f7faf8; border-radius: 7px; }
-.confirmation-grid small, .confirmation-grid strong { display: block; }
-.confirmation-grid small { margin-bottom: 4px; color: var(--muted); font-size: 10px; }
-.confirmation-grid strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.confirmation-grid {
+  display: grid;
+  grid-template-columns: minmax(160px, 2fr) repeat(4, minmax(110px, 1fr));
+  gap: 8px;
+  align-items: stretch;
+}
+
+.confirmation-grid > div {
+  padding: 10px;
+  background: #f7faf8;
+  border-radius: 7px;
+  min-width: 0;
+}
+
+.confirmation-grid small {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.25;
+  white-space: normal;
+}
+
+.confirmation-grid strong {
+  display: block;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* En pantallas medianas: Archivo a ancho completo y el resto en 2 columnas */
+@media (max-width: 1100px) {
+  .confirmation-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .confirmation-grid > div:first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 560px) {
+  .confirmation-grid {
+    grid-template-columns: 1fr;
+  }
+  .confirmation-grid > div:first-child {
+    grid-column: auto;
+  }
+}
 .warning-list { margin-top: 9px; color: #956000; font-size: 11px; }
 .warning-list:empty { display: none; }
 #confirm-breakdown { color: var(--ink); font-size: 11.5px; }
-#confirm-breakdown > div { padding: 5px 9px; margin-top: 4px; color: var(--green-dark); background: var(--green-soft); border-radius: 6px; font-weight: 600; }
+#confirm-breakdown > div {
+  padding: 5px 9px;
+  margin-top: 4px;
+  color: var(--green-dark);
+  background: var(--green-soft);
+  border-radius: 6px;
+  font-weight: 600;
+  word-break: break-word;   /* permite partir números largos */
+  white-space: normal;
+  line-height: 1.4;
+}
 #confirm-breakdown > div.is-warning { color: #956000; background: var(--amber-soft); }
 .history-list { display: grid; gap: 8px; }
 .history-list > small { color: var(--muted); font-size: 10px; }

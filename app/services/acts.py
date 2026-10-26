@@ -40,6 +40,10 @@ def import_act_from_document(
     if created:
         act = Act(
             number=number,
+            act_date=date.fromisoformat(extraction["act_date"])
+            if extraction.get("act_date")
+            else None,
+            act_type=str(extraction.get("act_type") or "").strip() or None,
             original_file=original_file,
             review_status="pending",
             import_id=import_id,
