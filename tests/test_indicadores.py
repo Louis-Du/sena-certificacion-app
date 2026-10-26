@@ -264,6 +264,30 @@ def test_meta_faltante_impide_calcular_avance(session_factory):
 
 
 # ---------------------------------------------------------------------------
+# 5b. Retirar los documentos de referencia de la interfaz no rompe las consultas
+# ---------------------------------------------------------------------------
+def test_indicadores_sin_documentos_de_referencia_siguen_respondiendo(client: TestClient):
+    # La carga de "informe" (documentos de referencia) ya no aparece en la
+    # interfaz principal. Aunque no exista ningun registro de ese tipo, los
+    # indicadores deben seguir calculandose con la hoja META y responder el
+    # endpoint sin fallar.
+    with client.session_factory() as session:
+        _seed(session, "certificados", [_certificado("7001", "TECNÓLOGO", "JUNIO")])
+        _seed(session, "meta", [_meta(superior=100, tecnica=200, articulacion=50, complementaria=1000)])
+
+    response = client.get("/api/indicadores")
+    assert response.status_code == 200
+    data = response.json()
+    # Las metas se leen de la hoja META, no del informe de referencia.
+    assert data["fuente_metas"] == "ACTAS 2026.xlsx (hoja META)"
+    # Sin informe importado, la referencia institucional queda vacia, pero la
+    # consulta sigue respondiendo.
+    assert data["referencia_institucional"] == []
+    assert data["fecha_corte_referencia"] is None
+    assert data["total_certificados"] == 1
+
+
+# ---------------------------------------------------------------------------
 # 6. Formacion complementaria (conteos agregados y filtro de periodo)
 # ---------------------------------------------------------------------------
 def test_complementaria_suma_por_canal_y_respeta_el_periodo(session_factory):
