@@ -15,8 +15,12 @@ from sqlalchemy.orm import Session
 
 from app.models import Act, ActLearner, ImportHistory, ImportedRecord, Learner
 from app.services import parsers
-from app.services.acts import import_act_from_document
-from app.services.learners import upsert_learners_from_records
+from app.services.acts import acta_marks_por_certificar, import_act_from_document
+from app.services.learners import (
+    _prepare_learner_row,
+    set_learner_sources,
+    upsert_learners_from_records,
+)
 from app.services.records import (
     parse_records,
     prepare_records,
@@ -99,13 +103,16 @@ def _acta_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
     act = session.scalar(select(Act).where(Act.number == number)) if number else None
 
     documents = [item.get("documento") for item in extraction.get("learners") or [] if item.get("documento")]
-    registered: set[str] = set()
+    statuses: dict[str, str | None] = {}
     if documents:
-        registered = set(
-            session.scalars(
-                select(Learner.identification).where(Learner.identification.in_(documents))
+        statuses = dict(
+            session.execute(
+                select(Learner.identification, Learner.certification_status).where(
+                    Learner.identification.in_(documents)
+                )
             ).all()
         )
+    registered = set(statuses)
     already_linked: set[str] = set()
     if act is not None:
         already_linked = set(
@@ -127,6 +134,13 @@ def _acta_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
         if document not in registered:
             not_registered.append(document)
 
+    # Cuantos aprendices quedaran en estado "Por Certificar" tras confirmar: los
+    # nuevos y los que aun no tienen estado. Los ya CERTIFICADOS o PENDIENTES del
+    # consolidado no se degradan.
+    por_certificar = sum(
+        1 for document in documents if acta_marks_por_certificar(statuses.get(document))
+    )
+
     return {
         "number": number,
         "act_date": extraction.get("act_date"),
@@ -137,6 +151,7 @@ def _acta_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
         "learners_to_link": to_link,
         "learners_already_linked": already,
         "learners_not_registered": not_registered,
+        "learners_por_certificar": por_certificar,
         "warnings": extraction.get("warnings", []),
     }
 
@@ -151,6 +166,14 @@ def _format_acta_message(result: dict[str, Any]) -> str:
         parts.append(f"{result['already_linked']} ya estaba(n) asociado(s)")
     if result["not_linked"]:
         parts.append(f"{result['not_linked']} registro(s) sin identificacion, no vinculados")
+    # Conflicto de estado: aprendices que ya figuran en el consolidado con otro
+    # estado (CERTIFICADOS/PENDIENTE) y se conservan sin degradar a Por Certificar.
+    conflicts = result.get("status_conflicts") or []
+    if conflicts:
+        parts.append(
+            f"{len(conflicts)} aprendiz(es) conservan su estado del consolidado "
+            "(no se degradan a Por Certificar)"
+        )
     return ". ".join(parts) + "."
 
 
@@ -237,26 +260,30 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
                 current.row_number = row_number
                 current.payload = payload
 
+        # Politica #34: si un aprendiz figura en CERTIFICADOS y PENDIENTES,
+        # el estado final es CERTIFICADOS. Para que gane, los registros de
+        # PENDIENTES se procesan primero y los de CERTIFICADOS despues (el
+        # upsert conserva el ultimo por identificacion).
         learners_records = [
             record
-            for record, rtype in final_records
-            if rtype in {"df14a", "certificados", "pendientes"}
-        ]
-        conflicted_identifications = set()
-        if staged.information_type == "actas_completo":
-            # Un aprendiz que aparece en CERTIFICADOS y PENDIENTES no debe
-            # recibir un estado elegido automaticamente. Sus registros se
-            # guardan, pero el estado del aprendiz se deja como estaba (o sin
-            # definir si es nuevo) hasta que una persona lo resuelva.
-            conflicted_identifications = {
-                documento for documento, _ in conflicting_pairs(prepared)
-            }
-        if learners_records:
-            upsert_learners_from_records(
-                session,
-                learners_records,
-                skip_status_for=conflicted_identifications,
+            for record, rtype in sorted(
+                [(r, t) for r, t in final_records if t in {"df14a", "certificados", "pendientes"}],
+                key=lambda item: 0 if item[1] == "pendientes" else 1,
             )
+        ]
+        if learners_records:
+            upsert_learners_from_records(session, learners_records)
+
+        # Las columnas de evidencias de CERTIFICADOS/PENDIENTES se convierten en
+        # requisitos del aprendiz (X -> Cumplido, N.A -> No aplica, vacio ->
+        # Pendiente). El motivo de no certificacion ya quedo en el aprendiz.
+        evidence_records = [
+            record
+            for record, rtype in final_records
+            if rtype in {"certificados", "pendientes"}
+        ]
+        if evidence_records:
+            _sync_actas_requirements(session, evidence_records)
 
         requisitos_records = [
             record for record, rtype in final_records if rtype == "requisitos"
@@ -273,6 +300,10 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
                 session, extraction, staged.file_name, history.id
             )
             history.message = _format_acta_message(acta_result)
+
+        # Procedencia: se registra de que archivo/hoja salio cada aprendiz. Se
+        # acumula (union) y no reemplaza los origenes previos.
+        _register_sources(session, final_records, staged.file_name)
 
         session.commit()
         _staged_imports.pop(validation_id, None)
@@ -352,73 +383,6 @@ def _existing_records_multi(session: Session, keys: list[str]) -> dict[str, Impo
         )
     ).all()
     return {record.record_key: record for record in records}
-
-
-def _upsert_learners(records: list[dict[str, Any]], session: Session) -> None:
-    prepared_rows = [_prepare_learner_row(record) for record in records]
-    rows = [row for row in prepared_rows if row is not None]
-    if not rows:
-        return
-
-    identifications = [row["identification"] for row in rows]
-    existing = session.scalars(
-        select(Learner).where(Learner.identification.in_(identifications))
-    ).all()
-    existing_by_identification = {learner.identification: learner for learner in existing}
-
-    for row in rows:
-        learner = existing_by_identification.get(row["identification"])
-        if learner is None:
-            session.add(Learner(**row))
-            continue
-        if row.get("name") and row["name"] != "Aprendiz sin nombre":
-            learner.name = row["name"]
-        if row.get("program"):
-            learner.program = row["program"]
-        if row.get("group_code"):
-            learner.group_code = row["group_code"]
-        if row.get("training_type"):
-            learner.training_type = row["training_type"]
-        if row.get("certification_status"):
-            learner.certification_status = row["certification_status"]
-        if row.get("tracking_notes"):
-            learner.tracking_notes = row["tracking_notes"]
-
-
-def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
-    name = _first_value(
-        record,
-        "nombre",
-        "nombres",
-        "aprendiz",
-        "nombre aprendiz",
-        "nombre completo",
-        "nombre_aprendiz",
-    )
-    identification = _first_value(
-        record,
-        "identificacion",
-        "identificación",
-        "documento",
-        "numero documento",
-        "numero_documento",
-        "cedula",
-        "cédula",
-        "id",
-    )
-    if not name and not identification:
-        return None
-
-    generated_identification = identification or f"AUTO-{record_key('learner', record)[:12]}"
-    return {
-        "identification": generated_identification,
-        "name": name or "Aprendiz sin nombre",
-        "program": _first_value(record, "programa", "programa formacion", "programa de formacion"),
-        "group_code": _first_value(record, "ficha", "grupo", "codigo grupo", "codigo ficha"),
-        "training_type": _first_value(record, "tipo formacion", "modalidad"),
-        "certification_status": _first_value(record, "estado", "estado certificacion", "estado de certificacion"),
-        "tracking_notes": _first_value(record, "observaciones", "novedades", "seguimiento", "notas"),
-    }
 
 
 def _first_value(record: dict[str, Any], *candidates: str) -> str | None:
@@ -529,4 +493,110 @@ def _sync_requirements_from_records(session: Session, records: list[dict[str, An
             if obs_text:
                 existing_req.observations = obs_text
         count += 1
+    return count
+
+
+# Columnas de evidencias de ACTAS 2026 que se convierten en requisitos. La clave
+# es el nombre de campo interno que produce ``parsers._actas_records`` y coincide
+# con el ``requirement_type`` registrado en ``app.services.requirements``.
+_EVIDENCE_FIELDS = (
+    "biblioteca",
+    "bienestar",
+    "almacen",
+    "etapa_productiva",
+    "documento_identidad",
+    "saber_tyt",
+    "ape",
+    "carnet",
+    "certificado_empresa",
+)
+
+
+# Etiquetas de procedencia por tipo interno. Describen de que archivo/hoja salio
+# cada registro; se acumulan en el aprendiz y nunca reemplazan un origen previo.
+_SOURCE_LABELS = {
+    "certificados": "ACTAS 2026 · CERTIFICADOS",
+    "pendientes": "ACTAS 2026 · PENDIENTES",
+    "complementaria": "ACTAS 2026 · COMPLEMENTARIA",
+    "meta": "ACTAS 2026 · META",
+    "df14a": "DF14A",
+    "requisitos": "Matriz de requisitos",
+}
+
+
+def _source_label(rtype: str, record: dict[str, Any], file_name: str) -> str | None:
+    """Etiqueta legible del origen de un registro, o ``None`` si no se conoce."""
+    if rtype == "acta":
+        number = _first_value(record, "numero de acta", "acta")
+        return f"Acta {number}" if number else f"Acta oficial · {file_name}"
+    return _SOURCE_LABELS.get(rtype)
+
+
+def _register_sources(
+    session: Session, final_records: list[tuple[dict[str, Any], str]], file_name: str
+) -> None:
+    """Acumula en cada aprendiz las fuentes que lo alimentaron en esta importacion.
+
+    Solo se registra un origen conocido; si el tipo no tiene etiqueta (por
+    ejemplo documentos de apoyo) no se inventa procedencia.
+    """
+    sources: dict[str, list[str]] = {}
+    for record, rtype in final_records:
+        label = _source_label(rtype, record, file_name)
+        if not label:
+            continue
+        prepared = _prepare_learner_row(record)
+        if prepared is None:
+            continue
+        labels = sources.setdefault(prepared["identification"], [])
+        if label not in labels:
+            labels.append(label)
+    set_learner_sources(session, sources)
+
+
+def _sync_actas_requirements(session: Session, records: list[dict[str, Any]]) -> int:
+    """Crea o actualiza los requisitos desde las columnas de evidencias del acta.
+
+    Cada columna de checklist de CERTIFICADOS/PENDIENTES es un requisito del
+    aprendiz con el estado leido en la celda: ``X`` -> Cumplido, ``N.A`` -> No
+    aplica, vacio u otro -> Pendiente. Solo se procesan las columnas que existen
+    en la hoja; una columna ausente no genera un requisito inventado.
+    """
+    from app.models import Requirement
+    from app.services.parsers import clean_identification
+    from app.services.requirements import evidence_status
+
+    count = 0
+    for record in records:
+        document = clean_identification(
+            _first_value(record, "numero de documento", "documento")
+        )
+        if not document:
+            continue
+        learner = session.scalar(
+            select(Learner).where(Learner.identification == document)
+        )
+        if learner is None:
+            continue
+        for field in _EVIDENCE_FIELDS:
+            if field not in record:
+                continue
+            status = evidence_status(record.get(field))
+            existing = session.scalar(
+                select(Requirement).where(
+                    Requirement.learner_id == learner.id,
+                    Requirement.requirement_type == field,
+                )
+            )
+            if existing is None:
+                session.add(
+                    Requirement(
+                        learner_id=learner.id,
+                        requirement_type=field,
+                        status=status,
+                    )
+                )
+            else:
+                existing.status = status
+            count += 1
     return count

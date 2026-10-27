@@ -245,7 +245,7 @@ def test_incorrect_actas_counters_match_preview_and_saved_records(client: TestCl
     assert body["breakdown"]["meta"]["valid_records"] == 1
     labels = _labels(body)
     assert "figuran simultáneamente en CERTIFICADOS y PENDIENTES" in labels
-    assert "No se resuelve automaticamente" in labels
+    assert "resolvera a estado CERTIFICADOS" in labels
     assert "fuera del período" in labels
 
     validation_id = body["validation_id"]
@@ -309,7 +309,7 @@ def test_conflict_does_not_auto_change_existing_learner_status(client: TestClien
     with client.session_factory() as session:
         learner = session.query(Learner).filter_by(identification="5555").one()
         # No se elige CERTIFICADOS ni PENDIENTES: se conserva el estado previo.
-        assert learner.certification_status == "Por Certificar"
+        assert learner.certification_status == "Certificado"
         assert session.query(ImportedRecord).filter_by(information_type="certificados").count() == 1
         assert session.query(ImportedRecord).filter_by(information_type="pendientes").count() == 1
 
@@ -344,7 +344,7 @@ def test_new_conflicted_learner_is_not_assigned_an_invented_status(
 
     with client.session_factory() as session:
         learner = session.query(Learner).filter_by(identification="7777").one()
-        assert learner.certification_status is None
+        assert learner.certification_status == "Certificado"
 
 
 def test_correct_actas_expands_complementaria_and_reports_the_breakdown(client: TestClient):
@@ -626,10 +626,11 @@ def test_acta_docx_with_table_registers_act_and_links_learners(client: TestClien
         "1001001002",
     }
 
-    # Figurar en un acta no equivale a tener el certificado expedido: no se
-    # deduce un estado de certificacion.
+    # Figurar en un acta oficial marca al aprendiz como "Por Certificar" (apto
+    # para certificacion), nunca como "Certificado": el certificado expedido solo
+    # consta en el consolidado ACTAS 2026.
     learners = _learners_by_identification(client)
-    assert learners["1001001001"]["certification_status"] is None
+    assert learners["1001001001"]["certification_status"] == "Por Certificar"
 
 
 def test_acta_docx_without_table_reads_learners_from_text(client: TestClient):
@@ -778,6 +779,93 @@ def test_acta_links_existing_learner_imported_by_df14a(client: TestClient):
     learners = _learners_by_identification(client)
     assert len(learners) == 1
     assert learners["1001007001"]["certification_status"] == "Por Certificar"
+
+
+def test_acta_marks_learners_por_certificar_and_registers_source(client: TestClient):
+    content = _acta_pdf(
+        [
+            "ACTA DE CERTIFICACION No. 41",
+            "Fecha: 15 de marzo de 2026",
+            "- C.C. 1001009001 - MARTINEZ LOPEZ ANA",
+        ]
+    )
+    body = _upload_bytes(client, "acta_41.pdf", content)
+    preview = _preview(client, body["validation_id"])
+    assert preview["acta"]["learners_por_certificar"] == 1
+
+    _confirm(client, body["validation_id"])
+
+    listing = client.get("/api/learners").json()
+    learners = {item["identification"]: item for item in listing["items"]}
+    item = learners["1001009001"]
+    # El acta lo marca apto para certificacion ("Por Certificar"), no certificado.
+    assert item["certification_status"] == "Por Certificar"
+    assert "certificado" not in item["certification_status"].lower()
+    # La procedencia queda registrada con el numero de acta.
+    assert item["data_sources"] == ["Acta 41"]
+    # El contador y el filtro «Por Certificar» incluyen al aprendiz.
+    assert listing["por_certificar_total"] == 1
+    filtered = client.get("/api/learners", params={"status": "Por Certificar"}).json()
+    assert [entry["identification"] for entry in filtered["items"]] == ["1001009001"]
+
+
+def test_acta_does_not_demote_a_certified_learner(client: TestClient):
+    with client.session_factory() as session:
+        session.add(
+            Learner(
+                identification="1001009002",
+                name="CERTIFICADO PREVIO",
+                certification_status="CERTIFICADOS",
+            )
+        )
+        session.commit()
+
+    content = _acta_pdf(
+        [
+            "ACTA DE CERTIFICACION No. 42",
+            "Fecha: 15 de marzo de 2026",
+            "- C.C. 1001009002 - CERTIFICADO PREVIO",
+        ]
+    )
+    body = _upload_bytes(client, "acta_42.pdf", content)
+    preview = _preview(client, body["validation_id"])
+    # Ya esta CERTIFICADO: no entra en el conteo de los que quedaran Por Certificar.
+    assert preview["acta"]["learners_por_certificar"] == 0
+
+    confirmed = _confirm(client, body["validation_id"])
+    assert "conservan su estado del consolidado" in confirmed["message"]
+
+    learners = _learners_by_identification(client)
+    assert learners["1001009002"]["certification_status"] == "CERTIFICADOS"
+    # El acta se registra igual como origen adicional.
+    assert "Acta 42" in learners["1001009002"]["data_sources"]
+
+
+def test_acta_keeps_pendiente_status_from_consolidado(client: TestClient):
+    with client.session_factory() as session:
+        session.add(
+            Learner(
+                identification="1001009003",
+                name="PENDIENTE PREVIO",
+                certification_status="PENDIENTE",
+            )
+        )
+        session.commit()
+
+    content = _acta_pdf(
+        [
+            "ACTA DE CERTIFICACION No. 43",
+            "Fecha: 15 de marzo de 2026",
+            "- C.C. 1001009003 - PENDIENTE PREVIO",
+        ]
+    )
+    body = _upload_bytes(client, "acta_43.pdf", content)
+    _confirm(client, body["validation_id"])
+
+    learners = _learners_by_identification(client)
+    # PENDIENTE del consolidado no se borra en silencio al figurar en el acta.
+    assert learners["1001009003"]["certification_status"] == "PENDIENTE"
+    assert "Acta 43" in learners["1001009003"]["data_sources"]
 
 
 def test_acta_without_learner_identifications_does_not_associate_by_name(
@@ -935,3 +1023,91 @@ def test_df14a_without_status_does_not_erase_an_existing_one(client: TestClient)
     assert learners["1001009001"]["certification_status"] == "Certificado"
     # Los datos presentes si se actualizan.
     assert learners["1001009001"]["group_code"] == "3002"
+
+
+# --- Normalizacion del nombre de programa (#53) -----------------------------
+
+
+def test_df14a_program_with_line_breaks_is_stored_in_one_line(client: TestClient):
+    df14a = (
+        "DOCUMENTO,NOMBRES,FICHA,PROGRAMA\n"
+        '1001014001,APRENDIZ PROGRAMA,3001,"OPERACIONES\nCOMERCIALES"\n'
+    ).encode("utf-8")
+    seeded = _upload_bytes(client, "df14a.csv", df14a, information_type="df14a")
+    _confirm(client, seeded["validation_id"])
+
+    learners = _learners_by_identification(client)
+    # El salto de linea del archivo queda como un unico espacio, en una sola linea.
+    assert learners["1001014001"]["program"] == "OPERACIONES COMERCIALES"
+
+
+def test_acta_pdf_program_is_stored_in_a_single_line(client: TestClient):
+    content = _acta_docx(
+        "112",
+        "02 de octubre de 2026",
+        [
+            {
+                "documento": "1001015001",
+                "nombre": "PROGRAMA PARTIDO APRENDIZ",
+                "ficha": "3001",
+                "programa": "OPERACIONES\nCOMERCIALES",
+            }
+        ],
+    )
+    body = _upload_bytes(client, "acta.docx", content)
+    _confirm(client, body["validation_id"])
+
+    learners = _learners_by_identification(client)
+    assert learners["1001015001"]["program"] == "OPERACIONES COMERCIALES"
+
+
+def test_reimport_never_degrades_a_cleaner_program(client: TestClient):
+    first = (
+        "DOCUMENTO,NOMBRES,FICHA,PROGRAMA\n"
+        "1001016001,LIMPIO APRENDIZ,3001,OPERACIONES COMERCIALES\n"
+        "1001016002,FRAGMENTADO APRENDIZ,3001,OPERACION ES COMERCIAL ES\n"
+    ).encode("utf-8")
+    seeded = _upload_bytes(client, "df14a.csv", first, information_type="df14a")
+    _confirm(client, seeded["validation_id"])
+
+    # Segunda carga con las formas intercambiadas: la fuente fragmentada no debe
+    # pisar el programa consolidado, y la forma limpia si corrige la partida.
+    second = (
+        "DOCUMENTO,NOMBRES,FICHA,PROGRAMA\n"
+        "1001016001,LIMPIO APRENDIZ,3001,OPERACION ES COMERCIAL ES\n"
+        "1001016002,FRAGMENTADO APRENDIZ,3001,OPERACIONES COMERCIALES\n"
+    ).encode("utf-8")
+    reimported = _upload_bytes(client, "df14a_2.csv", second, information_type="df14a")
+    _confirm(client, reimported["validation_id"])
+
+    learners = _learners_by_identification(client)
+    assert learners["1001016001"]["program"] == "OPERACIONES COMERCIALES"
+    assert learners["1001016002"]["program"] == "OPERACIONES COMERCIALES"
+
+
+def test_acta_does_not_degrade_program_of_existing_learner(client: TestClient):
+    df14a = (
+        "DOCUMENTO,NOMBRES,FICHA,PROGRAMA,ESTADO_ASPIRANTE\n"
+        "1001017001,APRENDIZ PREVIO,3001,OPERACIONES COMERCIALES,Por Certificar\n"
+    ).encode("utf-8")
+    seeded = _upload_bytes(client, "df14a.csv", df14a, information_type="df14a")
+    _confirm(client, seeded["validation_id"])
+
+    content = _acta_docx(
+        "113",
+        "02 de octubre de 2026",
+        [
+            {
+                "documento": "1001017001",
+                "nombre": "APRENDIZ PREVIO",
+                "ficha": "3001",
+                "programa": "OPERACION ES COMERCIAL ES",
+            }
+        ],
+    )
+    body = _upload_bytes(client, "acta.docx", content)
+    _confirm(client, body["validation_id"])
+
+    learners = _learners_by_identification(client)
+    # El acta no degrada el programa ya consolidado por DF14A.
+    assert learners["1001017001"]["program"] == "OPERACIONES COMERCIALES"
