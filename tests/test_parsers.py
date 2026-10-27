@@ -579,6 +579,19 @@ def test_clean_identification_normalizes_thousands_separators():
     assert clean_identification("1043966273.0") == "1043966273"
 
 
+def test_normalize_program_name_collapses_line_breaks_and_spaces():
+    from app.services.parsers import normalize_program_name
+
+    assert normalize_program_name("OPERACIONES\nCOMERCIALES") == "OPERACIONES COMERCIALES"
+    assert normalize_program_name("  GESTION   DE\nREDES  ") == "GESTION DE REDES"
+    assert normalize_program_name("OPERACIONES\u00a0COMERCIALES") == "OPERACIONES COMERCIALES"
+    # No inventa nombres: sin dato util devuelve None.
+    assert normalize_program_name("") is None
+    assert normalize_program_name("   ") is None
+    assert normalize_program_name(None) is None
+    assert normalize_program_name(float("nan")) is None
+
+
 def test_frame_to_records_strips_nan_values():
     frame = pd.DataFrame(
         [
