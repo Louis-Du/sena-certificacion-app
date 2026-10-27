@@ -247,18 +247,28 @@ def test_api_contract_matches_fields_used_by_frontend(client):
     assert {"id", "name", "identification", "observations"} <= set(act_detail["learners"][0])
 
 
-# --- Importar un "Acta de certificación" (decisión funcional pendiente) --------------------
+# --- Importar un "Acta de certificación" ---------------------------------------------------
 
 
-def test_current_behavior_acta_import_does_not_create_act_records(client):
-    """Prueba de caracterización, no de requisito: hoy confirmar un archivo de tipo
-    «acta» solo registra la importación; no crea `Act` ni asocia aprendices.
-    Si se decide que debe crear el acta, esta prueba debe actualizarse."""
+def test_acta_import_creates_act_and_links_learners_by_document(client):
+    """Confirmar un acta registra el acta y asocia aprendices por documento.
+
+    La importación se conserva en el historial y no se deduce un estado de
+    certificación: figurar en el acta no equivale a tener el certificado.
+    """
     from tests.conftest import docx_bytes
 
-    validated = validate(client, "acta.docx", docx_bytes("Acta ficticia"), information_type="acta")
+    content = docx_bytes(
+        "ACTA DE CERTIFICACION No. 41\n"
+        "Fecha: 15 de marzo de 2026\n"
+        "1 LAURA SOFIA PEREZ GOMEZ 1043000100"
+    )
+    validated = validate(client, "acta.docx", content, information_type="acta")
     assert client.post(f"/api/imports/{validated['validation_id']}/confirm").status_code == 200
 
     counts = table_counts(client)
     assert counts["import_history"] == 1
-    assert (counts["acts"], counts["act_learners"], counts["learners"]) == (0, 0, 0)
+    assert (counts["acts"], counts["act_learners"], counts["learners"]) == (1, 1, 1)
+    detail = client.get("/api/acts").json()["items"][0]
+    assert detail["number"] == "41"
+    assert detail["learners_count"] == 1

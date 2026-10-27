@@ -18,7 +18,7 @@ def _write_file(tmp_path: Path, name: str, content: bytes) -> Path:
 
 def test_select_type_and_validate_compatible_file(page, app_url, tmp_path):
     page.goto(app_url)
-    page.click('.type-option[data-type="df14a"]')
+    page.click('.category-option[data-type="df14a"]')
     file_path = _write_file(
         tmp_path,
         "df14a.csv",
@@ -33,7 +33,7 @@ def test_select_type_and_validate_compatible_file(page, app_url, tmp_path):
 
 def test_validate_incompatible_format_shows_error(page, app_url, tmp_path):
     page.goto(app_url)
-    page.click('.type-option[data-type="df14a"]')
+    page.click('.category-option[data-type="df14a"]')
     file_path = _write_file(tmp_path, "acta.pdf", pdf_bytes())
     page.set_input_files("#file-input", str(file_path))
     feedback = page.locator("#feedback")
@@ -44,7 +44,7 @@ def test_validate_incompatible_format_shows_error(page, app_url, tmp_path):
 
 def test_validation_does_not_persist_to_history(page, app_url, tmp_path):
     page.goto(app_url)
-    page.click('.type-option[data-type="df14a"]')
+    page.click('.category-option[data-type="df14a"]')
     file_path = _write_file(tmp_path, "df14a.csv", csv_bytes("FICHA\n3001\n"))
     page.set_input_files("#file-input", str(file_path))
     page.click("#validate-button")
@@ -54,7 +54,7 @@ def test_validation_does_not_persist_to_history(page, app_url, tmp_path):
 
 def test_validation_shows_warning_for_duplicate_rows(page, app_url, tmp_path):
     page.goto(app_url)
-    page.click('.type-option[data-type="df14a"]')
+    page.click('.category-option[data-type="df14a"]')
     file_path = _write_file(
         tmp_path,
         "df14a.csv",
@@ -70,7 +70,6 @@ def test_validation_shows_warning_for_duplicate_rows(page, app_url, tmp_path):
 
 def test_requisitos_incorrect_file_uses_requisitos_rules_in_ui(page, app_url):
     page.goto(app_url)
-    page.click('.category-option[data-category="requisitos_aprendices"]')
     page.click('.type-option[data-type="requisitos"]')
     page.set_input_files(
         "#file-input",
@@ -92,8 +91,7 @@ def test_requisitos_incorrect_file_uses_requisitos_rules_in_ui(page, app_url):
 
 def test_unreadable_acta_pdf_is_rejected_in_ui(page, app_url):
     page.goto(app_url)
-    page.click('.category-option[data-category="actas_revision"]')
-    page.click('.type-option[data-type="acta"]')
+    page.click('.category-option[data-type="acta"]')
     page.set_input_files(
         "#file-input",
         str(INCORRECTOS / "Acta_certificacion_incorrecto_vacio.pdf"),
@@ -108,7 +106,7 @@ def test_unreadable_acta_pdf_is_rejected_in_ui(page, app_url):
 
 def test_incorrect_actas_preview_shows_ten_records_and_conflict(page, app_url):
     page.goto(app_url)
-    page.click('.type-option[data-type="actas_completo"]')
+    page.click('.category-option[data-type="actas_completo"]')
     page.set_input_files(
         "#file-input",
         str(INCORRECTOS / "ACTAS_2026_incorrecto_conflictos_y_meses.xlsx"),
@@ -119,9 +117,9 @@ def test_incorrect_actas_preview_shows_ten_records_and_conflict(page, app_url):
     assert page.locator("#confirm-importable").text_content() == "10"
     assert page.locator("#confirm-new").text_content() == "10"
     breakdown = page.locator("#confirm-breakdown").text_content()
-    assert "Certificados: 4 de 4" in breakdown
-    assert "Pendientes: 5 de 5" in breakdown
-    assert "Meta: 1 de 1" in breakdown
+    assert "4 aprendices para certificar" in breakdown
+    assert "5 aprendices con pendientes" in breakdown
+    assert "1 metas institucionales" in breakdown
     warnings = page.locator("#confirm-warnings").text_content()
     assert "figuran simult" in warnings
     assert "No se resuelve automaticamente" in warnings
@@ -129,14 +127,14 @@ def test_incorrect_actas_preview_shows_ten_records_and_conflict(page, app_url):
 
 def test_correct_actas_preview_shows_twenty_one_records(page, app_url):
     page.goto(app_url)
-    page.click('.type-option[data-type="actas_completo"]')
+    page.click('.category-option[data-type="actas_completo"]')
     page.set_input_files("#file-input", str(CORRECTOS / "ACTAS_2026_correcto.xlsx"))
     page.click("#validate-button")
     page.wait_for_selector("#confirmation-panel:not([hidden])")
 
     assert page.locator("#confirm-importable").text_content() == "21"
     breakdown = page.locator("#confirm-breakdown").text_content()
-    assert "Certificados: 4 de 4" in breakdown
-    assert "Pendientes: 4 de 4" in breakdown
-    assert "Complementaria: 12 de 12" in breakdown
-    assert "Meta: 1 de 1" in breakdown
+    assert "4 aprendices para certificar" in breakdown
+    assert "4 aprendices con pendientes" in breakdown
+    assert "12 registros de formación complementaria" in breakdown
+    assert "1 metas institucionales" in breakdown
