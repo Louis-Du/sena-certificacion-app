@@ -67,6 +67,10 @@ class Learner(Base):
     termination_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     tracking_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Procedencia de los datos del aprendiz: lista JSON de las fuentes que lo
+    # alimentaron (por ejemplo ["ACTAS 2026 · PENDIENTES", "DF14A"]). Se acumula
+    # entre importaciones; nunca se borra un origen previo.
+    data_sources: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     requirements: Mapped[list["Requirement"]] = relationship(
         back_populates="learner", cascade="all, delete-orphan"

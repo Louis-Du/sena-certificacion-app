@@ -12,9 +12,57 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import Act, ActLearner, ImportedRecord, Learner, Requirement
-from app.services.requirements import editor_requirements
+from app.services.requirements import REQUIREMENT_TYPES, editor_requirements
 
 POR_CERTIFICAR_STATUS = "Por Certificar"
+
+
+def parse_sources(value: str | None) -> list[str]:
+    """Devuelve la lista de fuentes guardada en ``data_sources`` (JSON).
+
+    Un valor vacío, nulo o ilegible se trata como "sin origen registrado": no se
+    inventa de qué archivo salió un aprendiz antiguo.
+    """
+    if not value:
+        return []
+    try:
+        data = json.loads(value)
+    except (TypeError, ValueError):
+        return []
+    if isinstance(data, list):
+        return [str(item) for item in data if str(item).strip()]
+    return []
+
+
+def serialize_sources(sources: list[str]) -> str:
+    return json.dumps(sources, ensure_ascii=False)
+
+
+def set_learner_sources(
+    session: Session, sources_by_identification: dict[str, list[str]]
+) -> None:
+    """Agrega fuentes de origen a los aprendices indicados sin borrar las previas.
+
+    La procedencia se acumula: si un aprendiz ya venía de ACTAS 2026 · PENDIENTES
+    y luego aparece en DF14A, conserva ambas etiquetas.
+    """
+    if not sources_by_identification:
+        return
+    # Los aprendices pueden haberse creado en esta misma transaccion (autoflush
+    # desactivado en algunos entornos): se fuerza el flush para poder consultarlos.
+    session.flush()
+    learners = session.scalars(
+        select(Learner).where(
+            Learner.identification.in_(list(sources_by_identification))
+        )
+    ).all()
+    for learner in learners:
+        merged = parse_sources(learner.data_sources)
+        for label in sources_by_identification[learner.identification]:
+            if label and label not in merged:
+                merged.append(label)
+        if merged:
+            learner.data_sources = serialize_sources(merged)
 
 
 def list_learners(
@@ -23,6 +71,7 @@ def list_learners(
     status: str = "",
     page: int = 1,
     page_size: int = 25,
+    missing_requirement: str = "",
 ) -> dict[str, Any]:
     learner_count = session.scalar(select(func.count()).select_from(Learner)) or 0
     if learner_count == 0:
@@ -42,6 +91,18 @@ def list_learners(
         )
     if status.strip():
         filters.append(Learner.certification_status.ilike(status.strip()))
+    if missing_requirement.strip():
+        # Solo aprendices con ese tipo de requisito en estado Pendiente. Se usa
+        # una subconsulta para no recorrer los requisitos fila por fila.
+        filters.append(
+            Learner.id.in_(
+                select(Requirement.learner_id).where(
+                    func.lower(Requirement.requirement_type)
+                    == missing_requirement.strip().lower(),
+                    func.lower(Requirement.status) == "pendiente",
+                )
+            )
+        )
     query = select(Learner).order_by(Learner.name.asc(), Learner.id.asc())
     count_query = select(func.count()).select_from(Learner)
     if filters:
@@ -56,10 +117,10 @@ def list_learners(
     learners = session.scalars(
         query.offset((page - 1) * page_size).limit(page_size)
     ).all()
-    pending_counts = _pending_counts(session, [learner.id for learner in learners])
+    summaries = _requirements_summary(session, [learner.id for learner in learners])
     return {
         "items": [
-            learner_result(learner, pending_counts.get(learner.id, 0))
+            learner_result(learner, _summary(learner.id, summaries))
             for learner in learners
         ],
         "statuses": [
@@ -72,6 +133,7 @@ def list_learners(
             ).all()
             if value
         ],
+        "requirement_types": REQUIREMENT_TYPES,
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -80,7 +142,31 @@ def list_learners(
     }
 
 
-def learner_result(learner: Learner, pending_count: int | None = None) -> dict[str, Any]:
+def learners_with_pending(session: Session) -> list[dict[str, Any]]:
+    """Aprendices con al menos un requisito en Pendiente.
+
+    Reutiliza el mismo formato del listado (origen, motivo y resumen de
+    requisitos) para que la tabla se pinte igual desde cualquier vista y sin una
+    consulta por fila.
+    """
+    learner_ids = session.scalars(
+        select(Requirement.learner_id)
+        .where(func.lower(Requirement.status) == "pendiente")
+        .distinct()
+    ).all()
+    if not learner_ids:
+        return []
+    learners = session.scalars(
+        select(Learner).where(Learner.id.in_(learner_ids)).order_by(Learner.name.asc())
+    ).all()
+    summaries = _requirements_summary(session, [learner.id for learner in learners])
+    return [learner_result(learner, _summary(learner.id, summaries)) for learner in learners]
+
+
+def learner_result(
+    learner: Learner, summary: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    summary = summary or {"pending": [], "fulfilled_count": 0, "na_count": 0}
     return {
         "id": learner.id,
         "identification": learner.identification,
@@ -97,28 +183,53 @@ def learner_result(learner: Learner, pending_count: int | None = None) -> dict[s
         "act_number": learner.act_number,
         "email": learner.email,
         "phone": learner.phone,
-        "pending_count": pending_count,
+        # Procedencia: archivo(s)/hoja(s) que alimentaron al aprendiz.
+        "data_sources": parse_sources(learner.data_sources),
+        # Conteo real de requisitos en Pendiente (0 si no tiene ninguno).
+        "pending_count": len(summary.get("pending", [])),
+        "requirements_summary": summary,
     }
 
 
-def _pending_counts(session: Session, learner_ids: list[int]) -> dict[int, int]:
-    """Cuenta los requisitos en estado Pendiente de cada aprendiz indicado.
+def _empty_summary() -> dict[str, Any]:
+    return {"pending": [], "fulfilled_count": 0, "na_count": 0}
 
-    El conteo sale de los requisitos reales guardados en la base de datos; si un
-    aprendiz no tiene requisitos, no aparece en el mapa y la interfaz muestra
-    "—" en lugar de inventar un numero.
+
+def _summary(learner_id: int, summaries: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    return summaries.get(learner_id) or _empty_summary()
+
+
+def _requirements_summary(
+    session: Session, learner_ids: list[int]
+) -> dict[int, dict[str, Any]]:
+    """Resumen de requisitos por aprendiz en una sola consulta.
+
+    ``pending`` lleva las etiquetas legibles de los requisitos en estado
+    Pendiente; ``fulfilled_count`` y ``na_count`` cuentan Cumplido y No aplica.
+    Evita una consulta por fila al renderizar el listado.
     """
     if not learner_ids:
         return {}
     rows = session.execute(
-        select(Requirement.learner_id, func.count(Requirement.id))
-        .where(
-            Requirement.learner_id.in_(learner_ids),
-            func.lower(Requirement.status) == "pendiente",
-        )
-        .group_by(Requirement.learner_id)
+        select(
+            Requirement.learner_id,
+            Requirement.requirement_type,
+            Requirement.status,
+        ).where(Requirement.learner_id.in_(learner_ids))
     ).all()
-    return {learner_id: count for learner_id, count in rows}
+    summaries: dict[int, dict[str, Any]] = {}
+    for learner_id, requirement_type, status_value in rows:
+        bucket = summaries.setdefault(learner_id, _empty_summary())
+        normalized = str(status_value or "").strip().lower()
+        if normalized == "pendiente":
+            bucket["pending"].append(
+                REQUIREMENT_TYPES.get(requirement_type or "", requirement_type)
+            )
+        elif normalized == "cumplido":
+            bucket["fulfilled_count"] += 1
+        elif normalized == "no aplica":
+            bucket["na_count"] += 1
+    return summaries
 
 
 def get_learner_detail(session: Session, learner_id: int) -> dict[str, Any] | None:
@@ -126,13 +237,9 @@ def get_learner_detail(session: Session, learner_id: int) -> dict[str, Any] | No
     if learner is None:
         return None
     requirements = editor_requirements(session, learner_id)
-    pending = sum(
-        1
-        for item in (requirements or [])
-        if str(item.get("status") or "").lower() == "pendiente"
-    )
+    summary = _requirements_summary(session, [learner_id]).get(learner_id) or _empty_summary()
     return {
-        "basic_info": learner_result(learner, pending),
+        "basic_info": learner_result(learner, summary),
         "requirements": requirements or [],
         "acts": learner_acts(session, learner_id),
         # Pendiente de definición funcional: ImportHistory/ImportedRecord no tienen
@@ -174,7 +281,21 @@ def sync_learners_from_imports(session: Session) -> int:
         .where(ImportedRecord.information_type == "df14a")
         .order_by(ImportedRecord.id.asc())
     ).all()
-    return upsert_learners_from_records(session, [json.loads(record.payload) for record in records])
+    payloads = [json.loads(record.payload) for record in records]
+    updated = upsert_learners_from_records(session, payloads)
+    if updated:
+        # Al rehidratar la tabla de aprendices desde el historial, se conserva la
+        # procedencia real: esos registros vienen de DF14A.
+        sources: dict[str, list[str]] = {}
+        for record in payloads:
+            prepared = _prepare_learner_row(record)
+            if prepared is None:
+                continue
+            labels = sources.setdefault(prepared["identification"], [])
+            if "DF14A" not in labels:
+                labels.append("DF14A")
+        set_learner_sources(session, sources)
+    return updated
 
 
 def upsert_learners_from_records(

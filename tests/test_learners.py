@@ -420,3 +420,59 @@ def test_requirement_patch_rejects_requirement_from_another_learner(client: Test
     )
 
     assert response.status_code == 404
+
+
+def test_list_learners_exposes_sources_and_requirements_summary(client: TestClient):
+    """El listado trae origen y resumen de requisitos sin abrir el detalle."""
+    seed_learners(client, count=1)
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+    client.post(
+        f"/api/learners/{learner_id}/requirements",
+        json={"requirement_type": "carnet", "status": "Pendiente"},
+    )
+    client.post(
+        f"/api/learners/{learner_id}/requirements",
+        json={"requirement_type": "biblioteca", "status": "Cumplido"},
+    )
+
+    item = client.get("/api/learners").json()["items"][0]
+
+    # Un aprendiz sin importacion no inventa origen.
+    assert item["data_sources"] == []
+    assert item["pending_count"] == 1
+    assert item["requirements_summary"] == {
+        "pending": ["Destrucción de carnet"],
+        "fulfilled_count": 1,
+        "na_count": 0,
+    }
+
+
+def test_list_learners_filters_by_missing_requirement(client: TestClient):
+    """``missing_requirement`` deja solo quien tiene ese tipo en Pendiente."""
+    seed_learners(client, count=3)
+    learners = client.get("/api/learners").json()["items"]
+    client.post(
+        f"/api/learners/{learners[0]['id']}/requirements",
+        json={"requirement_type": "carnet", "status": "Pendiente"},
+    )
+    client.post(
+        f"/api/learners/{learners[1]['id']}/requirements",
+        json={"requirement_type": "carnet", "status": "Cumplido"},
+    )
+    client.post(
+        f"/api/learners/{learners[2]['id']}/requirements",
+        json={"requirement_type": "saber_tyt", "status": "Pendiente"},
+    )
+
+    response = client.get("/api/learners", params={"missing_requirement": "carnet"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["id"] for item in body["items"]] == [learners[0]["id"]]
+    # El listado expone el mapa de tipos para poblar el filtro en el frontend.
+    assert body["requirement_types"]["carnet"] == "Destrucción de carnet"
+
+    vacio = client.get(
+        "/api/learners", params={"missing_requirement": "certificado_empresa"}
+    )
+    assert vacio.json()["items"] == []

@@ -348,6 +348,8 @@ h1 { margin-bottom: 2px; font: 700 22px/1.15 "Space Grotesk", sans-serif; }
 .search-field { display: grid; flex: 1; gap: 5px; color: var(--muted); font-size: 10px; font-weight: 700; }
 .status-field { display: grid; min-width: 180px; gap: 5px; color: var(--muted); font-size: 10px; font-weight: 700; }
 .status-field select { padding: 9px 11px; color: var(--ink); border: 1px solid var(--line); border-radius: 7px; background: #fff; font: inherit; font-weight: 400; }
+.requirement-field { display: grid; min-width: 200px; gap: 5px; color: var(--muted); font-size: 10px; font-weight: 700; }
+.requirement-field select { padding: 9px 11px; color: var(--ink); border: 1px solid var(--line); border-radius: 7px; background: #fff; font: inherit; font-weight: 400; }
 .search-field input { width: 100%; padding: 9px 11px; color: var(--ink); border: 1px solid var(--line); border-radius: 7px; font: inherit; font-weight: 400; }
 .search-field input:focus { outline: 2px solid rgba(21, 148, 93, .2); border-color: var(--green); }
 .learners-table-wrap { overflow-x: auto; }
@@ -365,6 +367,15 @@ h1 { margin-bottom: 2px; font: 700 22px/1.15 "Space Grotesk", sans-serif; }
 .status-chip.is-info { color: #1f5f9e; background: var(--blue-soft); }
 .status-chip.is-neutral { color: var(--muted); background: #eef3f0; }
 .detail-hint { display: block; color: var(--muted); margin-top: 5px; }
+/* Procedencia en el listado: etiqueta compacta + boton "Info" accesible. */
+.origin-label { display: inline-block; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; color: var(--muted); font-size: 10px; }
+.info-button { margin-left: 6px; padding: 3px 8px; color: var(--green-dark); background: var(--green-soft); border: 1px solid var(--green); border-radius: 999px; cursor: pointer; font-size: 10px; font-weight: 700; vertical-align: middle; }
+.info-button:hover, .info-button[aria-expanded="true"] { background: var(--green); color: #fff; }
+/* Resumen desplegable: fila extra bajo el aprendiz, legible y sin desbordes. */
+.learner-summary-row td { background: #f7faf8; color: var(--ink); text-align: left; }
+.learner-summary { display: grid; grid-template-columns: minmax(160px, 1fr) 2fr; gap: 2px 12px; max-width: 640px; margin: 0; white-space: normal; }
+.learner-summary dt { color: var(--muted); font-weight: 700; }
+.learner-summary dd { margin: 0; }
 .learner-detail-frame { display: grid; gap: 18px; }
 .detail-heading { display: flex; align-items: center; gap: 18px; }
 .detail-feedback { color: var(--muted); min-height: 1.25em; }
