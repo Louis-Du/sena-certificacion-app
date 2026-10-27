@@ -8,8 +8,41 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import Act, ActLearner, Learner
+from app.services.learners import POR_CERTIFICAR_STATUS, normalize_learner_name, normalize_program_name
 
 REVIEW_STATUSES = {"pending", "reviewed", "rejected"}
+
+# Valor canonico de "Sin estado": un aprendiz sin estado guardado aparece asi en
+# la interfaz y debe tratarse igual que un estado vacio al fusionar.
+SIN_ESTADO = "sin estado"
+
+
+def acta_status_merge(current: str | None) -> tuple[str, str | None]:
+    """Estado resultante al figurar un aprendiz en un acta oficial (issue #16).
+
+    El acta oficial lista aprendices que cumplen requisitos para certificacion,
+    por eso se marcan ``Por Certificar`` (no ``Certificado``). Devuelve
+    ``(estado, advertencia)``; la advertencia es ``None`` cuando no hay
+    conflicto. Reglas:
+    1. ``CERTIFICADOS`` (consolidado) gana: no se degrada a Por Certificar.
+    2. ``PENDIENTE`` (consolidado) se conserva: no se borra en silencio.
+    3. Estado vacio o ``Sin estado`` pasa a ``Por Certificar``.
+    4. Cualquier otro estado se conserva sin advertencia.
+    """
+    text = (current or "").strip()
+    normalized = text.lower()
+    if not normalized or normalized == SIN_ESTADO:
+        return POR_CERTIFICAR_STATUS, None
+    if "certificado" in normalized:
+        return text, f"ya figuraba como {text} en el consolidado; se conserva ese estado"
+    if "pendiente" in normalized:
+        return text, f"figura como {text} en el consolidado; se conserva el estado de pendiente"
+    return text, None
+
+
+def acta_marks_por_certificar(current: str | None) -> bool:
+    """Indica si el estado actual pasaria a ``Por Certificar`` al importar un acta."""
+    return acta_status_merge(current)[0] == POR_CERTIFICAR_STATUS
 
 
 def import_act_from_document(
@@ -60,6 +93,7 @@ def import_act_from_document(
     linked = 0
     already_linked = 0
     not_linked = 0
+    status_conflicts: list[str] = []
     for item in extraction.get("learners") or []:
         document = str(item.get("documento") or "").strip()
         if not document:
@@ -67,17 +101,25 @@ def import_act_from_document(
             continue
         learner = session.scalar(select(Learner).where(Learner.identification == document))
         if learner is None:
-            # Se crea el aprendiz solo con los datos del acta. No se deduce un
-            # estado de certificacion: figurar en un acta no equivale a tener el
-            # certificado expedido.
+            # El acta oficial lista aprendices que cumplen requisitos para
+            # certificacion: se crean en estado "Por Certificar". No se marcan
+            # como certificados: el certificado expedido solo consta en el
+            # consolidado ACTAS 2026.
             learner = Learner(
                 identification=document,
-                name=str(item.get("nombre") or "").strip() or "Aprendiz sin nombre",
+                name=normalize_learner_name(item.get("nombre")) or "Aprendiz sin nombre",
                 group_code=str(item.get("ficha") or "").strip() or None,
-                program=str(item.get("programa") or "").strip() or None,
+                program=normalize_program_name(item.get("programa")),
+                certification_status=POR_CERTIFICAR_STATUS,
             )
             session.add(learner)
             session.flush()
+        else:
+            merged_status, warning = acta_status_merge(learner.certification_status)
+            if learner.certification_status != merged_status:
+                learner.certification_status = merged_status
+            if warning:
+                status_conflicts.append(f"{learner.name or document}: {warning}")
 
         existing_link = session.scalar(
             select(ActLearner).where(
@@ -104,6 +146,7 @@ def import_act_from_document(
         "linked": linked,
         "already_linked": already_linked,
         "not_linked": not_linked,
+        "status_conflicts": status_conflicts,
     }
 
 
@@ -111,8 +154,16 @@ def list_acts(
     session: Session,
     search: str = "",
     review_status: str | None = None,
+    number: str = "",
+    date_from: date | None = None,
+    date_to: date | None = None,
 ) -> list[dict[str, Any]]:
+    """Lista actas con filtros combinables por texto, número y rango de fechas."""
+    if date_from and date_to and date_from > date_to:
+        raise ValueError("La fecha inicial no puede ser posterior a la fecha final.")
     query = select(Act).options(joinedload(Act.learners)).order_by(Act.act_date.desc(), Act.id.desc())
+    if number.strip():
+        query = query.where(Act.number.ilike(f"%{number.strip()}%"))
     if search.strip():
         term = f"%{search.strip()}%"
         query = query.where(
@@ -124,6 +175,10 @@ def list_acts(
     if review_status:
         validate_review_status(review_status)
         query = query.where(Act.review_status == review_status)
+    if date_from:
+        query = query.where(Act.act_date >= date_from)
+    if date_to:
+        query = query.where(Act.act_date <= date_to)
     return [act_result(act) for act in session.scalars(query).unique().all()]
 
 
@@ -267,6 +322,7 @@ def learner_result(learner: Learner, observations: str | None) -> dict[str, Any]
         "name": learner.name,
         "program": learner.program,
         "group_code": learner.group_code,
+        "certification_status": learner.certification_status,
         "observations": observations,
     }
 

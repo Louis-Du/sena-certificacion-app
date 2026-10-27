@@ -37,12 +37,11 @@ from app.services.acts import (
     unlink_learner_from_act,
     update_act,
 )
-from app.services.learners import get_learner_detail, list_learners
+from app.services.learners import get_learner_detail, learners_with_pending, list_learners
 from app.services.requirements import (
     REQUIREMENT_STATUSES,
     REQUIREMENT_TYPES,
     list_requirements,
-    pending_learners,
     save_requirement,
 )
 from app.services.validation import TYPE_LABELS
@@ -189,16 +188,24 @@ async def import_history(session: Session = Depends(get_db)) -> dict:
 async def learners(
     search: str = Query(default="", max_length=100),
     status: str = Query(default="", max_length=100),
+    missing_requirement: str = Query(default="", max_length=100),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100),
     session: Session = Depends(get_db),
 ) -> dict:
-    return list_learners(session, search=search, status=status, page=page, page_size=page_size)
+    return list_learners(
+        session,
+        search=search,
+        status=status,
+        missing_requirement=missing_requirement,
+        page=page,
+        page_size=page_size,
+    )
 
-# Esta ruta devuelve una lista de aprendices que tienen requisitos pendientes. Se llama a la función pending_learners para obtener los aprendices desde la base de datos y se devuelve un diccionario con los elementos.
+# Esta ruta devuelve una lista de aprendices que tienen requisitos pendientes. Se llama a la función learners_with_pending para obtener los aprendices desde la base de datos y se devuelve un diccionario con los elementos.
 @app.get("/api/learners/with-pending-requirements")
 async def learners_with_pending_requirements(session: Session = Depends(get_db)) -> dict:
-    return {"items": pending_learners(session)}
+    return {"items": learners_with_pending(session)}
 
 
 @app.get("/api/learners/{learner_id}/requirements")
@@ -261,10 +268,22 @@ async def learner_detail(learner_id: int, session: Session = Depends(get_db)) ->
 async def acts(
     search: str = Query(default="", max_length=200),
     review_status: str | None = Query(default=None, max_length=50),
+    number: str = Query(default="", max_length=100),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
     session: Session = Depends(get_db),
 ) -> dict:
     try:
-        return {"items": list_acts(session, search, review_status)}
+        return {
+            "items": list_acts(
+                session,
+                search,
+                review_status,
+                number=number,
+                date_from=date_from,
+                date_to=date_to,
+            )
+        }
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 

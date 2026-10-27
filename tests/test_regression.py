@@ -151,6 +151,11 @@ def test_acta_pdf_confirm_creates_act_and_links_learners(client: TestClient):
     acts = client.get("/api/acts").json()["items"]
     assert [act["number"] for act in acts] == ["41"]
     assert acts[0]["learners_count"] == 1
+    detail = client.get(f"/api/acts/{acts[0]['id']}").json()
+    assert detail["learners"][0]["identification"] == "1043000100"
+    assert detail["learners"][0]["certification_status"] == "Por Certificar"
+    sources = client.get("/api/learners").json()["items"][0]["data_sources"]
+    assert "Acta 41" in sources
     assert client.get("/api/imports/history").json()["items"][0]["information_type"] == "Acta de certificacion"
 
 

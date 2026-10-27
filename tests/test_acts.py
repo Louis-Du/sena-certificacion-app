@@ -30,7 +30,13 @@ def client(tmp_path) -> Generator[TestClient, None, None]:
 
 def seed_learner(client: TestClient) -> int:
     with client.session_factory() as session:
-        learner = Learner(identification="100", name="Aprendiz Uno", program="Programa", group_code="1")
+        learner = Learner(
+            identification="100",
+            name="Aprendiz Uno",
+            program="Programa",
+            group_code="1",
+            certification_status="Por Certificar",
+        )
         session.add(learner)
         session.commit()
         return learner.id
@@ -54,6 +60,7 @@ def test_link_duplicate_and_unlink_learner(client: TestClient):
     assert client.post(f"/api/acts/{act_id}/learners", json={"learner_id": learner_id}).status_code == 400
     detail = client.get(f"/api/acts/{act_id}").json()
     assert len(detail["learners"]) == 1
+    assert detail["learners"][0]["certification_status"] == "Por Certificar"
     assert client.delete(f"/api/acts/{act_id}/learners/{learner_id}").status_code == 204
     assert client.get(f"/api/acts/{act_id}").json()["learners"] == []
 

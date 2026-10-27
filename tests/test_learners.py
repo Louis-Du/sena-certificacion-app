@@ -69,6 +69,14 @@ def test_prepare_learner_row_supports_real_df14a_columns():
         "group_code": "3466192",
         "training_type": None,
         "certification_status": "8",
+        # Seguimiento de certificacion (ACTAS 2026): el DF14A no trae estos
+        # campos, por eso quedan en None y no se inventan.
+        "non_certification_reason": None,
+        "certification_month": None,
+        "instructor": None,
+        "act_number": None,
+        "email": None,
+        "phone": None,
         "tracking_notes": None,
     }
 
@@ -241,23 +249,22 @@ def test_requirements_can_be_created_updated_and_retrieved(client: TestClient):
 
     detail = client.get(f"/api/learners/{learner_id}")
     assert detail.status_code == 200
-    assert detail.json()["requirements"][1]["status"] == "Cumplido"
+    # El detalle solo lista los requisitos registrados; se busca por tipo en
+    # lugar de asumir una plantilla de cinco posiciones.
+    requirements = {item["requirement_type"]: item for item in detail.json()["requirements"]}
+    assert requirements["documentation"]["status"] == "Cumplido"
 
 
-def test_learner_detail_exposes_editable_requirement_slots_without_registering_them(client: TestClient):
+def test_learner_detail_without_requirements_lists_no_empty_template(client: TestClient):
     seed_learners(client, count=1)
     learner_id = client.get("/api/learners").json()["items"][0]["id"]
 
     detail = client.get(f"/api/learners/{learner_id}")
 
     assert detail.status_code == 200
-    assert {item["requirement_type"] for item in detail.json()["requirements"]} == {
-        "learning_outcome",
-        "documentation",
-        "productive_stage",
-        "clearance",
-        "saber_tyt",
-    }
+    # Antes se devolvia una plantilla de cinco tipos vacios; ahora el detalle
+    # solo muestra requisitos realmente registrados (aqui ninguno).
+    assert detail.json()["requirements"] == []
     assert client.get("/api/learners/with-pending-requirements").json()["items"] == []
 
 
@@ -413,3 +420,59 @@ def test_requirement_patch_rejects_requirement_from_another_learner(client: Test
     )
 
     assert response.status_code == 404
+
+
+def test_list_learners_exposes_sources_and_requirements_summary(client: TestClient):
+    """El listado trae origen y resumen de requisitos sin abrir el detalle."""
+    seed_learners(client, count=1)
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+    client.post(
+        f"/api/learners/{learner_id}/requirements",
+        json={"requirement_type": "carnet", "status": "Pendiente"},
+    )
+    client.post(
+        f"/api/learners/{learner_id}/requirements",
+        json={"requirement_type": "biblioteca", "status": "Cumplido"},
+    )
+
+    item = client.get("/api/learners").json()["items"][0]
+
+    # Un aprendiz sin importacion no inventa origen.
+    assert item["data_sources"] == []
+    assert item["pending_count"] == 1
+    assert item["requirements_summary"] == {
+        "pending": ["Destrucción de carnet"],
+        "fulfilled_count": 1,
+        "na_count": 0,
+    }
+
+
+def test_list_learners_filters_by_missing_requirement(client: TestClient):
+    """``missing_requirement`` deja solo quien tiene ese tipo en Pendiente."""
+    seed_learners(client, count=3)
+    learners = client.get("/api/learners").json()["items"]
+    client.post(
+        f"/api/learners/{learners[0]['id']}/requirements",
+        json={"requirement_type": "carnet", "status": "Pendiente"},
+    )
+    client.post(
+        f"/api/learners/{learners[1]['id']}/requirements",
+        json={"requirement_type": "carnet", "status": "Cumplido"},
+    )
+    client.post(
+        f"/api/learners/{learners[2]['id']}/requirements",
+        json={"requirement_type": "saber_tyt", "status": "Pendiente"},
+    )
+
+    response = client.get("/api/learners", params={"missing_requirement": "carnet"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["id"] for item in body["items"]] == [learners[0]["id"]]
+    # El listado expone el mapa de tipos para poblar el filtro en el frontend.
+    assert body["requirement_types"]["carnet"] == "Destrucción de carnet"
+
+    vacio = client.get(
+        "/api/learners", params={"missing_requirement": "certificado_empresa"}
+    )
+    assert vacio.json()["items"] == []
