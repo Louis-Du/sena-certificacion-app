@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import Act, ActLearner, ImportedRecord, Learner
+from app.models import Act, ActLearner, ImportedRecord, Learner, Requirement
 from app.services.requirements import editor_requirements
 
 POR_CERTIFICAR_STATUS = "Por Certificar"
@@ -56,8 +56,12 @@ def list_learners(
     learners = session.scalars(
         query.offset((page - 1) * page_size).limit(page_size)
     ).all()
+    pending_counts = _pending_counts(session, [learner.id for learner in learners])
     return {
-        "items": [learner_result(learner) for learner in learners],
+        "items": [
+            learner_result(learner, pending_counts.get(learner.id, 0))
+            for learner in learners
+        ],
         "statuses": [
             value
             for value in session.scalars(
@@ -76,7 +80,7 @@ def list_learners(
     }
 
 
-def learner_result(learner: Learner) -> dict[str, Any]:
+def learner_result(learner: Learner, pending_count: int | None = None) -> dict[str, Any]:
     return {
         "id": learner.id,
         "identification": learner.identification,
@@ -85,7 +89,36 @@ def learner_result(learner: Learner) -> dict[str, Any]:
         "group_code": learner.group_code,
         "training_type": learner.training_type,
         "certification_status": learner.certification_status,
+        # Motivo de no certificacion (PENDIENTES) y datos de seguimiento. El
+        # motivo es el "porque" resumido, distinto de los requisitos y del estado.
+        "non_certification_reason": learner.non_certification_reason,
+        "certification_month": learner.certification_month,
+        "instructor": learner.instructor,
+        "act_number": learner.act_number,
+        "email": learner.email,
+        "phone": learner.phone,
+        "pending_count": pending_count,
     }
+
+
+def _pending_counts(session: Session, learner_ids: list[int]) -> dict[int, int]:
+    """Cuenta los requisitos en estado Pendiente de cada aprendiz indicado.
+
+    El conteo sale de los requisitos reales guardados en la base de datos; si un
+    aprendiz no tiene requisitos, no aparece en el mapa y la interfaz muestra
+    "—" en lugar de inventar un numero.
+    """
+    if not learner_ids:
+        return {}
+    rows = session.execute(
+        select(Requirement.learner_id, func.count(Requirement.id))
+        .where(
+            Requirement.learner_id.in_(learner_ids),
+            func.lower(Requirement.status) == "pendiente",
+        )
+        .group_by(Requirement.learner_id)
+    ).all()
+    return {learner_id: count for learner_id, count in rows}
 
 
 def get_learner_detail(session: Session, learner_id: int) -> dict[str, Any] | None:
@@ -93,8 +126,13 @@ def get_learner_detail(session: Session, learner_id: int) -> dict[str, Any] | No
     if learner is None:
         return None
     requirements = editor_requirements(session, learner_id)
+    pending = sum(
+        1
+        for item in (requirements or [])
+        if str(item.get("status") or "").lower() == "pendiente"
+    )
     return {
-        "basic_info": learner_result(learner),
+        "basic_info": learner_result(learner, pending),
         "requirements": requirements or [],
         "acts": learner_acts(session, learner_id),
         # Pendiente de definición funcional: ImportHistory/ImportedRecord no tienen
@@ -242,6 +280,14 @@ def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
     )
     email = _first_value(normalized, "correo", "correo electronico")
     act_number = _first_value(normalized, "acta", "numero de acta")
+    # Motivo de no certificacion (hoja PENDIENTES) y datos de seguimiento. Se
+    # guardan tal como vienen en el archivo: no se inventa ni se resume el motivo.
+    non_certification_reason = _first_value(
+        normalized, "motivo de no certificacion", "motivo"
+    )
+    certification_month = _first_value(normalized, "mes de certificacion")
+    instructor = _first_value(normalized, "instructor de seguimiento", "instructor")
+    phone = _first_value(normalized, "telefono", "celular")
     notes_parts = [p for p in (email, f"Acta: {act_number}" if act_number else None) if p]
     tracking_notes = "; ".join(notes_parts) if notes_parts else _first_value(
         normalized, "observaciones", "novedades", "seguimiento"
@@ -257,6 +303,12 @@ def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
         "group_code": group_code,
         "training_type": training_type,
         "certification_status": certification_status,
+        "non_certification_reason": non_certification_reason,
+        "certification_month": certification_month,
+        "instructor": instructor,
+        "act_number": act_number,
+        "email": email,
+        "phone": phone,
         "tracking_notes": tracking_notes,
     }
 

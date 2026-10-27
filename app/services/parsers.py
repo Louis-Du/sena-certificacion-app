@@ -469,6 +469,12 @@ def extract_corte_referencia(content: bytes) -> str | None:
 
 # Nombres de columna que se buscan dentro de cada hoja. Se comparan con
 # ``normalize_text`` para no depender de tildes, mayusculas ni espacios finales.
+#
+# Las claves de las columnas de evidencias coinciden con el ``requirement_type``
+# que usa el importador (ver ``app.services.requirements``) para que cada celda
+# leida se convierta directamente en un requisito del aprendiz. Los encabezados
+# reales traen signos finales (":", ".") y saltos de linea internos, por eso cada
+# campo lista sus variantes ya normalizadas.
 _CAMPOS_ACTAS: dict[str, tuple[str, ...]] = {
     "nivel": ("nivel",),
     "numero de documento": ("numero de documento", "documento"),
@@ -482,6 +488,31 @@ _CAMPOS_ACTAS: dict[str, tuple[str, ...]] = {
     "motivo de no certificacion": ("motivo de no certificacion", "motivo"),
     "fecha de evaluacion": ("fecha de evaluacion",),
     "correo": ("correo",),
+    # Seguimiento de certificacion (datos de contacto del instructor).
+    "instructor": ("instructor de seguimiento", "instructor"),
+    "telefono": ("telefono", "celular"),
+    # Checklist de evidencias / paz y salvos: cada columna es un requisito.
+    "biblioteca": ("biblioteca",),
+    "bienestar": ("bienestar del aprendiz",),
+    "almacen": ("almacen",),
+    "etapa_productiva": (
+        "formato de evaluacion de la etapa productiva:",
+        "formato de evaluacion de la etapa productiva",
+    ),
+    "documento_identidad": ("copia del documento de identidad vigente",),
+    "saber_tyt": (
+        "evidencia de la presentacion de las pruebas saber t y t. ( solo tgo)",
+        "evidencia de la presentacion de las pruebas saber t y t",
+    ),
+    "ape": (
+        "comprobante de inscripcion en la ape- agencia publica de empleo",
+        "comprobante de inscripcion en la ape agencia publica de empleo",
+    ),
+    "carnet": (
+        "comprobante de destruccion de carnet.",
+        "comprobante de destruccion de carnet",
+    ),
+    "certificado_empresa": ("certificado de la empresa",),
 }
 
 

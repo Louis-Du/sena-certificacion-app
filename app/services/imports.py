@@ -258,6 +258,17 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
                 skip_status_for=conflicted_identifications,
             )
 
+        # Las columnas de evidencias de CERTIFICADOS/PENDIENTES se convierten en
+        # requisitos del aprendiz (X -> Cumplido, N.A -> No aplica, vacio ->
+        # Pendiente). El motivo de no certificacion ya quedo en el aprendiz.
+        evidence_records = [
+            record
+            for record, rtype in final_records
+            if rtype in {"certificados", "pendientes"}
+        ]
+        if evidence_records:
+            _sync_actas_requirements(session, evidence_records)
+
         requisitos_records = [
             record for record, rtype in final_records if rtype == "requisitos"
         ]
@@ -529,4 +540,68 @@ def _sync_requirements_from_records(session: Session, records: list[dict[str, An
             if obs_text:
                 existing_req.observations = obs_text
         count += 1
+    return count
+
+
+# Columnas de evidencias de ACTAS 2026 que se convierten en requisitos. La clave
+# es el nombre de campo interno que produce ``parsers._actas_records`` y coincide
+# con el ``requirement_type`` registrado en ``app.services.requirements``.
+_EVIDENCE_FIELDS = (
+    "biblioteca",
+    "bienestar",
+    "almacen",
+    "etapa_productiva",
+    "documento_identidad",
+    "saber_tyt",
+    "ape",
+    "carnet",
+    "certificado_empresa",
+)
+
+
+def _sync_actas_requirements(session: Session, records: list[dict[str, Any]]) -> int:
+    """Crea o actualiza los requisitos desde las columnas de evidencias del acta.
+
+    Cada columna de checklist de CERTIFICADOS/PENDIENTES es un requisito del
+    aprendiz con el estado leido en la celda: ``X`` -> Cumplido, ``N.A`` -> No
+    aplica, vacio u otro -> Pendiente. Solo se procesan las columnas que existen
+    en la hoja; una columna ausente no genera un requisito inventado.
+    """
+    from app.models import Requirement
+    from app.services.parsers import clean_identification
+    from app.services.requirements import evidence_status
+
+    count = 0
+    for record in records:
+        document = clean_identification(
+            _first_value(record, "numero de documento", "documento")
+        )
+        if not document:
+            continue
+        learner = session.scalar(
+            select(Learner).where(Learner.identification == document)
+        )
+        if learner is None:
+            continue
+        for field in _EVIDENCE_FIELDS:
+            if field not in record:
+                continue
+            status = evidence_status(record.get(field))
+            existing = session.scalar(
+                select(Requirement).where(
+                    Requirement.learner_id == learner.id,
+                    Requirement.requirement_type == field,
+                )
+            )
+            if existing is None:
+                session.add(
+                    Requirement(
+                        learner_id=learner.id,
+                        requirement_type=field,
+                        status=status,
+                    )
+                )
+            else:
+                existing.status = status
+            count += 1
     return count
