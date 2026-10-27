@@ -180,6 +180,13 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
             _validate_docx(content)
             checks.append({"label": "Documento Word abierto correctamente", "status": "ok"})
 
+        if information_type == "acta":
+            # Un acta oficial no es una tabla: se informa que se pudo leer de su
+            # contenido y que se podra asociar a los aprendices identificados.
+            acta_checks = _acta_checks(parsers.extract_acta_data(file_name, content))
+            checks.extend(acta_checks)
+            inconsistencies += sum(check["status"] == "warning" for check in acta_checks)
+
         if frame is not None:
             detected_columns = [str(column) for column in frame.columns]
             missing_columns, extra_columns = check_required_columns(
@@ -500,6 +507,53 @@ def _append_actas_warnings(prepared, checks: list[dict[str, str]]) -> int:
         }
     )
     return 1
+
+
+def _acta_checks(extraction: dict) -> list[dict[str, str]]:
+    """Resume lo que se pudo leer de un acta oficial y lo que quedo pendiente.
+
+    Un acta sin numero no se puede registrar de forma fiable, por eso se marca
+    como error. La fecha y los aprendices son advertencias: el acta sigue siendo
+    valida y se conserva, pero queda visible lo que no se pudo extraer.
+    """
+    checks: list[dict[str, str]] = []
+
+    number = extraction.get("number")
+    if number:
+        checks.append({"label": f"Acta identificada: No. {number}", "status": "ok"})
+    else:
+        checks.append(
+            {
+                "label": (
+                    "No se pudo identificar el numero del acta en el documento; "
+                    "no se registra un acta sin numero"
+                ),
+                "status": "error",
+            }
+        )
+
+    act_date = extraction.get("act_date")
+    if act_date:
+        checks.append({"label": f"Fecha del acta: {act_date}", "status": "ok"})
+    else:
+        checks.append({"label": "No se pudo identificar la fecha del acta", "status": "warning"})
+
+    learners = extraction.get("learners") or []
+    if learners:
+        checks.append(
+            {"label": f"{len(learners)} aprendiz(es) identificado(s) en el acta", "status": "ok"}
+        )
+    else:
+        checks.append(
+            {
+                "label": (
+                    "El acta no aporta aprendices con numero de documento; no se "
+                    "asociara a ningun aprendiz"
+                ),
+                "status": "warning",
+            }
+        )
+    return checks
 
 
 def _validate_pdf(content: bytes) -> None:

@@ -36,7 +36,7 @@ from app.services.parsers import (
     split_motivos,
 )
 from app.services.validation import check_required_columns, normalize_column_name
-from tests.conftest import docx_bytes
+from tests.conftest import docx_bytes, pdf_bytes
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +411,172 @@ def test_parse_acta_docx_extracts_table_records():
     assert result["records"][0]["Documento"] == "1043000100"
     assert result["records"][0]["Ficha"] == "2558701"
     assert any("ACTA DE CERTIFICACIÓN" in p for p in result["paragraphs"])
+
+
+def test_acta_table_header_is_found_beyond_first_row_and_accepts_documentos():
+    from app.services.parsers import _find_acta_header, _learners_from_table
+
+    rows = [
+        ["ACTA DE CERTIFICACIÓN No. 41", None, None, None, None],
+        ["No.", "NOMBRE", "FICHA", "DOCUMENTOS", "PROGRAMA"],
+        ["1", "LAURA SOFÍA PÉREZ GÓMEZ", "2558701", "1.043.000.100", "Gestión"],
+        ["2", "CARLOS ANDRÉS RODRÍGUEZ", "2558702", "1043000237", "Software"],
+    ]
+
+    found = _find_acta_header(rows)
+    assert found is not None
+    assert found[0] == 1
+
+    learners = _learners_from_table(rows)
+    assert [learner["documento"] for learner in learners] == [
+        "1043000100",
+        "1043000237",
+    ]
+    assert learners[0]["nombre"] == "LAURA SOFÍA PÉREZ GÓMEZ"
+
+
+def test_acta_table_does_not_use_tipo_de_documento_as_document_number():
+    from app.services.parsers import _learners_from_table
+
+    rows = [
+        ["TIPO DE DOCUMENTO", "DOCUMENTOS", "NOMBRES", "APELLIDOS", "FICHA"],
+        ["CC", "1043000100", "LAURA SOFÍA", "PÉREZ GÓMEZ", "2558701"],
+    ]
+
+    learners = _learners_from_table(rows)
+    assert len(learners) == 1
+    assert learners[0]["documento"] == "1043000100"
+    assert learners[0]["nombre"] == "LAURA SOFÍA PÉREZ GÓMEZ"
+
+
+def test_acta_text_accepts_name_before_document_without_false_positives():
+    from app.services.parsers import _learners_from_text
+
+    text = "\n".join(
+        [
+            "Se revisó el cumplimiento del programa 2500001 para los aprendices.",
+            "1 LAURA SOFÍA PÉREZ GÓMEZ 1.043.000.100",
+            "2 CARLOS ANDRÉS RODRÍGUEZ 1043000237",
+        ]
+    )
+
+    learners = _learners_from_text(text)
+
+    assert [learner["documento"] for learner in learners] == [
+        "1043000100",
+        "1043000237",
+    ]
+    assert all("programa" not in learner["nombre"].lower() for learner in learners)
+
+
+def test_extract_acta_data_docx_with_title_row_and_documentos_column():
+    from docx import Document
+
+    from app.services.parsers import extract_acta_data
+
+    document = Document()
+    document.add_paragraph("ACTA DE CERTIFICACIÓN No. 41")
+    document.add_paragraph("Fecha: 15 de marzo de 2026")
+    table = document.add_table(rows=3, cols=4)
+    table.cell(0, 0).text = "ACTA DE CERTIFICACIÓN No. 41"
+    table.cell(1, 0).text = "No."
+    table.cell(1, 1).text = "NOMBRE"
+    table.cell(1, 2).text = "FICHA"
+    table.cell(1, 3).text = "DOCUMENTOS"
+    table.cell(2, 0).text = "1"
+    table.cell(2, 1).text = "LAURA SOFÍA PÉREZ GÓMEZ"
+    table.cell(2, 2).text = "2558701"
+    table.cell(2, 3).text = "1043000100"
+    buffer = BytesIO()
+    document.save(buffer)
+
+    result = extract_acta_data("ACTA 41.docx", buffer.getvalue())
+
+    assert result["number"] == "41"
+    assert result["act_date"] == "2026-03-15"
+    assert result["learners"] == [
+        {
+            "documento": "1043000100",
+            "nombre": "LAURA SOFÍA PÉREZ GÓMEZ",
+            "ficha": "2558701",
+        }
+    ]
+    assert "El acta no aporta aprendices con numero de documento." not in result["warnings"]
+
+
+def test_extract_acta_data_docx_keeps_mapping_across_continuation_tables():
+    from docx import Document
+
+    from app.services.parsers import extract_acta_data
+
+    document = Document()
+    document.add_paragraph("ACTA DE CERTIFICACIÓN No. 41")
+    document.add_paragraph("Fecha: 15 de marzo de 2026")
+
+    first = document.add_table(rows=2, cols=4)
+    first.cell(0, 0).text = "No."
+    first.cell(0, 1).text = "NOMBRE"
+    first.cell(0, 2).text = "FICHA"
+    first.cell(0, 3).text = "DOCUMENTOS"
+    first.cell(1, 0).text = "1"
+    first.cell(1, 1).text = "LAURA SOFÍA PÉREZ GÓMEZ"
+    first.cell(1, 2).text = "2558701"
+    first.cell(1, 3).text = "1043000100"
+
+    # La tabla sigue en la pagina siguiente sin repetir el encabezado.
+    second = document.add_table(rows=1, cols=4)
+    second.cell(0, 0).text = "2"
+    second.cell(0, 1).text = "CARLOS ANDRÉS RODRÍGUEZ"
+    second.cell(0, 2).text = "2558702"
+    second.cell(0, 3).text = "1043000237"
+
+    buffer = BytesIO()
+    document.save(buffer)
+
+    result = extract_acta_data("ACTA 41.docx", buffer.getvalue())
+
+    assert [learner["documento"] for learner in result["learners"]] == [
+        "1043000100",
+        "1043000237",
+    ]
+    assert result["warnings"] == []
+
+
+def test_extract_acta_data_pdf_with_documentos_after_name():
+    from app.services.parsers import extract_acta_data
+
+    content = pdf_bytes(
+        "ACTA DE CERTIFICACION No. 41\n"
+        "Fecha: 15 de marzo de 2026\n"
+        "1 LAURA SOFIA PEREZ GOMEZ 1043000100\n"
+        "2 CARLOS ANDRES RODRIGUEZ 1043000237"
+    )
+
+    result = extract_acta_data("ACTA 41.pdf", content)
+
+    assert result["number"] == "41"
+    assert result["act_date"] == "2026-03-15"
+    assert [learner["documento"] for learner in result["learners"]] == [
+        "1043000100",
+        "1043000237",
+    ]
+
+
+def test_extract_acta_number_accepts_common_variants():
+    from app.services.parsers import extract_acta_number
+
+    assert extract_acta_number("ACTA DE CERTIFICACIÓN No. 23") == "23"
+    assert extract_acta_number("ACTA ORDINARIA N° 101-2026") == "101-2026"
+    assert extract_acta_number("ACTA 41") == "41"
+    assert extract_acta_number("ACTA DE CERTIFICACION DEL 15 DE MARZO DE 2026") is None
+
+
+def test_clean_identification_normalizes_thousands_separators():
+    from app.services.parsers import clean_identification
+
+    assert clean_identification("1.043.000.100") == "1043000100"
+    assert clean_identification("1 043 000 100") == "1043000100"
+    assert clean_identification("1043966273.0") == "1043966273"
 
 
 def test_frame_to_records_strips_nan_values():
