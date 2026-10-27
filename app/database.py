@@ -101,6 +101,12 @@ def _upgrade_sqlite_schema(bind: Engine | None = None) -> None:
             "ALTER TABLE learners ADD COLUMN phone VARCHAR(50)",
             learner_columns,
         ),
+        # Procedencia de los datos del aprendiz (lista JSON de fuentes).
+        "data_sources": (
+            "data_sources",
+            "ALTER TABLE learners ADD COLUMN data_sources TEXT",
+            learner_columns,
+        ),
     }
     with target.begin() as connection:
         for column, (_, statement, existing_columns) in migrations.items():

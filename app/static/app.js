@@ -33,6 +33,7 @@ const learnersSummary = document.querySelector("#learners-summary");
 const refreshLearnersButton = document.querySelector("#refresh-learners");
 const learnerSearch = document.querySelector("#learner-search");
 const learnerStatus = document.querySelector("#learner-status");
+const learnerMissingRequirement = document.querySelector("#learner-missing-requirement");
 const clearLearnerSearch = document.querySelector("#clear-learner-search");
 const learnersPrev = document.querySelector("#learners-prev");
 const learnersNext = document.querySelector("#learners-next");
@@ -48,6 +49,8 @@ const learnerDetailContent = document.querySelector("#learner-detail-content");
 const learnerBasicInfo = document.querySelector("#learner-basic-info");
 const learnerTrackingSection = document.querySelector("#learner-tracking-section");
 const learnerTracking = document.querySelector("#learner-tracking");
+const learnerSourcesSection = document.querySelector("#learner-sources-section");
+const learnerSources = document.querySelector("#learner-sources");
 const learnerRequirements = document.querySelector("#learner-requirements");
 const learnerMoreData = document.querySelector("#learner-more-data");
 const learnerExtra = document.querySelector("#learner-extra");
@@ -404,15 +407,112 @@ function learnerSummaryLabel(result, conDesglose) {
   return `${base} · ${certificados} ${certificados === 1 ? "certificado" : "certificados"} · ${pendientes} ${pendientes === 1 ? "pendiente" : "pendientes"}`;
 }
 
+// Texto compacto de procedencia: motivo + requisitos pendientes + origen. Se usa
+// como "title" para una vista rapida al pasar el cursor, sin abrir el detalle.
+function learnerSummaryText(item) {
+  const sources = item.data_sources || [];
+  const summary = item.requirements_summary || {};
+  const pending = summary.pending || [];
+  return [
+    `Origen: ${sources.length ? sources.join(" · ") : "Desconocido"}`,
+    `Motivo: ${item.non_certification_reason || "Sin motivo"}`,
+    pending.length
+      ? `Requisitos pendientes: ${pending.join(", ")}`
+      : "Sin requisitos pendientes",
+  ].join("\n");
+}
+
+// Bloque de resumen accesible (mismo contenido del "title"), pensado para teclado
+// y movil, donde no hay hover.
+function renderLearnerSummaryBlock(item) {
+  const sources = item.data_sources || [];
+  const summary = item.requirements_summary || {};
+  const pending = summary.pending || [];
+  const wrapper = document.createElement("div");
+  wrapper.className = "learner-summary";
+  const rows = [
+    ["Origen", sources.length ? sources.join(" · ") : "Desconocido"],
+    ["Motivo de no certificación", item.non_certification_reason || "Sin motivo"],
+    [
+      "Requisitos pendientes",
+      pending.length ? pending.join(", ") : "Ninguno",
+    ],
+    [
+      "Cumplidos / No aplica",
+      `${summary.fulfilled_count || 0} / ${summary.na_count || 0}`,
+    ],
+  ];
+  rows.forEach(([label, value]) => {
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const description = document.createElement("dd");
+    description.textContent = value;
+    wrapper.append(term, description);
+  });
+  return wrapper;
+}
+
+function renderOriginCell(item, row) {
+  const cell = document.createElement("td");
+  cell.className = "origin-cell";
+  const sources = item.data_sources || [];
+  const label = document.createElement("span");
+  label.className = "origin-label";
+  label.textContent = sources.length ? sources.join(" · ") : "Desconocido";
+  const info = document.createElement("button");
+  info.type = "button";
+  info.className = "info-button";
+  info.textContent = "Info";
+  info.setAttribute("aria-expanded", "false");
+  info.setAttribute("aria-label", `Resumen del aprendiz ${item.name}`);
+  info.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleLearnerSummary(row, item, info);
+  });
+  cell.append(label, info);
+  return cell;
+}
+
+// Muestra/oculta el resumen como una fila extra bajo el aprendiz. Se usa una fila
+// (colspan completo) en lugar de un tooltip flotante para que no lo recorte el
+// contenedor con scroll de la tabla.
+function toggleLearnerSummary(row, item, button) {
+  const following = row.nextElementSibling;
+  if (following && following.classList.contains("learner-summary-row")) {
+    following.remove();
+    button.setAttribute("aria-expanded", "false");
+    return;
+  }
+  learnersList
+    .querySelectorAll(".learner-summary-row")
+    .forEach((element) => element.remove());
+  learnersList
+    .querySelectorAll(".info-button")
+    .forEach((element) => element.setAttribute("aria-expanded", "false"));
+  const summaryRow = document.createElement("tr");
+  summaryRow.className = "learner-summary-row";
+  const cell = document.createElement("td");
+  cell.colSpan = 8;
+  cell.appendChild(renderLearnerSummaryBlock(item));
+  summaryRow.appendChild(cell);
+  row.after(summaryRow);
+  button.setAttribute("aria-expanded", "true");
+}
+
 function renderLearnerRow(item) {
   const row = document.createElement("tr");
-  [item.name, item.identification, item.program || "Sin programa", item.group_code || "Sin ficha"]
+  row.title = learnerSummaryText(item);
+  const nameCell = document.createElement("td");
+  nameCell.textContent = item.name;
+  row.appendChild(nameCell);
+  [item.identification, item.program || "Sin programa", item.group_code || "Sin ficha"]
     .forEach((value) => {
       const cell = document.createElement("td");
       cell.textContent = value;
       row.appendChild(cell);
     });
   row.appendChild(renderStatusCell(item.certification_status));
+  row.appendChild(renderOriginCell(item, row));
   const pendingCell = document.createElement("td");
   // Conteo real de requisitos en Pendiente; sin requisitos se muestra "—" en
   // lugar de inventar un numero.
@@ -436,6 +536,10 @@ function renderLearnerRow(item) {
 function renderLearnerEmptyState() {
   const searchTerm = learnerSearch.value.trim();
   const selectedStatus = learnerStatus.value;
+  const selectedRequirement = learnerMissingRequirement.value;
+  const requirementLabel =
+    selectedRequirement &&
+    learnerMissingRequirement.selectedOptions[0]?.textContent;
   let message = "Aun no hay aprendices cargados. Confirma una importacion DF14A para empezar.";
   if (searchTerm && selectedStatus) {
     message = `No se encontro ningun aprendiz que coincida con "${searchTerm}" y tenga el estado "${selectedStatus}".`;
@@ -444,9 +548,12 @@ function renderLearnerEmptyState() {
   } else if (selectedStatus) {
     message = `No se encontro ningun aprendiz con el estado "${selectedStatus}".`;
   }
+  if (selectedRequirement) {
+    message += ` No hay aprendices con el requisito "${requirementLabel}" en estado Pendiente.`;
+  }
   const row = document.createElement("tr");
   const cell = document.createElement("td");
-  cell.colSpan = 7;
+  cell.colSpan = 8;
   cell.textContent = message;
   row.appendChild(cell);
   learnersList.replaceChildren(row);
@@ -556,6 +663,13 @@ async function loadLearnerDetail(learnerId) {
     if (trackingEntries.length) {
       fillDetailList(learnerTracking, trackingEntries);
     }
+    // Origen de los datos: fuentes reales registradas en la importacion. Si no
+    // hay, se muestra "Desconocido"; nunca se inventa de que archivo salio.
+    const sources = info.data_sources || [];
+    learnerSourcesSection.hidden = false;
+    fillDetailList(learnerSources, [
+      ["Fuente(s) de origen", sources.length ? sources.join(" · ") : "Desconocido"],
+    ]);
     renderRequirementEditor(result.requirements);
     const dates = result.dates || {};
     const extraEntries = [
@@ -579,6 +693,7 @@ async function loadLearners() {
     const params = new URLSearchParams({
       search: learnerSearch.value.trim(),
       status: learnerStatus.value,
+      missing_requirement: learnerMissingRequirement.value,
       page: learnerPageNumber,
       page_size: learnerPageSize,
     });
@@ -587,9 +702,17 @@ async function loadLearners() {
     learnerStatus.replaceChildren(new Option("Todos los estados", ""));
     result.statuses.forEach((status) => learnerStatus.add(new Option(status, status)));
     if (selectedStatus) setLearnerStatus(selectedStatus);
+    // Opciones del filtro "Requisito faltante" segun los tipos del backend.
+    const selectedRequirement = learnerMissingRequirement.value;
+    learnerMissingRequirement.replaceChildren(new Option("Cualquiera", ""));
+    Object.entries(result.requirement_types || {}).forEach(([value, label]) => {
+      learnerMissingRequirement.add(new Option(label, value));
+    });
+    if (selectedRequirement) learnerMissingRequirement.value = selectedRequirement;
     porCertificarLearnersButton.textContent = `Por Certificar (${result.por_certificar_total})`;
     syncLearnerFilterButtons();
-    const sinFiltros = !learnerSearch.value.trim() && !learnerStatus.value;
+    const sinFiltros =
+      !learnerSearch.value.trim() && !learnerStatus.value && !learnerMissingRequirement.value;
     if (sinFiltros) {
       await refreshLearnerStatusCounts(result.statuses);
     }
@@ -616,11 +739,7 @@ async function loadPendingLearners() {
     syncLearnerFilterButtons();
     const result = await readResponse(await fetch("/api/learners/with-pending-requirements"));
     learnersSummary.textContent = `${result.items.length} ${result.items.length === 1 ? "aprendiz" : "aprendices"} con requisitos pendientes`;
-    learnersList.replaceChildren(...result.items.map((item) => {
-      const row = renderLearnerRow(item);
-      row.cells[5].textContent = item.pending_count;
-      return row;
-    }));
+    learnersList.replaceChildren(...result.items.map(renderLearnerRow));
   } catch (error) {
     learnersSummary.textContent = error.message;
   }
@@ -637,10 +756,15 @@ learnerSearch.addEventListener("input", () => {
 clearLearnerSearch.addEventListener("click", () => {
   learnerSearch.value = "";
   learnerStatus.value = "";
+  learnerMissingRequirement.value = "";
   learnerPageNumber = 1;
   loadLearners();
 });
 learnerStatus.addEventListener("change", () => {
+  learnerPageNumber = 1;
+  loadLearners();
+});
+learnerMissingRequirement.addEventListener("change", () => {
   learnerPageNumber = 1;
   loadLearners();
 });

@@ -16,7 +16,11 @@ from sqlalchemy.orm import Session
 from app.models import Act, ActLearner, ImportHistory, ImportedRecord, Learner
 from app.services import parsers
 from app.services.acts import import_act_from_document
-from app.services.learners import upsert_learners_from_records
+from app.services.learners import (
+    _prepare_learner_row,
+    set_learner_sources,
+    upsert_learners_from_records,
+)
 from app.services.records import (
     parse_records,
     prepare_records,
@@ -285,6 +289,10 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
             )
             history.message = _format_acta_message(acta_result)
 
+        # Procedencia: se registra de que archivo/hoja salio cada aprendiz. Se
+        # acumula (union) y no reemplaza los origenes previos.
+        _register_sources(session, final_records, staged.file_name)
+
         session.commit()
         _staged_imports.pop(validation_id, None)
         return import_result(history)
@@ -363,73 +371,6 @@ def _existing_records_multi(session: Session, keys: list[str]) -> dict[str, Impo
         )
     ).all()
     return {record.record_key: record for record in records}
-
-
-def _upsert_learners(records: list[dict[str, Any]], session: Session) -> None:
-    prepared_rows = [_prepare_learner_row(record) for record in records]
-    rows = [row for row in prepared_rows if row is not None]
-    if not rows:
-        return
-
-    identifications = [row["identification"] for row in rows]
-    existing = session.scalars(
-        select(Learner).where(Learner.identification.in_(identifications))
-    ).all()
-    existing_by_identification = {learner.identification: learner for learner in existing}
-
-    for row in rows:
-        learner = existing_by_identification.get(row["identification"])
-        if learner is None:
-            session.add(Learner(**row))
-            continue
-        if row.get("name") and row["name"] != "Aprendiz sin nombre":
-            learner.name = row["name"]
-        if row.get("program"):
-            learner.program = row["program"]
-        if row.get("group_code"):
-            learner.group_code = row["group_code"]
-        if row.get("training_type"):
-            learner.training_type = row["training_type"]
-        if row.get("certification_status"):
-            learner.certification_status = row["certification_status"]
-        if row.get("tracking_notes"):
-            learner.tracking_notes = row["tracking_notes"]
-
-
-def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
-    name = _first_value(
-        record,
-        "nombre",
-        "nombres",
-        "aprendiz",
-        "nombre aprendiz",
-        "nombre completo",
-        "nombre_aprendiz",
-    )
-    identification = _first_value(
-        record,
-        "identificacion",
-        "identificación",
-        "documento",
-        "numero documento",
-        "numero_documento",
-        "cedula",
-        "cédula",
-        "id",
-    )
-    if not name and not identification:
-        return None
-
-    generated_identification = identification or f"AUTO-{record_key('learner', record)[:12]}"
-    return {
-        "identification": generated_identification,
-        "name": name or "Aprendiz sin nombre",
-        "program": _first_value(record, "programa", "programa formacion", "programa de formacion"),
-        "group_code": _first_value(record, "ficha", "grupo", "codigo grupo", "codigo ficha"),
-        "training_type": _first_value(record, "tipo formacion", "modalidad"),
-        "certification_status": _first_value(record, "estado", "estado certificacion", "estado de certificacion"),
-        "tracking_notes": _first_value(record, "observaciones", "novedades", "seguimiento", "notas"),
-    }
 
 
 def _first_value(record: dict[str, Any], *candidates: str) -> str | None:
@@ -557,6 +498,48 @@ _EVIDENCE_FIELDS = (
     "carnet",
     "certificado_empresa",
 )
+
+
+# Etiquetas de procedencia por tipo interno. Describen de que archivo/hoja salio
+# cada registro; se acumulan en el aprendiz y nunca reemplazan un origen previo.
+_SOURCE_LABELS = {
+    "certificados": "ACTAS 2026 · CERTIFICADOS",
+    "pendientes": "ACTAS 2026 · PENDIENTES",
+    "complementaria": "ACTAS 2026 · COMPLEMENTARIA",
+    "meta": "ACTAS 2026 · META",
+    "df14a": "DF14A",
+    "requisitos": "Matriz de requisitos",
+}
+
+
+def _source_label(rtype: str, record: dict[str, Any], file_name: str) -> str | None:
+    """Etiqueta legible del origen de un registro, o ``None`` si no se conoce."""
+    if rtype == "acta":
+        number = _first_value(record, "numero de acta", "acta")
+        return f"Acta {number}" if number else f"Acta oficial · {file_name}"
+    return _SOURCE_LABELS.get(rtype)
+
+
+def _register_sources(
+    session: Session, final_records: list[tuple[dict[str, Any], str]], file_name: str
+) -> None:
+    """Acumula en cada aprendiz las fuentes que lo alimentaron en esta importacion.
+
+    Solo se registra un origen conocido; si el tipo no tiene etiqueta (por
+    ejemplo documentos de apoyo) no se inventa procedencia.
+    """
+    sources: dict[str, list[str]] = {}
+    for record, rtype in final_records:
+        label = _source_label(rtype, record, file_name)
+        if not label:
+            continue
+        prepared = _prepare_learner_row(record)
+        if prepared is None:
+            continue
+        labels = sources.setdefault(prepared["identification"], [])
+        if label not in labels:
+            labels.append(label)
+    set_learner_sources(session, sources)
 
 
 def _sync_actas_requirements(session: Session, records: list[dict[str, Any]]) -> int:

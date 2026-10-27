@@ -404,3 +404,67 @@ def test_actas_2026_certificados_update_status_and_month_without_reason(client: 
     assert item["certification_status"] == "CERTIFICADOS"
     assert item["certification_month"] == "JUNIO"
     assert not item["non_certification_reason"]
+    # La procedencia registra la hoja de origen del archivo importado.
+    assert item["data_sources"] == ["ACTAS 2026 · CERTIFICADOS"]
+
+
+def test_actas_2026_registers_origin_per_sheet_and_accumulates_sources(client: TestClient):
+    """La procedencia se registra por hoja y se acumula entre importaciones."""
+    documento = "9301"
+    pend_rows = [
+        {
+            "NIVEL": "TÉCNICO",
+            "NÚMERO DE DOCUMENTO": documento,
+            "NOMBRE": "Origen",
+            "APELLIDOS": "Pendiente",
+            "FICHA": "3020",
+            "ESTADO": "PENDIENTE",
+            "MOTIVO DE NO CERTIFICACIÓN": "Falta carnet",
+        }
+    ]
+    pend_content = _multi_sheet_actas_xlsx(pendientes=pend_rows)
+    validated = client.post(
+        "/api/files/validate",
+        data={"information_type": "actas_completo"},
+        files={"file": ("ACTAS 2026.xlsx", pend_content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    client.post(f"/api/imports/{validated.json()['validation_id']}/confirm")
+
+    item = client.get("/api/learners", params={"search": documento}).json()["items"][0]
+    assert item["data_sources"] == ["ACTAS 2026 · PENDIENTES"]
+    assert item["non_certification_reason"] == "Falta carnet"
+
+    # Segunda importacion: la misma persona aparece luego en CERTIFICADOS. El
+    # origen previo no se pierde, se conservan ambas fuentes.
+    cert_rows = [
+        {
+            "NIVEL": "TÉCNICO",
+            "NÚMERO DE DOCUMENTO": documento,
+            "NOMBRE": "Origen",
+            "APELLIDOS": "Pendiente",
+            "FICHA": "3020",
+            "ESTADO": "CERTIFICADOS",
+            "MES DE CERTIFICACIÓN": "JUNIO",
+            "ACTA": "40",
+        }
+    ]
+    cert_content = _multi_sheet_actas_xlsx(certificados=cert_rows)
+    validated_cert = client.post(
+        "/api/files/validate",
+        data={"information_type": "actas_completo"},
+        files={"file": ("ACTAS 2026.xlsx", cert_content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    client.post(f"/api/imports/{validated_cert.json()['validation_id']}/confirm")
+
+    item = client.get("/api/learners", params={"search": documento}).json()["items"][0]
+    assert set(item["data_sources"]) == {
+        "ACTAS 2026 · PENDIENTES",
+        "ACTAS 2026 · CERTIFICADOS",
+    }
+
+    # El detalle expone el mismo origen en basic_info.
+    detail = client.get(f"/api/learners/{item['id']}").json()
+    assert set(detail["basic_info"]["data_sources"]) == {
+        "ACTAS 2026 · PENDIENTES",
+        "ACTAS 2026 · CERTIFICADOS",
+    }

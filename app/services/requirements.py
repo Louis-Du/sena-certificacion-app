@@ -93,30 +93,6 @@ def save_requirement(
     return requirement_result(requirement)
 
 
-def pending_learners(session: Session) -> list[dict[str, Any]]:
-    rows = session.execute(
-        select(
-            Learner,
-            func.count(Requirement.id).label("pending_count"),
-        )
-        .join(Requirement, Requirement.learner_id == Learner.id)
-        .where(func.lower(Requirement.status) == "pendiente")
-        .group_by(Learner.id)
-        .order_by(Learner.name.asc())
-    ).all()
-    return [
-        {
-            "id": learner.id,
-            "identification": learner.identification,
-            "name": learner.name,
-            "program": learner.program,
-            "group_code": learner.group_code,
-            "pending_count": pending_count,
-        }
-        for learner, pending_count in rows
-    ]
-
-
 def requirement_result(requirement: Requirement) -> dict[str, Any]:
     return {
         "id": requirement.id,
