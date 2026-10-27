@@ -482,3 +482,456 @@ def test_positive_files_are_importable(
     preview = client.get(f"/api/imports/{validation_id}/preview")
     assert preview.status_code == 200
     assert preview.json()["records_count"] == body["valid_records"]
+
+
+# --- Actas oficiales: extraccion, registro del acta y vinculos --------------
+
+
+def _acta_docx(
+    number: str | None,
+    act_date: str | None,
+    learners: list[dict],
+) -> bytes:
+    """Construye un DOCX de acta con una tabla de aprendices."""
+    from docx import Document
+
+    document = Document()
+    if number:
+        document.add_paragraph(f"ACTA DE CERTIFICACION No. {number}")
+    if act_date:
+        document.add_paragraph(f"Fecha: {act_date}")
+    table = document.add_table(rows=1, cols=5)
+    for index, value in enumerate(["No.", "Documento", "Nombre", "Ficha", "Programa"]):
+        table.rows[0].cells[index].text = value
+    for index, learner in enumerate(learners, start=1):
+        cells = table.add_row().cells
+        values = [
+            str(index),
+            learner.get("documento", ""),
+            learner.get("nombre", ""),
+            learner.get("ficha", ""),
+            learner.get("programa", ""),
+        ]
+        for column, value in enumerate(values):
+            cells[column].text = value
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def _acta_docx_text(number: str, act_date: str, learner_lines: list[str]) -> bytes:
+    """Construye un DOCX de acta sin tabla (aprendices en parrafos de texto)."""
+    from docx import Document
+
+    document = Document()
+    document.add_paragraph(f"ACTA DE CERTIFICACION No. {number}")
+    document.add_paragraph(f"Fecha: {act_date}")
+    for line in learner_lines:
+        document.add_paragraph(line)
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def _acta_pdf(lines: list[str]) -> bytes:
+    """Construye un PDF con una linea de texto por elemento."""
+    import fitz
+
+    document = fitz.open()
+    page = document.new_page()
+    y = 72
+    for line in lines:
+        page.insert_text((72, y), line)
+        y += 16
+    content = document.tobytes()
+    document.close()
+    return content
+
+
+def _upload_bytes(
+    client: TestClient, name: str, content: bytes, information_type: str = "acta"
+) -> dict:
+    response = client.post(
+        "/api/files/validate",
+        data={"information_type": information_type},
+        files={"file": (name, content, "application/octet-stream")},
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def _preview(client: TestClient, validation_id: str) -> dict:
+    response = client.get(f"/api/imports/{validation_id}/preview")
+    assert response.status_code == 200
+    return response.json()
+
+
+def _confirm(client: TestClient, validation_id: str) -> dict:
+    response = client.post(f"/api/imports/{validation_id}/confirm")
+    assert response.status_code == 200
+    return response.json()
+
+
+def _act_by_number(client: TestClient, number: str) -> dict | None:
+    items = client.get("/api/acts").json()["items"]
+    return next((item for item in items if item["number"] == number), None)
+
+
+def _learners_by_identification(client: TestClient) -> dict[str, dict]:
+    items = client.get("/api/learners").json()["items"]
+    return {item["identification"]: item for item in items}
+
+
+def test_acta_docx_with_table_registers_act_and_links_learners(client: TestClient):
+    content = _acta_docx(
+        "101",
+        "02 de octubre de 2026",
+        [
+            {
+                "documento": "1001001001",
+                "nombre": "GOMEZ PEREZ LAURA SOFIA",
+                "ficha": "3001",
+                "programa": "ADSO",
+            },
+            {
+                "documento": "1001001002",
+                "nombre": "RUIZ DIAZ CARLOS",
+                "ficha": "3001",
+                "programa": "ADSO",
+            },
+        ],
+    )
+
+    body = _upload_bytes(client, "acta.docx", content)
+    assert body["status"] == "ready"
+    assert any("Acta identificada: No. 101" in check["label"] for check in body["checks"])
+
+    preview = _preview(client, body["validation_id"])
+    assert preview["acta"]["number"] == "101"
+    assert preview["acta"]["exists"] is False
+    assert preview["acta"]["learners_found"] == 2
+    assert preview["acta"]["learners_to_link"] == 2
+    assert preview["acta"]["learners_not_registered"] == ["1001001001", "1001001002"]
+
+    _confirm(client, body["validation_id"])
+
+    act = _act_by_number(client, "101")
+    assert act is not None
+    assert act["learners_count"] == 2
+    detail = client.get(f"/api/acts/{act['id']}").json()
+    assert detail["act_date"] == "2026-10-02"
+    assert detail["original_file"] == "acta.docx"
+    assert {learner["identification"] for learner in detail["learners"]} == {
+        "1001001001",
+        "1001001002",
+    }
+
+    # Figurar en un acta no equivale a tener el certificado expedido: no se
+    # deduce un estado de certificacion.
+    learners = _learners_by_identification(client)
+    assert learners["1001001001"]["certification_status"] is None
+
+
+def test_acta_docx_without_table_reads_learners_from_text(client: TestClient):
+    content = _acta_docx_text(
+        "102",
+        "02 de octubre de 2026",
+        [
+            "- C.C. 1001002001 - TORRES MEZA ANA MARIA",
+            "- C.C. 1001002002 - DIAZ LUNA PEDRO",
+        ],
+    )
+
+    body = _upload_bytes(client, "acta_texto.docx", content)
+    assert body["status"] == "ready"
+
+    preview = _preview(client, body["validation_id"])
+    assert preview["acta"]["learners_found"] == 2
+
+
+def test_acta_pdf_reads_number_date_and_learners(client: TestClient):
+    content = _acta_pdf(
+        [
+            "ACTA ORDINARIA No. 103",
+            "Fecha: 15 de marzo de 2026",
+            "- C.C. 1001003001 - MORENO SILVA LUIS",
+        ]
+    )
+
+    body = _upload_bytes(client, "acta.pdf", content)
+    assert body["status"] == "ready"
+
+    preview = _preview(client, body["validation_id"])
+    assert preview["acta"]["number"] == "103"
+    assert preview["acta"]["act_date"] == "2026-03-15"
+    assert preview["acta"]["learners_found"] == 1
+
+
+def test_acta_without_number_is_rejected_and_not_registered(client: TestClient):
+    content = _acta_docx_text(
+        "",
+        "02 de octubre de 2026",
+        ["- C.C. 1001004001 - PRUEBA SIN NUMERO"],
+    )
+
+    body = _upload_bytes(client, "acta_sin_numero.docx", content)
+    assert body["status"] == "error"
+    assert body["valid_records"] == 0
+    assert any(
+        "no se registra un acta sin numero" in check["label"] for check in body["checks"]
+    )
+
+    # Sin registros importables la confirmacion queda bloqueada y no hay acta.
+    confirm = client.post(f"/api/imports/{body['validation_id']}/confirm")
+    assert confirm.status_code == 400
+    assert client.get("/api/acts").json()["items"] == []
+
+
+def test_acta_without_date_is_warning_but_still_importable(client: TestClient):
+    content = _acta_docx(
+        "104",
+        None,
+        [{"documento": "1001005001", "nombre": "SIN FECHA APRENDIZ"}],
+    )
+
+    body = _upload_bytes(client, "acta_sin_fecha.docx", content)
+    assert body["status"] == "warning"
+    assert any(
+        "No se pudo identificar la fecha del acta" == check["label"]
+        for check in body["checks"]
+    )
+
+    _confirm(client, body["validation_id"])
+    act = _act_by_number(client, "104")
+    assert act is not None
+    assert act["act_date"] is None
+
+
+def test_acta_reimport_does_not_duplicate_act_or_links(client: TestClient):
+    content = _acta_docx(
+        "105",
+        "02 de octubre de 2026",
+        [{"documento": "1001006001", "nombre": "REPETIDO APRENDIZ"}],
+    )
+
+    first = _upload_bytes(client, "acta.docx", content)
+    _confirm(client, first["validation_id"])
+
+    second = _upload_bytes(client, "acta.docx", content)
+    preview = _preview(client, second["validation_id"])
+    assert preview["acta"]["exists"] is True
+    assert preview["acta"]["learners_to_link"] == 0
+    assert preview["acta"]["learners_already_linked"] == 1
+
+    _confirm(client, second["validation_id"])
+
+    acts = [item for item in client.get("/api/acts").json()["items"] if item["number"] == "105"]
+    assert len(acts) == 1
+    assert acts[0]["learners_count"] == 1
+    assert len(client.get("/api/learners").json()["items"]) == 1
+
+
+def test_acta_reimport_does_not_overwrite_existing_fields_with_empty_values(
+    client: TestClient,
+):
+    seeded = _upload_bytes(
+        client,
+        "acta.docx",
+        _acta_docx("106", "02 de octubre de 2026", []),
+    )
+    _confirm(client, seeded["validation_id"])
+
+    # Reimportar la misma acta sin fecha no debe borrar la fecha ya guardada.
+    without_date = _upload_bytes(
+        client,
+        "acta.docx",
+        _acta_docx("106", None, []),
+    )
+    _confirm(client, without_date["validation_id"])
+
+    act = _act_by_number(client, "106")
+    assert act is not None
+    assert act["act_date"] == "2026-10-02"
+
+
+def test_acta_links_existing_learner_imported_by_df14a(client: TestClient):
+    df14a = (
+        "DOCUMENTO,NOMBRES,FICHA,PROGRAMA,ESTADO_ASPIRANTE\n"
+        "1001007001,APRENDIZ PREVIO,3001,ADSO,Por Certificar\n"
+    ).encode("utf-8")
+    seeded = _upload_bytes(client, "df14a.csv", df14a, information_type="df14a")
+    _confirm(client, seeded["validation_id"])
+
+    content = _acta_docx(
+        "107",
+        "02 de octubre de 2026",
+        [{"documento": "1001007001", "nombre": "APRENDIZ PREVIO"}],
+    )
+    body = _upload_bytes(client, "acta.docx", content)
+    preview = _preview(client, body["validation_id"])
+    assert preview["acta"]["learners_to_link"] == 1
+    assert preview["acta"]["learners_not_registered"] == []
+
+    _confirm(client, body["validation_id"])
+
+    # El aprendiz no se duplica y conserva su estado original.
+    learners = _learners_by_identification(client)
+    assert len(learners) == 1
+    assert learners["1001007001"]["certification_status"] == "Por Certificar"
+
+
+def test_acta_without_learner_identifications_does_not_associate_by_name(
+    client: TestClient,
+):
+    # Una fila sin documento no se asocia aunque tenga nombre: solo se vincula la
+    # persona cuya identificacion esta presente en el documento.
+    content = _acta_docx(
+        "109",
+        "02 de octubre de 2026",
+        [
+            {"documento": "1001011001", "nombre": "CON DOCUMENTO APRENDIZ"},
+            {"documento": "", "nombre": "SOLO NOMBRE APRENDIZ"},
+        ],
+    )
+
+    body = _upload_bytes(client, "acta.docx", content)
+    assert body["status"] == "ready"
+
+    preview = _preview(client, body["validation_id"])
+    assert preview["acta"]["learners_found"] == 1
+    assert preview["acta"]["learners_to_link"] == 1
+
+    _confirm(client, body["validation_id"])
+
+    act = _act_by_number(client, "109")
+    assert act is not None
+    assert act["learners_count"] == 1
+    learners = _learners_by_identification(client)
+    assert set(learners) == {"1001011001"}
+
+
+def test_acta_without_any_learner_is_registered_but_reports_the_gap(
+    client: TestClient,
+):
+    content = _acta_docx(
+        "110",
+        "02 de octubre de 2026",
+        [{"documento": "", "nombre": "SIN IDENTIFICACION"}],
+    )
+
+    body = _upload_bytes(client, "acta.docx", content)
+    # Falta informacion de aprendices: es una advertencia, no un error.
+    assert body["status"] == "warning"
+    assert any(
+        "no aporta aprendices con numero de documento" in check["label"]
+        for check in body["checks"]
+    )
+
+    _confirm(client, body["validation_id"])
+
+    act = _act_by_number(client, "110")
+    assert act is not None
+    assert act["learners_count"] == 0
+    # No se crea ningun aprendiz ficticio.
+    assert client.get("/api/learners").json()["items"] == []
+
+
+def test_acta_persistence_failure_leaves_no_partial_records(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    from app.models import Act
+
+    import app.services.imports as imports_module
+
+    def failing_import(session, extraction, original_file, import_id):
+        # Simula una escritura parcial que luego falla: el flujo debe revertirla.
+        session.add(
+            Act(
+                number=extraction["number"],
+                original_file=original_file,
+                review_status="pending",
+                import_id=import_id,
+            )
+        )
+        session.flush()
+        raise RuntimeError("fallo simulado de persistencia")
+
+    monkeypatch.setattr(imports_module, "import_act_from_document", failing_import)
+
+    body = _upload_bytes(
+        client,
+        "acta.docx",
+        _acta_docx(
+            "111",
+            "02 de octubre de 2026",
+            [{"documento": "1001012001", "nombre": "FALLO APRENDIZ"}],
+        ),
+    )
+
+    with pytest.raises(RuntimeError):
+        client.post(f"/api/imports/{body['validation_id']}/confirm")
+
+    # La confirmacion es atomica: no quedan actas, aprendices ni historial a medias.
+    assert client.get("/api/acts").json()["items"] == []
+    assert client.get("/api/learners").json()["items"] == []
+    assert client.get("/api/imports/history").json()["items"] == []
+
+
+# --- Consolidacion de aprendices entre fuentes ------------------------------
+
+
+def test_df14a_and_actas_2026_do_not_duplicate_the_same_learner(client: TestClient):
+    df14a = (
+        "DOCUMENTO,NOMBRES,FICHA,PROGRAMA,ESTADO_ASPIRANTE\n"
+        "1001008001,APRENDIZ COMPARTIDO,3001,ADSO,Por Certificar\n"
+    ).encode("utf-8")
+    seeded = _upload_bytes(client, "df14a.csv", df14a, information_type="df14a")
+    _confirm(client, seeded["validation_id"])
+
+    excel = _multi_sheet_xlsx(
+        certificados=[
+            {
+                "NIVEL": "TECNÓLOGO",
+                "NÚMERO DE DOCUMENTO": "1001008001",
+                "NOMBRE": "APRENDIZ COMPARTIDO",
+                "FICHA": "3001",
+                "ESTADO": "CERTIFICADOS",
+                "MES DE CERTIFICACION": "JUNIO",
+                "ACTA": "36",
+            }
+        ]
+    )
+    actas = _upload_bytes(
+        client, "ACTAS 2026.xlsx", excel, information_type="actas_completo"
+    )
+
+    _confirm(client, actas["validation_id"])
+
+    # El aprendiz se consolida: existe una sola persona aunque llegue por dos
+    # fuentes distintas, y el ultimo estado valido queda registrado.
+    learners = _learners_by_identification(client)
+    assert len(learners) == 1
+    assert learners["1001008001"]["certification_status"] == "CERTIFICADOS"
+
+
+def test_df14a_without_status_does_not_erase_an_existing_one(client: TestClient):
+    df14a = (
+        "DOCUMENTO,NOMBRES,FICHA,PROGRAMA,ESTADO_ASPIRANTE\n"
+        "1001009001,APRENDIZ ESTADO,3001,ADSO,Certificado\n"
+    ).encode("utf-8")
+    seeded = _upload_bytes(client, "df14a.csv", df14a, information_type="df14a")
+    _confirm(client, seeded["validation_id"])
+
+    # Segundo DF14A del mismo aprendiz sin la columna de estado: no debe borrar
+    # el estado ya registrado.
+    sin_estado = (
+        "DOCUMENTO,NOMBRES,FICHA,PROGRAMA\n"
+        "1001009001,APRENDIZ ESTADO,3002,ADSO\n"
+    ).encode("utf-8")
+    second = _upload_bytes(client, "df14a_sin_estado.csv", sin_estado, information_type="df14a")
+    _confirm(client, second["validation_id"])
+
+    learners = _learners_by_identification(client)
+    assert learners["1001009001"]["certification_status"] == "Certificado"
+    # Los datos presentes si se actualizan.
+    assert learners["1001009001"]["group_code"] == "3002"

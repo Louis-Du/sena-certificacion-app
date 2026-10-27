@@ -134,13 +134,23 @@ def test_xlsx_import_then_learner_search_and_act_association(client: TestClient)
         assert session.query(ActLearner).count() == 1
 
 
-def test_acta_pdf_confirm_does_not_create_learners(client: TestClient):
-    validation_id = _validate(client, "acta.pdf", pdf_bytes(), "acta")["validation_id"]
+def test_acta_pdf_confirm_creates_act_and_links_learners(client: TestClient):
+    content = pdf_bytes(
+        "ACTA DE CERTIFICACION No. 41\n"
+        "Fecha: 15 de marzo de 2026\n"
+        "1 LAURA SOFIA PEREZ GOMEZ 1043000100"
+    )
+    validation_id = _validate(client, "acta.pdf", content, "acta")["validation_id"]
     confirmed = client.post(f"/api/imports/{validation_id}/confirm")
 
     assert confirmed.status_code == 200
     assert confirmed.json()["records_count"] == 1
-    assert client.get("/api/learners").json()["total"] == 0
+    learners = client.get("/api/learners").json()
+    assert learners["total"] == 1
+    assert learners["items"][0]["identification"] == "1043000100"
+    acts = client.get("/api/acts").json()["items"]
+    assert [act["number"] for act in acts] == ["41"]
+    assert acts[0]["learners_count"] == 1
     assert client.get("/api/imports/history").json()["items"][0]["information_type"] == "Acta de certificacion"
 
 
@@ -187,14 +197,20 @@ def test_failed_confirm_does_not_leave_partial_sqlite_rows(client: TestClient):
         assert session.query(Act).count() == 0
 
 
-def test_acta_file_import_does_not_create_act_entity(client: TestClient):
-    validation_id = _validate(client, "acta.pdf", pdf_bytes(), "acta")["validation_id"]
+def test_acta_file_import_creates_act_entity_and_keeps_history(client: TestClient):
+    content = pdf_bytes(
+        "ACTA DE CERTIFICACION No. 41\n"
+        "Fecha: 15 de marzo de 2026\n"
+        "1 LAURA SOFIA PEREZ GOMEZ 1043000100"
+    )
+    validation_id = _validate(client, "acta.pdf", content, "acta")["validation_id"]
     confirmed = client.post(f"/api/imports/{validation_id}/confirm")
 
     assert confirmed.status_code == 200
-    assert client.get("/api/acts").json()["items"] == []
     with client.session_factory() as session:
-        assert session.query(Act).count() == 0
+        act = session.query(Act).one()
+        assert act.number == "41"
+        assert session.query(ActLearner).count() == 1
         assert session.query(ImportHistory).count() == 1
 
 

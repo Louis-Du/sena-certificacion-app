@@ -32,7 +32,7 @@ def _multi_sheet_actas_xlsx(
     return buffer.getvalue()
 
 
-def test_information_types_exposes_four_simplified_categories(client: TestClient):
+def test_information_types_exposes_three_main_sources_plus_secondary(client: TestClient):
     response = client.get("/api/information-types")
     assert response.status_code == 200
     data = response.json()
@@ -40,17 +40,28 @@ def test_information_types_exposes_four_simplified_categories(client: TestClient
     assert "categories" in data
     category_ids = [cat["id"] for cat in data["categories"]]
     assert category_ids == [
-        "datos_certificacion",
-        "actas_revision",
+        "actas_oficiales",
+        "df14a",
+        "actas_2026",
         "requisitos_aprendices",
-        "documentos_referencia",
     ]
 
-    # Verificar que Datos de certificación incluye actas_completo, df14a y csv_certificacion
-    datos_cat = next(cat for cat in data["categories"] if cat["id"] == "datos_certificacion")
-    assert "actas_completo" in datos_cat["types"]
-    assert "df14a" in datos_cat["types"]
-    assert "csv_certificacion" in datos_cat["types"]
+    # Las tres fuentes principales mapean al tipo interno que las procesa.
+    main_types = {
+        cat["id"]: cat["types"]
+        for cat in data["categories"]
+        if not cat.get("secondary")
+    }
+    assert main_types == {
+        "actas_oficiales": ["acta"],
+        "df14a": ["df14a"],
+        "actas_2026": ["actas_completo"],
+    }
+
+    # Requisitos se conserva como carga secundaria.
+    secundaria = next(cat for cat in data["categories"] if cat["id"] == "requisitos_aprendices")
+    assert secundaria.get("secondary") is True
+    assert secundaria["types"] == ["requisitos"]
 
 
 def test_excel_institucional_multi_sheet_upload_flow(client: TestClient):

@@ -64,15 +64,14 @@ def test_act_review_status_filter(page, app_url):
     assert "ACT-E2E-03" not in page.locator("#acts-list").text_content()
 
 
-def test_acta_file_import_does_not_create_act_entity(page, app_url, tmp_path):
-    from tests.conftest import pdf_bytes
+def test_acta_file_import_creates_act_entity(page, app_url):
+    from pathlib import Path
+
+    correctos = Path(__file__).resolve().parents[2] / "archivos_prueba" / "correctos"
 
     page.goto(app_url)
-    page.click('.category-option[data-category="actas_revision"]')
-    page.click('.type-option[data-type="acta"]')
-    pdf_path = tmp_path / "acta.pdf"
-    pdf_path.write_bytes(pdf_bytes())
-    page.set_input_files("#file-input", str(pdf_path))
+    page.click('.category-option[data-type="acta"]')
+    page.set_input_files("#file-input", str(correctos / "Acta_certificacion_correcto.pdf"))
     page.click("#validate-button")
     page.wait_for_selector("#confirmation-panel:not([hidden])")
     page.click("#confirm-button")
@@ -80,4 +79,6 @@ def test_acta_file_import_does_not_create_act_entity(page, app_url, tmp_path):
 
     page.click('a[data-view="actas"]')
     page.wait_for_selector("#acts-list")
-    assert "No hay actas registradas" in page.locator("#acts-list").text_content()
+    acts = page.locator("#acts-list").text_content()
+    assert "101-2026" in acts
+    assert "No hay actas registradas" not in acts
