@@ -1347,7 +1347,10 @@ def extract_acta_data(file_name: str, content: bytes) -> dict[str, Any]:
     act_date = parse_fecha_documento(full_text)
     asunto = _ACTA_ASUNTO_RE.search(full_text)
     act_type = asunto.group(1).strip() if asunto else None
+    missing_documents = sum(1 for learner in learners if not learner.get("documento"))
+    with_document = sum(1 for learner in learners if learner.get("documento"))
     learners = _dedupe_learners(learners)
+    duplicate_learners = with_document - len(learners)
     # El programa se guarda en una sola linea: en los PDF la columna suele venir
     # partida por el ancho de la celda ("OPERACIONES\nCOMERCIALES").
     for learner in learners:
@@ -1367,6 +1370,16 @@ def extract_acta_data(file_name: str, content: bytes) -> dict[str, Any]:
         warnings.append("No se pudo identificar el numero del acta en el documento.")
     if not act_date:
         warnings.append("No se pudo identificar la fecha del acta.")
+    if missing_documents:
+        warnings.append(
+            f"{missing_documents} aprendiz(es) sin numero de documento confiable; "
+            "no se asociaran al acta."
+        )
+    if duplicate_learners:
+        warnings.append(
+            f"{duplicate_learners} aprendiz(es) duplicado(s) en el documento; "
+            "se conservo una sola asociacion por documento."
+        )
     if not learners:
         if tables_count:
             warnings.append(

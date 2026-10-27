@@ -260,26 +260,19 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
                 current.row_number = row_number
                 current.payload = payload
 
+        # Politica #34: si un aprendiz figura en CERTIFICADOS y PENDIENTES,
+        # el estado final es CERTIFICADOS. Para que gane, los registros de
+        # PENDIENTES se procesan primero y los de CERTIFICADOS despues (el
+        # upsert conserva el ultimo por identificacion).
         learners_records = [
             record
-            for record, rtype in final_records
-            if rtype in {"df14a", "certificados", "pendientes"}
-        ]
-        conflicted_identifications = set()
-        if staged.information_type == "actas_completo":
-            # Un aprendiz que aparece en CERTIFICADOS y PENDIENTES no debe
-            # recibir un estado elegido automaticamente. Sus registros se
-            # guardan, pero el estado del aprendiz se deja como estaba (o sin
-            # definir si es nuevo) hasta que una persona lo resuelva.
-            conflicted_identifications = {
-                documento for documento, _ in conflicting_pairs(prepared)
-            }
-        if learners_records:
-            upsert_learners_from_records(
-                session,
-                learners_records,
-                skip_status_for=conflicted_identifications,
+            for record, rtype in sorted(
+                [(r, t) for r, t in final_records if t in {"df14a", "certificados", "pendientes"}],
+                key=lambda item: 0 if item[1] == "pendientes" else 1,
             )
+        ]
+        if learners_records:
+            upsert_learners_from_records(session, learners_records)
 
         # Las columnas de evidencias de CERTIFICADOS/PENDIENTES se convierten en
         # requisitos del aprendiz (X -> Cumplido, N.A -> No aplica, vacio ->

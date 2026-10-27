@@ -500,8 +500,8 @@ def _append_actas_warnings(prepared, checks: list[dict[str, str]]) -> int:
         {
             "label": (
                 f"Coherencia: {len(conflicts)} aprendices figuran simultáneamente en "
-                f"CERTIFICADOS y PENDIENTES con la misma ficha ({detail}). No se resuelve "
-                "automaticamente: requiere revision administrativa."
+                f"CERTIFICADOS y PENDIENTES con la misma ficha ({detail}). Al confirmar se "
+                "resolvera a estado CERTIFICADOS (politica #34)."
             ),
             "status": "warning",
         }
