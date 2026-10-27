@@ -51,6 +51,9 @@ def _upgrade_sqlite_schema(bind: Engine | None = None) -> None:
     inspector = inspect(target)
     import_history_columns = _table_columns(inspector, "import_history")
     requirement_columns = _table_columns(inspector, "requirements")
+    # `learners` puede no existir en esquemas muy antiguos; en ese caso se omite su
+    # migracion (create_all ya la habra creado con las columnas al dia).
+    learner_columns = _table_columns(inspector, "learners") if inspector.has_table("learners") else set()
     migrations = {
         "error_count": (
             "error_count",
@@ -66,6 +69,37 @@ def _upgrade_sqlite_schema(bind: Engine | None = None) -> None:
             "requirement_type",
             "ALTER TABLE requirements ADD COLUMN requirement_type VARCHAR(100)",
             requirement_columns,
+        ),
+        # Seguimiento de certificacion del aprendiz (motivo y datos de contacto/acta).
+        "non_certification_reason": (
+            "non_certification_reason",
+            "ALTER TABLE learners ADD COLUMN non_certification_reason TEXT",
+            learner_columns,
+        ),
+        "certification_month": (
+            "certification_month",
+            "ALTER TABLE learners ADD COLUMN certification_month VARCHAR(50)",
+            learner_columns,
+        ),
+        "instructor": (
+            "instructor",
+            "ALTER TABLE learners ADD COLUMN instructor VARCHAR(200)",
+            learner_columns,
+        ),
+        "act_number": (
+            "act_number",
+            "ALTER TABLE learners ADD COLUMN act_number VARCHAR(100)",
+            learner_columns,
+        ),
+        "email": (
+            "email",
+            "ALTER TABLE learners ADD COLUMN email VARCHAR(200)",
+            learner_columns,
+        ),
+        "phone": (
+            "phone",
+            "ALTER TABLE learners ADD COLUMN phone VARCHAR(50)",
+            learner_columns,
         ),
     }
     with target.begin() as connection:

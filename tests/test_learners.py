@@ -69,6 +69,14 @@ def test_prepare_learner_row_supports_real_df14a_columns():
         "group_code": "3466192",
         "training_type": None,
         "certification_status": "8",
+        # Seguimiento de certificacion (ACTAS 2026): el DF14A no trae estos
+        # campos, por eso quedan en None y no se inventan.
+        "non_certification_reason": None,
+        "certification_month": None,
+        "instructor": None,
+        "act_number": None,
+        "email": None,
+        "phone": None,
         "tracking_notes": None,
     }
 
@@ -241,23 +249,22 @@ def test_requirements_can_be_created_updated_and_retrieved(client: TestClient):
 
     detail = client.get(f"/api/learners/{learner_id}")
     assert detail.status_code == 200
-    assert detail.json()["requirements"][1]["status"] == "Cumplido"
+    # El detalle solo lista los requisitos registrados; se busca por tipo en
+    # lugar de asumir una plantilla de cinco posiciones.
+    requirements = {item["requirement_type"]: item for item in detail.json()["requirements"]}
+    assert requirements["documentation"]["status"] == "Cumplido"
 
 
-def test_learner_detail_exposes_editable_requirement_slots_without_registering_them(client: TestClient):
+def test_learner_detail_without_requirements_lists_no_empty_template(client: TestClient):
     seed_learners(client, count=1)
     learner_id = client.get("/api/learners").json()["items"][0]["id"]
 
     detail = client.get(f"/api/learners/{learner_id}")
 
     assert detail.status_code == 200
-    assert {item["requirement_type"] for item in detail.json()["requirements"]} == {
-        "learning_outcome",
-        "documentation",
-        "productive_stage",
-        "clearance",
-        "saber_tyt",
-    }
+    # Antes se devolvia una plantilla de cinco tipos vacios; ahora el detalle
+    # solo muestra requisitos realmente registrados (aqui ninguno).
+    assert detail.json()["requirements"] == []
     assert client.get("/api/learners/with-pending-requirements").json()["items"] == []
 
 

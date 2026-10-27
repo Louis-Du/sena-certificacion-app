@@ -55,6 +55,15 @@ class Learner(Base):
     group_code: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     training_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     certification_status: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Motivo de no certificacion (hoja PENDIENTES de ACTAS 2026.xlsx). Es el
+    # "porque" resumido del aprendiz y alimenta el indicador de causas; NO es un
+    # requisito ni un estado.
+    non_certification_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    certification_month: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    instructor: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    act_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     termination_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     tracking_notes: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -8,11 +8,24 @@ from sqlalchemy.orm import Session
 from app.models import Learner, Requirement
 
 REQUIREMENT_TYPES = {
+    # Tipos genéricos: se conservan para la edición manual y las cargas
+    # históricas de requisitos (matriz "requisitos").
     "learning_outcome": "Resultados de aprendizaje / RAP",
     "documentation": "Documentación",
     "productive_stage": "Etapa productiva",
     "clearance": "Paz y salvo",
+    # Tipos del checklist de ACTAS 2026 (hojas CERTIFICADOS / PENDIENTES). Cada
+    # uno corresponde a una columna de evidencias del Excel; el importador crea
+    # el requisito con el estado leído en la celda (X / N.A. / vacío).
+    "biblioteca": "Paz y salvo biblioteca",
+    "bienestar": "Bienestar del aprendiz",
+    "almacen": "Paz y salvo almacén",
+    "etapa_productiva": "Etapa productiva",
+    "documento_identidad": "Documento de identidad",
     "saber_tyt": "Saber TyT",
+    "ape": "Inscripción APE",
+    "carnet": "Destrucción de carnet",
+    "certificado_empresa": "Certificado de la empresa",
 }
 REQUIREMENT_STATUSES = {"Pendiente", "Cumplido", "No aplica"}
 
@@ -29,23 +42,15 @@ def list_requirements(session: Session, learner_id: int) -> list[dict[str, Any]]
 
 
 def editor_requirements(session: Session, learner_id: int) -> list[dict[str, Any]] | None:
-    registered = list_requirements(session, learner_id)
-    if registered is None:
-        return None
-    by_type = {item["requirement_type"]: item for item in registered}
-    return [
-        by_type.get(
-            requirement_type,
-            {
-                "id": None,
-                "requirement_type": requirement_type,
-                "label": label,
-                "status": "Pendiente",
-                "observations": None,
-            },
-        )
-        for requirement_type, label in REQUIREMENT_TYPES.items()
-    ]
+    """Requisitos realmente registrados del aprendiz, en el orden en que se crearon.
+
+    Antes se rellenaba una plantilla con los tipos conocidos vacíos, lo que hacía
+    aparecer cinco requisitos en "Pendiente" que no correspondían a ningún dato.
+    Ahora solo se devuelven los requisitos que existen en la base de datos; si no
+    hay ninguno, la lista viene vacía y la interfaz informa "Sin requisitos
+    registrados".
+    """
+    return list_requirements(session, learner_id)
 
 
 def save_requirement(
@@ -132,3 +137,21 @@ def validate_requirement_type(requirement_type: str) -> None:
 def validate_status(status: str) -> None:
     if status not in REQUIREMENT_STATUSES:
         raise ValueError("Estado de requisito no válido.")
+
+
+def evidence_status(value: Any) -> str:
+    """Traduce el valor de una columna de evidencias de ACTAS 2026 a un estado.
+
+    Regla acordada con el archivo real: ``X``/``x`` -> "Cumplido",
+    ``N.A``/``N.A.``/``NA`` -> "No aplica", vacío u otro -> "Pendiente". Nunca se
+    marca "Cumplido" si la celda no trae una "X": el estado se lee tal cual
+    viene en el documento, no se deduce.
+    """
+    from app.services.parsers import normalize_text
+
+    texto = normalize_text(value)
+    if texto in {"x", "si", "cumplido"}:
+        return "Cumplido"
+    if texto.replace(" ", "").replace(".", "") in {"na", "noaplica"}:
+        return "No aplica"
+    return "Pendiente"

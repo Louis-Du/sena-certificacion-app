@@ -46,7 +46,11 @@ const learnerDetailTitle = document.querySelector("#learner-detail-title");
 const learnerDetailFeedback = document.querySelector("#learner-detail-feedback");
 const learnerDetailContent = document.querySelector("#learner-detail-content");
 const learnerBasicInfo = document.querySelector("#learner-basic-info");
+const learnerTrackingSection = document.querySelector("#learner-tracking-section");
+const learnerTracking = document.querySelector("#learner-tracking");
 const learnerRequirements = document.querySelector("#learner-requirements");
+const learnerMoreData = document.querySelector("#learner-more-data");
+const learnerExtra = document.querySelector("#learner-extra");
 const viewLinks = document.querySelectorAll("[data-view]");
 const views = document.querySelectorAll(".app-view");
 const maxFileSize = 20 * 1024 * 1024;
@@ -410,7 +414,9 @@ function renderLearnerRow(item) {
     });
   row.appendChild(renderStatusCell(item.certification_status));
   const pendingCell = document.createElement("td");
-  pendingCell.textContent = item.pending_count ?? "—";
+  // Conteo real de requisitos en Pendiente; sin requisitos se muestra "—" en
+  // lugar de inventar un numero.
+  pendingCell.textContent = item.pending_count ? item.pending_count : "—";
   row.appendChild(pendingCell);
   const detailCell = document.createElement("td");
   const button = document.createElement("button");
@@ -508,6 +514,17 @@ function renderRequirementEditor(items) {
   });
 }
 
+function fillDetailList(container, entries) {
+  container.replaceChildren();
+  entries.forEach(([label, value]) => {
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const description = document.createElement("dd");
+    description.textContent = value || "No disponible";
+    container.append(term, description);
+  });
+}
+
 async function loadLearnerDetail(learnerId) {
   learnersFrame.hidden = true;
   learnerDetail.hidden = false;
@@ -516,18 +533,39 @@ async function loadLearnerDetail(learnerId) {
   try {
     const result = await readResponse(await fetch(`/api/learners/${learnerId}`));
     window.currentLearnerId = learnerId;
-    learnerDetailTitle.textContent = result.basic_info.name;
-    learnerBasicInfo.replaceChildren();
-    [["Documento", result.basic_info.identification], ["Programa", result.basic_info.program],
-      ["Ficha", result.basic_info.group_code], ["Estado", result.basic_info.certification_status]]
-      .forEach(([label, value]) => {
-        const term = document.createElement("dt");
-        term.textContent = label;
-        const description = document.createElement("dd");
-        description.textContent = value || "No disponible";
-        learnerBasicInfo.append(term, description);
-      });
+    const info = result.basic_info;
+    learnerDetailTitle.textContent = info.name;
+    fillDetailList(learnerBasicInfo, [
+      ["Documento", info.identification],
+      ["Programa", info.program],
+      ["Ficha", info.group_code],
+      ["Nivel de formación", info.training_type],
+      ["Estado", info.certification_status],
+    ]);
+    // Seguimiento de certificacion: el motivo (PENDIENTES) y los datos de
+    // contacto solo se muestran si el archivo los aporto; no se rellenan.
+    const trackingEntries = [
+      ["Motivo de no certificación", info.non_certification_reason],
+      ["Instructor de seguimiento", info.instructor],
+      ["N° de acta", info.act_number],
+      ["Correo", info.email],
+      ["Teléfono", info.phone],
+      ["Mes de certificación", info.certification_month],
+    ].filter(([, value]) => value);
+    learnerTrackingSection.hidden = trackingEntries.length === 0;
+    if (trackingEntries.length) {
+      fillDetailList(learnerTracking, trackingEntries);
+    }
     renderRequirementEditor(result.requirements);
+    const dates = result.dates || {};
+    const extraEntries = [
+      ["Inicio de ficha", dates.start_date],
+      ["Terminación de ficha", dates.termination_date],
+    ].filter(([, value]) => value);
+    learnerMoreData.hidden = extraEntries.length === 0;
+    if (extraEntries.length) {
+      fillDetailList(learnerExtra, extraEntries);
+    }
     learnerDetailFeedback.textContent = "";
     learnerDetailContent.hidden = false;
   } catch (error) {
