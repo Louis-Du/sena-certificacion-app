@@ -275,6 +275,9 @@ async function validateFile() {
       if (acta.act_date) notas.push(acta.act_date);
       notas.push(acta.exists ? "acta ya registrada" : "acta nueva");
       notas.push(`${acta.learners_to_link} aprendices por vincular`);
+      if (acta.learners_por_certificar) {
+        notas.push(`${acta.learners_por_certificar} quedarán Por Certificar`);
+      }
       if (acta.learners_already_linked) notas.push(`${acta.learners_already_linked} ya vinculados`);
       if (acta.learners_not_registered) notas.push(`${acta.learners_not_registered} sin registrar`);
       detalle.textContent = notas.join(" · ");

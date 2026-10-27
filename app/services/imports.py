@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Act, ActLearner, ImportHistory, ImportedRecord, Learner
 from app.services import parsers
-from app.services.acts import import_act_from_document
+from app.services.acts import acta_marks_por_certificar, import_act_from_document
 from app.services.learners import (
     _prepare_learner_row,
     set_learner_sources,
@@ -103,13 +103,16 @@ def _acta_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
     act = session.scalar(select(Act).where(Act.number == number)) if number else None
 
     documents = [item.get("documento") for item in extraction.get("learners") or [] if item.get("documento")]
-    registered: set[str] = set()
+    statuses: dict[str, str | None] = {}
     if documents:
-        registered = set(
-            session.scalars(
-                select(Learner.identification).where(Learner.identification.in_(documents))
+        statuses = dict(
+            session.execute(
+                select(Learner.identification, Learner.certification_status).where(
+                    Learner.identification.in_(documents)
+                )
             ).all()
         )
+    registered = set(statuses)
     already_linked: set[str] = set()
     if act is not None:
         already_linked = set(
@@ -131,6 +134,13 @@ def _acta_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
         if document not in registered:
             not_registered.append(document)
 
+    # Cuantos aprendices quedaran en estado "Por Certificar" tras confirmar: los
+    # nuevos y los que aun no tienen estado. Los ya CERTIFICADOS o PENDIENTES del
+    # consolidado no se degradan.
+    por_certificar = sum(
+        1 for document in documents if acta_marks_por_certificar(statuses.get(document))
+    )
+
     return {
         "number": number,
         "act_date": extraction.get("act_date"),
@@ -141,6 +151,7 @@ def _acta_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
         "learners_to_link": to_link,
         "learners_already_linked": already,
         "learners_not_registered": not_registered,
+        "learners_por_certificar": por_certificar,
         "warnings": extraction.get("warnings", []),
     }
 
@@ -155,6 +166,14 @@ def _format_acta_message(result: dict[str, Any]) -> str:
         parts.append(f"{result['already_linked']} ya estaba(n) asociado(s)")
     if result["not_linked"]:
         parts.append(f"{result['not_linked']} registro(s) sin identificacion, no vinculados")
+    # Conflicto de estado: aprendices que ya figuran en el consolidado con otro
+    # estado (CERTIFICADOS/PENDIENTE) y se conservan sin degradar a Por Certificar.
+    conflicts = result.get("status_conflicts") or []
+    if conflicts:
+        parts.append(
+            f"{len(conflicts)} aprendiz(es) conservan su estado del consolidado "
+            "(no se degradan a Por Certificar)"
+        )
     return ". ".join(parts) + "."
 
 

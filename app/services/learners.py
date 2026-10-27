@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 # Se importa hashlib para generar identificadores automáticos únicos para aprendices sin identificación proporcionada. Esto asegura que cada aprendiz pueda ser identificado de manera consistente incluso si no se proporciona un número de identificación explícito.
 import hashlib
+# Se importa re para comparar nombres de programa ignorando el espaciado.
+import re
 # Se importa unicodedata para normalizar cadenas de texto, eliminando acentos y caracteres especiales, lo que facilita la comparación y búsqueda de datos.
 from unicodedata import normalize
 # Se importa Any del módulo typing para indicar que una variable puede ser de cualquier tipo, lo que es útil para funciones que devuelven datos heterogéneos.
@@ -12,6 +14,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import Act, ActLearner, ImportedRecord, Learner, Requirement
+from app.services.parsers import normalize_learner_name, normalize_program_name
 from app.services.requirements import REQUIREMENT_TYPES, editor_requirements
 
 POR_CERTIFICAR_STATUS = "Por Certificar"
@@ -339,6 +342,29 @@ def upsert_learners_from_records(
     ).all()
     existing_by_identification = {learner.identification: learner for learner in existing}
 
+    # Heurística #53: sanar programas fragmentados usando otros registros ya limpios en la BD
+    unique_programs = {row["program"] for row in deduplicated_rows if row.get("program")}
+    if unique_programs:
+        program_clean_map = {}
+        for prog in unique_programs:
+            slug = re.sub(r"\s+", "", prog)
+            if len(slug) < 5:
+                continue
+            # Buscamos en la BD un programa con el mismo slug pero menos fragmentos (espacios)
+            cleaner = session.execute(
+                select(Learner.program)
+                .where(func.replace(Learner.program, " ", "") == slug)
+                .order_by(func.length(Learner.program).asc())
+                .limit(1)
+            ).scalar()
+            if cleaner and len(cleaner.split()) < len(prog.split()):
+                program_clean_map[prog] = cleaner
+
+        if program_clean_map:
+            for row in deduplicated_rows:
+                if row.get("program") in program_clean_map:
+                    row["program"] = program_clean_map[row["program"]]
+
     updated = 0
     for row in deduplicated_rows:
         if row["identification"] in skip_status:
@@ -354,6 +380,8 @@ def upsert_learners_from_records(
                 continue
             if field == "name" and value == "Aprendiz sin nombre" and learner.name and learner.name != "Aprendiz sin nombre":
                 continue
+            if field == "program" and _program_is_weaker(learner.program, value):
+                continue
             if getattr(learner, field) != value:
                 setattr(learner, field, value)
                 changed = True
@@ -361,6 +389,27 @@ def upsert_learners_from_records(
             updated += 1
     session.flush()
     return updated
+
+
+def _program_is_weaker(existing: str | None, incoming: str | None) -> bool:
+    """Indica si ``incoming`` es una version mas fragmentada del programa.
+
+    Un acta PDF puede partir el nombre en varias lineas ("OPERACION ES COMERCIAL
+    ES") mientras que el consolidado trae la forma limpia ("OPERACIONES
+    COMERCIALES"). Cuando al quitar los espacios ambas formas coinciden, se
+    conserva la que tiene menos fragmentos; tambien se conserva la existente si
+    el valor entrante es solo una parte de ella. Asi una fuente menos limpia no
+    degrada un programa ya guardado.
+    """
+    if not existing or not incoming:
+        return False
+    existing_slug = re.sub(r"\s+", "", existing)
+    incoming_slug = re.sub(r"\s+", "", incoming)
+    if not incoming_slug:
+        return True
+    if existing_slug == incoming_slug:
+        return len(incoming.split()) > len(existing.split())
+    return incoming_slug in existing_slug
 
 
 def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
@@ -371,6 +420,8 @@ def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
         full_name = f"{name} {apellidos}".strip()
     else:
         full_name = name or apellidos
+    
+    full_name = normalize_learner_name(full_name)
     identification = _first_value(
         normalized,
         "numero de documento",
@@ -383,7 +434,9 @@ def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
         "identificacion",
         "cedula",
     )
-    program = _first_value(normalized, "programa", "programa de formacion", "programa formacion")
+    program = normalize_program_name(
+        _first_value(normalized, "programa", "programa de formacion", "programa formacion")
+    )
     group_code = _first_value(normalized, "ficha", "codigo ficha", "grupo")
     training_type = _first_value(
         normalized,
