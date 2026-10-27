@@ -154,8 +154,16 @@ def list_acts(
     session: Session,
     search: str = "",
     review_status: str | None = None,
+    number: str = "",
+    date_from: date | None = None,
+    date_to: date | None = None,
 ) -> list[dict[str, Any]]:
+    """Lista actas con filtros combinables por texto, número y rango de fechas."""
+    if date_from and date_to and date_from > date_to:
+        raise ValueError("La fecha inicial no puede ser posterior a la fecha final.")
     query = select(Act).options(joinedload(Act.learners)).order_by(Act.act_date.desc(), Act.id.desc())
+    if number.strip():
+        query = query.where(Act.number.ilike(f"%{number.strip()}%"))
     if search.strip():
         term = f"%{search.strip()}%"
         query = query.where(
@@ -167,6 +175,10 @@ def list_acts(
     if review_status:
         validate_review_status(review_status)
         query = query.where(Act.review_status == review_status)
+    if date_from:
+        query = query.where(Act.act_date >= date_from)
+    if date_to:
+        query = query.where(Act.act_date <= date_to)
     return [act_result(act) for act in session.scalars(query).unique().all()]
 
 
@@ -310,6 +322,7 @@ def learner_result(learner: Learner, observations: str | None) -> dict[str, Any]
         "name": learner.name,
         "program": learner.program,
         "group_code": learner.group_code,
+        "certification_status": learner.certification_status,
         "observations": observations,
     }
 

@@ -333,8 +333,13 @@ def upsert_learners_from_records(
     for row in prepared_rows:
         ident = row["identification"]
         if ident not in seen:
-            seen[ident] = True
+            seen[ident] = len(deduplicated_rows)
             deduplicated_rows.append(row)
+        else:
+            # Politica #34: si el mismo aprendiz aparece en varias hojas
+            # (CERTIFICADOS despues de PENDIENTES), el ultimo registro gana el
+            # estado final. Se reemplaza la fila previa en su posicion.
+            deduplicated_rows[seen[ident]] = row
 
     identifications = [row["identification"] for row in deduplicated_rows]
     existing = session.scalars(

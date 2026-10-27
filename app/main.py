@@ -268,10 +268,22 @@ async def learner_detail(learner_id: int, session: Session = Depends(get_db)) ->
 async def acts(
     search: str = Query(default="", max_length=200),
     review_status: str | None = Query(default=None, max_length=50),
+    number: str = Query(default="", max_length=100),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
     session: Session = Depends(get_db),
 ) -> dict:
     try:
-        return {"items": list_acts(session, search, review_status)}
+        return {
+            "items": list_acts(
+                session,
+                search,
+                review_status,
+                number=number,
+                date_from=date_from,
+                date_to=date_to,
+            )
+        }
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 

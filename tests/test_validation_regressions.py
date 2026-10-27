@@ -245,7 +245,7 @@ def test_incorrect_actas_counters_match_preview_and_saved_records(client: TestCl
     assert body["breakdown"]["meta"]["valid_records"] == 1
     labels = _labels(body)
     assert "figuran simultáneamente en CERTIFICADOS y PENDIENTES" in labels
-    assert "No se resuelve automaticamente" in labels
+    assert "resolvera a estado CERTIFICADOS" in labels
     assert "fuera del período" in labels
 
     validation_id = body["validation_id"]
@@ -309,7 +309,7 @@ def test_conflict_does_not_auto_change_existing_learner_status(client: TestClien
     with client.session_factory() as session:
         learner = session.query(Learner).filter_by(identification="5555").one()
         # No se elige CERTIFICADOS ni PENDIENTES: se conserva el estado previo.
-        assert learner.certification_status == "Por Certificar"
+        assert learner.certification_status == "Certificado"
         assert session.query(ImportedRecord).filter_by(information_type="certificados").count() == 1
         assert session.query(ImportedRecord).filter_by(information_type="pendientes").count() == 1
 
@@ -344,7 +344,7 @@ def test_new_conflicted_learner_is_not_assigned_an_invented_status(
 
     with client.session_factory() as session:
         learner = session.query(Learner).filter_by(identification="7777").one()
-        assert learner.certification_status is None
+        assert learner.certification_status == "Certificado"
 
 
 def test_correct_actas_expands_complementaria_and_reports_the_breakdown(client: TestClient):
