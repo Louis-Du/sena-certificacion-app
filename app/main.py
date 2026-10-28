@@ -88,6 +88,13 @@ class ActLearnerRequest(BaseModel):
     learner_id: int
     observations: str | None = None
 
+class ConflictResolutionRequest(BaseModel):
+    identification: str
+    status: str
+
+class ConfirmImportRequest(BaseModel):
+    conflict_resolutions: list[ConflictResolutionRequest] = []
+
 # Esta ruta devuelve el archivo index.html ubicado en el directorio static cuando se accede a la raíz del sitio web. Se utiliza FileResponse para enviar el archivo como respuesta HTTP.
 @app.get("/", include_in_schema=False)
 async def index() -> FileResponse:
@@ -169,10 +176,16 @@ async def import_preview_endpoint(
 @app.post("/api/imports/{validation_id}/confirm")
 async def confirm_import_endpoint(
     validation_id: str,
+    request: ConfirmImportRequest | None = None,
     session: Session = Depends(get_db),
 ) -> dict:
     try:
-        return confirm_import(validation_id, session)
+        resolutions = (
+            [item.model_dump() for item in request.conflict_resolutions]
+            if request is not None
+            else None
+        )
+        return confirm_import(validation_id, session, resolutions)
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
@@ -188,7 +201,7 @@ async def import_history(session: Session = Depends(get_db)) -> dict:
 async def learners(
     search: str = Query(default="", max_length=100),
     status: str = Query(default="", max_length=100),
-    missing_requirement: str = Query(default="", max_length=100),
+    missing_requirement: list[str] = Query(default=[]),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100),
     session: Session = Depends(get_db),

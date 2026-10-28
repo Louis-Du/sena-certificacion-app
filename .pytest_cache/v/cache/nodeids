@@ -95,6 +95,7 @@
   "tests/test_learners.py::test_learners_api_searches_name_program_and_group",
   "tests/test_learners.py::test_list_learners_exposes_sources_and_requirements_summary",
   "tests/test_learners.py::test_list_learners_filters_by_missing_requirement",
+  "tests/test_learners.py::test_list_learners_filters_by_multiple_missing_requirements",
   "tests/test_learners.py::test_pending_requirements_only_include_registered_pending_status",
   "tests/test_learners.py::test_por_certificar_filter_counts_registered_status_without_changing_requirements",
   "tests/test_learners.py::test_prepare_learner_row_supports_real_df14a_columns",
