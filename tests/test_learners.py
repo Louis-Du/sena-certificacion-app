@@ -217,6 +217,35 @@ def test_por_certificar_filter_counts_registered_status_without_changing_require
     assert client.get(f"/api/learners/{learner_id}/requirements").json()["items"] == before
 
 
+def test_status_counts_are_global_and_include_sin_estado(client: TestClient):
+    with client.session_factory() as session:
+        session.add_all(
+            [
+                Learner(identification="4001", name="Uno", certification_status="CERTIFICADOS"),
+                Learner(identification="4002", name="Dos", certification_status="PENDIENTE"),
+                Learner(identification="4003", name="Tres", certification_status="Por Certificar"),
+                Learner(identification="4004", name="Cuatro", certification_status=None),
+            ]
+        )
+        session.commit()
+
+    # El filtro reduce la pagina, pero los conteos siguen siendo globales.
+    filtered = client.get("/api/learners", params={"status": "PENDIENTE"}).json()
+
+    assert filtered["total"] == 1
+    counts = {item["status"]: item["count"] for item in filtered["status_counts"]}
+    assert counts == {
+        "CERTIFICADOS": 1,
+        "PENDIENTE": 1,
+        "Por Certificar": 1,
+        "Sin estado": 1,
+    }
+
+    sin_estado = client.get("/api/learners", params={"status": "Sin estado"}).json()
+    assert sin_estado["total"] == 1
+    assert [item["identification"] for item in sin_estado["items"]] == ["4004"]
+
+
 def test_requirements_can_be_created_updated_and_retrieved(client: TestClient):
     seed_learners(client, count=1)
     learner_id = client.get("/api/learners").json()["items"][0]["id"]
@@ -476,3 +505,35 @@ def test_list_learners_filters_by_missing_requirement(client: TestClient):
         "/api/learners", params={"missing_requirement": "certificado_empresa"}
     )
     assert vacio.json()["items"] == []
+
+
+def test_list_learners_filters_by_multiple_missing_requirements(client: TestClient):
+    """Varios ``missing_requirement`` se combinan con OR en estado Pendiente."""
+    seed_learners(client, count=3)
+    learners = client.get("/api/learners").json()["items"]
+    client.post(
+        f"/api/learners/{learners[0]['id']}/requirements",
+        json={"requirement_type": "carnet", "status": "Pendiente"},
+    )
+    client.post(
+        f"/api/learners/{learners[1]['id']}/requirements",
+        json={"requirement_type": "saber_tyt", "status": "Pendiente"},
+    )
+    client.post(
+        f"/api/learners/{learners[2]['id']}/requirements",
+        json={"requirement_type": "carnet", "status": "Cumplido"},
+    )
+
+    response = client.get(
+        "/api/learners",
+        params=[
+            ("missing_requirement", "carnet"),
+            ("missing_requirement", "saber_tyt"),
+        ],
+    )
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [
+        learners[0]["id"],
+        learners[1]["id"],
+    ]

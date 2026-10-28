@@ -166,8 +166,9 @@ def test_df14a_without_ficha_has_zero_importable_records(client: TestClient):
     assert "FICHA" in body["missing_columns"]
     labels = _labels(body)
     assert "Falta FICHA" in labels
-    # El nivel sin clasificar se informa, pero no se inventa una equivalencia.
-    assert "OPERARIO" in labels
+    # OPERARIO ahora equivale a AUXILIAR; solo el nivel realmente desconocido se
+    # informa como sin clasificar.
+    assert "OPERARIO" not in labels
     assert "CURSO_NO_FORMAL" in labels
     # Hallazgo 3: con 0 registros importables, la advertencia de nivel no debe
     # afirmar que esas filas se van a importar.
@@ -245,8 +246,11 @@ def test_incorrect_actas_counters_match_preview_and_saved_records(client: TestCl
     assert body["breakdown"]["meta"]["valid_records"] == 1
     labels = _labels(body)
     assert "figuran simultáneamente en CERTIFICADOS y PENDIENTES" in labels
-    assert "resolvera a estado CERTIFICADOS" in labels
+    assert "Elija el estado final" in labels
     assert "fuera del período" in labels
+    conflicts = body["coherence_conflicts"]
+    assert conflicts
+    assert all(item["in_certificados"] and item["in_pendientes"] for item in conflicts)
 
     validation_id = body["validation_id"]
     preview = client.get(f"/api/imports/{validation_id}/preview")
@@ -257,8 +261,20 @@ def test_incorrect_actas_counters_match_preview_and_saved_records(client: TestCl
     assert preview_body["new_records"] == 10
     assert preview_body["updated_records"] == 0
     assert preview_body["rejected_records"] == 0
+    assert preview_body["coherence_conflicts"] == conflicts
 
-    confirmed = client.post(f"/api/imports/{validation_id}/confirm")
+    blocked = client.post(f"/api/imports/{validation_id}/confirm")
+    assert blocked.status_code == 400
+    assert "resolucion" in blocked.json()["detail"].lower()
+
+    resolutions = [
+        {"identification": item["identification"], "status": "CERTIFICADOS"}
+        for item in conflicts
+    ]
+    confirmed = client.post(
+        f"/api/imports/{validation_id}/confirm",
+        json={"conflict_resolutions": resolutions},
+    )
     assert confirmed.status_code == 200
     assert confirmed.json()["records_count"] == 10
     assert confirmed.json()["new_records"] == 10
@@ -304,12 +320,34 @@ def test_conflict_does_not_auto_change_existing_learner_status(client: TestClien
     )
     body = _validate(client, conflict_path, "actas_completo")
     assert body["status"] == "warning"
-    assert client.post(f"/api/imports/{body['validation_id']}/confirm").status_code == 200
+    assert body["coherence_conflicts"] == [
+        {
+            "identification": "5555",
+            "group_code": "99999",
+            "name": "Aprendiz En Conflicto",
+            "in_certificados": True,
+            "in_pendientes": True,
+        }
+    ]
+    blocked = client.post(f"/api/imports/{body['validation_id']}/confirm")
+    assert blocked.status_code == 400
+
+    confirmed = client.post(
+        f"/api/imports/{body['validation_id']}/confirm",
+        json={
+            "conflict_resolutions": [
+                {"identification": "5555", "status": "PENDIENTE"}
+            ]
+        },
+    )
+    assert confirmed.status_code == 200
 
     with client.session_factory() as session:
         learner = session.query(Learner).filter_by(identification="5555").one()
-        # No se elige CERTIFICADOS ni PENDIENTES: se conserva el estado previo.
-        assert learner.certification_status == "Certificado"
+        assert learner.certification_status == "PENDIENTE"
+        assert "Conflicto resuelto: Pendiente" in learner.tracking_notes
+        assert "ACTAS 2026 · CERTIFICADOS" in learner.data_sources
+        assert "ACTAS 2026 · PENDIENTES" in learner.data_sources
         assert session.query(ImportedRecord).filter_by(information_type="certificados").count() == 1
         assert session.query(ImportedRecord).filter_by(information_type="pendientes").count() == 1
 
@@ -340,11 +378,23 @@ def test_new_conflicted_learner_is_not_assigned_an_invented_status(
     )
     body = _validate(client, conflict_path, "actas_completo")
     assert body["status"] == "warning"
-    assert client.post(f"/api/imports/{body['validation_id']}/confirm").status_code == 200
+    assert [item["identification"] for item in body["coherence_conflicts"]] == ["7777"]
+    confirmed = client.post(
+        f"/api/imports/{body['validation_id']}/confirm",
+        json={
+            "conflict_resolutions": [
+                {"identification": "7777", "status": "CERTIFICADOS"}
+            ]
+        },
+    )
+    assert confirmed.status_code == 200
 
     with client.session_factory() as session:
         learner = session.query(Learner).filter_by(identification="7777").one()
-        assert learner.certification_status == "Certificado"
+        assert learner.certification_status == "CERTIFICADOS"
+        assert "Conflicto resuelto: Certificado" in learner.tracking_notes
+        assert "ACTAS 2026 · CERTIFICADOS" in learner.data_sources
+        assert "ACTAS 2026 · PENDIENTES" in learner.data_sources
 
 
 def test_correct_actas_expands_complementaria_and_reports_the_breakdown(client: TestClient):
@@ -411,7 +461,7 @@ def test_unclassified_level_is_importable_but_reported_as_warning(client: TestCl
                 "DOCUMENTO": "1001",
                 "NOMBRES": "Ana",
                 "FICHA": "3001",
-                "NIVEL_FORMACION": "OPERARIO",
+                "NIVEL_FORMACION": "NIVEL_DESCONOCIDO",
                 "ESTADO_ASPIRANTE": "Por Certificar",
             }
         ]
@@ -424,7 +474,7 @@ def test_unclassified_level_is_importable_but_reported_as_warning(client: TestCl
 
     assert body["status"] == "warning"
     assert body["valid_records"] == 1
-    assert "OPERARIO" in labels
+    assert "NIVEL_DESCONOCIDO" in labels
     assert "no se asignan automaticamente" in labels
 
 

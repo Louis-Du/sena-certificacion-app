@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="/static/styles.css?v=20261027-3" rel="stylesheet">
+  <link href="/static/styles.css?v=20261028-5" rel="stylesheet">
 </head>
 
 <body>
@@ -102,6 +102,12 @@
           </div>
           <div class="warning-list" id="confirm-breakdown"></div>
           <div class="warning-list" id="confirm-warnings"></div>
+          <section class="coherence-conflicts" id="coherence-conflicts" hidden>
+            <h3 id="coherence-conflicts-title">Conflictos de coherencia</h3>
+            <p>Estos aprendices figuran en CERTIFICADOS y PENDIENTES. Elija el estado final antes de importar.</p>
+            <div class="coherence-conflict-list" id="coherence-conflict-list"></div>
+            <p class="coherence-help" id="coherence-help" role="status"></p>
+          </section>
         </article>
         <div class="actions"><button id="cancel-button" class="cancel-button" type="button">Cancelar</button><button id="validate-button" class="primary-button" type="button" disabled>→ &nbsp; Validar información</button><button id="confirm-button" class="primary-button" type="button" hidden>✓ &nbsp; Confirmar importación</button></div>
       </section>
@@ -117,7 +123,7 @@
         </header>
 
         <section class="panel learners-frame">
-          <div class="learner-toolbar">
+                    <div class="learner-toolbar">
             <label class="search-field" for="learner-search">Buscar aprendiz
               <input id="learner-search" type="search" placeholder="Nombre, documento, programa, ficha o estado">
             </label>
@@ -126,14 +132,22 @@
               <select id="learner-status"><option value="">Todos los estados</option></select>
             </label>
 
-            <label class="requirement-field" for="learner-missing-requirement">Requisito faltante
-              <select id="learner-missing-requirement"><option value="">Cualquiera</option></select>
-            </label>
+            <div class="requirement-field">
+              <span>Requisito faltante (varios)</span>
+              <details class="requirement-multiselect" id="learner-missing-requirement">
+                <summary aria-haspopup="listbox"><span id="learner-missing-requirement-summary">Cualquiera</span></summary>
+                <div class="requirement-options" id="learner-missing-requirement-options" role="listbox" aria-multiselectable="true">
+                  <button type="button" class="requirement-option is-selected" data-value="" role="option" aria-selected="true">Cualquiera</button>
+                </div>
+              </details>
+            </div>
 
             <button id="clear-learner-search" class="cancel-button" type="button">Limpiar</button>
-            <button id="por-certificar-learners-button" class="cancel-button" type="button" aria-pressed="false">Por Certificar (0)</button>
-            <button id="pending-learners-button" class="cancel-button" type="button">Pendientes</button>
+
+            <small class="requirement-hint">Haz clic para elegir varios. Sin selección muestra todos.</small>
           </div>
+
+          <div class="learner-status-chips" id="learner-status-chips" aria-label="Conteo de aprendices por estado"></div>
 
           <div class="panel-heading"><div><h2>Aprendices registrados</h2><p id="learners-summary">Consultando SQLite...</p><small class="detail-hint">Usa <strong>Ver detalles</strong> para consultar y gestionar los requisitos del aprendiz.</small></div></div>
           <div class="learners-table-wrap">
@@ -234,6 +248,6 @@
     </div>
   </main>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="/static/app.js?v=20261027-3"></script>
+  <script src="/static/app.js?v=20261028-5"></script>
 </body>
 </html>
