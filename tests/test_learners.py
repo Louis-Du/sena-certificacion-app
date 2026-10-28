@@ -476,3 +476,35 @@ def test_list_learners_filters_by_missing_requirement(client: TestClient):
         "/api/learners", params={"missing_requirement": "certificado_empresa"}
     )
     assert vacio.json()["items"] == []
+
+
+def test_list_learners_filters_by_multiple_missing_requirements(client: TestClient):
+    """Varios ``missing_requirement`` se combinan con OR en estado Pendiente."""
+    seed_learners(client, count=3)
+    learners = client.get("/api/learners").json()["items"]
+    client.post(
+        f"/api/learners/{learners[0]['id']}/requirements",
+        json={"requirement_type": "carnet", "status": "Pendiente"},
+    )
+    client.post(
+        f"/api/learners/{learners[1]['id']}/requirements",
+        json={"requirement_type": "saber_tyt", "status": "Pendiente"},
+    )
+    client.post(
+        f"/api/learners/{learners[2]['id']}/requirements",
+        json={"requirement_type": "carnet", "status": "Cumplido"},
+    )
+
+    response = client.get(
+        "/api/learners",
+        params=[
+            ("missing_requirement", "carnet"),
+            ("missing_requirement", "saber_tyt"),
+        ],
+    )
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["items"]] == [
+        learners[0]["id"],
+        learners[1]["id"],
+    ]

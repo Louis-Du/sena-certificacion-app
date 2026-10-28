@@ -74,7 +74,7 @@ def list_learners(
     status: str = "",
     page: int = 1,
     page_size: int = 25,
-    missing_requirement: str = "",
+    missing_requirement: str | list[str] = "",
 ) -> dict[str, Any]:
     learner_count = session.scalar(select(func.count()).select_from(Learner)) or 0
     if learner_count == 0:
@@ -94,14 +94,21 @@ def list_learners(
         )
     if status.strip():
         filters.append(Learner.certification_status.ilike(status.strip()))
-    if missing_requirement.strip():
-        # Solo aprendices con ese tipo de requisito en estado Pendiente. Se usa
-        # una subconsulta para no recorrer los requisitos fila por fila.
+    missing_values = (
+        [missing_requirement]
+        if isinstance(missing_requirement, str)
+        else list(missing_requirement)
+    )
+    missing_values = [
+        value.strip().lower() for value in missing_values if value and value.strip()
+    ]
+    if missing_values:
+        # Muestra aprendices con al menos uno de los requisitos seleccionados en
+        # estado Pendiente. Se usa una subconsulta para no recorrer fila por fila.
         filters.append(
             Learner.id.in_(
                 select(Requirement.learner_id).where(
-                    func.lower(Requirement.requirement_type)
-                    == missing_requirement.strip().lower(),
+                    func.lower(Requirement.requirement_type).in_(missing_values),
                     func.lower(Requirement.status) == "pendiente",
                 )
             )
