@@ -29,8 +29,8 @@ Conceptos importantes para quien mantenga el codigo
 * **Personas vs incidencias**: un aprendiz pendiente puede tener VARIOS motivos.
   Se cuentan por separado los aprendices y las incidencias.
 * **Sin clasificar**: si el NIVEL de formacion no esta respaldado por una regla
-  documentada (por ejemplo OPERARIO), el registro NO se asigna por defecto a
-  ninguna categoria: se reporta aparte.
+  documentada (por ejemplo NIVEL_DESCONOCIDO), el registro NO se asigna por
+  defecto a ninguna categoria: se reporta aparte. OPERARIO se trata como AUXILIAR.
 """
 
 from __future__ import annotations
