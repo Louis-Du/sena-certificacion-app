@@ -78,6 +78,7 @@ class ValidationResult:
     missing_columns: list[str] = field(default_factory=list)
     extra_columns: list[str] = field(default_factory=list)
     breakdown: dict[str, dict[str, int]] = field(default_factory=dict)
+    coherence_conflicts: list[dict[str, Any]] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {
@@ -95,6 +96,7 @@ class ValidationResult:
             "missing_columns": self.missing_columns,
             "extra_columns": self.extra_columns,
             "breakdown": self.breakdown,
+            "coherence_conflicts": self.coherence_conflicts,
         }
 
 
@@ -218,6 +220,11 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
         rejected_records = prepared.rejected_records
         duplicate_records = prepared.duplicate_records
         breakdown = prepared.breakdown()
+        coherence = (
+            coherence_conflicts(prepared)
+            if information_type == "actas_completo"
+            else []
+        )
 
         if duplicate_records:
             inconsistencies += 1
@@ -353,6 +360,7 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
                 missing_columns=missing_columns,
                 extra_columns=extra_columns,
                 breakdown=breakdown,
+                coherence_conflicts=coherence,
             )
 
         status = (
@@ -379,6 +387,7 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
             missing_columns=missing_columns,
             extra_columns=extra_columns,
             breakdown=breakdown,
+            coherence_conflicts=coherence,
         )
     except Exception as error:
         return ValidationResult(
@@ -456,6 +465,17 @@ def _people_frame(entries) -> pd.DataFrame | None:
     return pd.DataFrame(records) if records else None
 
 
+def _conflict_pair(record: dict[str, Any]) -> tuple[str, str] | None:
+    """Devuelve ``(documento, ficha)`` normalizados para detectar cruces."""
+    doc = parsers.clean_identification(
+        record.get("numero de documento") or record.get("documento")
+    )
+    ficha = parsers.clean_identification(record.get("ficha"))
+    if doc and ficha:
+        return (doc, ficha)
+    return None
+
+
 def conflicting_pairs(prepared) -> list[tuple[str, str]]:
     """Devuelve ``(documento, ficha)`` que aparecen en CERTIFICADOS y PENDIENTES.
 
@@ -474,34 +494,78 @@ def conflicting_pairs(prepared) -> list[tuple[str, str]]:
     ]
 
     def pairs(records):
-        result = set()
-        for record in records:
-            doc = parsers.clean_identification(
-                record.get("numero de documento") or record.get("documento")
-            )
-            ficha = parsers.clean_identification(record.get("ficha"))
-            if doc and ficha:
-                result.add((doc, ficha))
-        return result
+        return {
+            pair
+            for record in records
+            if (pair := _conflict_pair(record)) is not None
+        }
 
     return sorted(pairs(cert_records) & pairs(pend_records))
 
 
+def coherence_conflicts(prepared) -> list[dict[str, Any]]:
+    """Estructura los conflictos CERTIFICADOS/PENDIENTES para la vista previa.
+
+    Cada elemento identifica al aprendiz y la ficha en la que aparece en ambas
+    hojas. El nombre se toma de la primera fila que lo traiga. No aplica ninguna
+    decision: la eleccion es obligatoria y la envia el usuario al confirmar.
+    """
+    cert_records = {}
+    pend_records = {}
+    for entry in prepared.importable:
+        pair = _conflict_pair(entry.record)
+        if pair is None:
+            continue
+        if entry.information_type == "certificados":
+            cert_records.setdefault(pair, entry.record)
+        elif entry.information_type == "pendientes":
+            pend_records.setdefault(pair, entry.record)
+
+    conflicts: list[dict[str, Any]] = []
+    seen_documents: set[str] = set()
+    for pair in sorted(set(cert_records) & set(pend_records)):
+        if pair[0] in seen_documents:
+            # El frontend y el contrato de resolucion trabajan por documento:
+            # si apareciera en dos fichas se muestra una sola fila.
+            continue
+        seen_documents.add(pair[0])
+        record = cert_records[pair]
+        name = (
+            record.get("nombre")
+            or record.get("nombres")
+            or pend_records[pair].get("nombre")
+            or pend_records[pair].get("nombres")
+        )
+        conflicts.append(
+            {
+                "identification": pair[0],
+                "group_code": pair[1],
+                "name": str(name).strip() if name else None,
+                "in_certificados": True,
+                "in_pendientes": True,
+            }
+        )
+    return conflicts
+
+
 def _append_actas_warnings(prepared, checks: list[dict[str, str]]) -> int:
-    """Agrega conflictos CERTIFICADOS/PENDIENTES con detalle y sin auto-resolver."""
-    conflicts = conflicting_pairs(prepared)
+    """Agrega conflictos CERTIFICADOS/PENDIENTES que requieren decision manual."""
+    conflicts = coherence_conflicts(prepared)
     if not conflicts:
         return 0
 
-    detail = ", ".join(f"{doc} (ficha {ficha})" for doc, ficha in conflicts[:3])
+    detail = ", ".join(
+        f"{item['identification']} (ficha {item['group_code']})"
+        for item in conflicts[:3]
+    )
     if len(conflicts) > 3:
         detail += f" y {len(conflicts) - 3} mas"
     checks.append(
         {
             "label": (
                 f"Coherencia: {len(conflicts)} aprendices figuran simultáneamente en "
-                f"CERTIFICADOS y PENDIENTES con la misma ficha ({detail}). Al confirmar se "
-                "resolvera a estado CERTIFICADOS (politica #34)."
+                f"CERTIFICADOS y PENDIENTES con la misma ficha ({detail}). Elija el "
+                "estado final de cada uno antes de confirmar."
             ),
             "status": "warning",
         }

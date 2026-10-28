@@ -27,6 +27,10 @@ const confirmUpdated = document.querySelector("#confirm-updated");
 const confirmRejected = document.querySelector("#confirm-rejected");
 const confirmBreakdown = document.querySelector("#confirm-breakdown");
 const confirmWarnings = document.querySelector("#confirm-warnings");
+const coherenceSection = document.querySelector("#coherence-conflicts");
+const coherenceTitle = document.querySelector("#coherence-conflicts-title");
+const coherenceList = document.querySelector("#coherence-conflict-list");
+const coherenceHelp = document.querySelector("#coherence-help");
 const historyList = document.querySelector("#history-list");
 const learnersList = document.querySelector("#learners-list");
 const learnersSummary = document.querySelector("#learners-summary");
@@ -34,12 +38,13 @@ const refreshLearnersButton = document.querySelector("#refresh-learners");
 const learnerSearch = document.querySelector("#learner-search");
 const learnerStatus = document.querySelector("#learner-status");
 const learnerMissingRequirement = document.querySelector("#learner-missing-requirement");
+const learnerRequirementSummary = document.querySelector("#learner-missing-requirement-summary");
+const learnerRequirementOptions = document.querySelector("#learner-missing-requirement-options");
 const clearLearnerSearch = document.querySelector("#clear-learner-search");
 const learnersPrev = document.querySelector("#learners-prev");
 const learnersNext = document.querySelector("#learners-next");
 const learnersPage = document.querySelector("#learners-page");
-const porCertificarLearnersButton = document.querySelector("#por-certificar-learners-button");
-const pendingLearnersButton = document.querySelector("#pending-learners-button");
+const learnerStatusChips = document.querySelector("#learner-status-chips");
 const learnersFrame = document.querySelector(".learners-frame");
 const learnerDetail = document.querySelector("#learner-detail");
 const backToLearners = document.querySelector("#back-to-learners");
@@ -146,6 +151,7 @@ function setCargaStep(etapa) {
 function hideReview() {
   validationPanel.hidden = true;
   confirmationPanel.hidden = true;
+  resetCoherenceConflicts();
   confirmButton.hidden = true;
   validateButton.hidden = false;
   validateButton.disabled = !selectedFile;
@@ -218,8 +224,78 @@ async function readResponse(response) {
   return result;
 }
 
+function resetCoherenceConflicts() {
+  coherenceSection.hidden = true;
+  coherenceTitle.textContent = "Conflictos de coherencia";
+  coherenceList.replaceChildren();
+  coherenceHelp.textContent = "";
+  coherenceHelp.classList.remove("ready");
+  confirmButton.disabled = false;
+}
+
+function updateCoherenceState() {
+  const rows = [...coherenceList.querySelectorAll(".coherence-conflict-row")];
+  if (!rows.length) {
+    coherenceHelp.textContent = "";
+    coherenceHelp.classList.remove("ready");
+    confirmButton.disabled = false;
+    return;
+  }
+  const pending = rows.filter((row) => !row.querySelector("input[type=radio]:checked")).length;
+  confirmButton.disabled = pending > 0;
+  coherenceHelp.classList.toggle("ready", pending === 0);
+  coherenceHelp.textContent = pending
+    ? `Resuelva los ${pending} conflictos para continuar.`
+    : "Todos los conflictos fueron resueltos. Puede confirmar la importación.";
+}
+
+function renderCoherenceConflicts(items) {
+  resetCoherenceConflicts();
+  if (!items.length) return;
+  coherenceSection.hidden = false;
+  coherenceTitle.textContent = `Conflictos de coherencia (${items.length})`;
+  items.forEach((item, index) => {
+    const row = document.createElement("div");
+    row.className = "coherence-conflict-row";
+    row.dataset.identification = item.identification;
+    const documentCell = document.createElement("strong");
+    documentCell.textContent = item.identification;
+    const nameCell = document.createElement("span");
+    nameCell.textContent = item.name || "Nombre no disponible";
+    const groupCell = document.createElement("span");
+    groupCell.textContent = item.group_code ? `Ficha ${item.group_code}` : "Sin ficha";
+    const options = document.createElement("div");
+    options.className = "coherence-options";
+    [["CERTIFICADOS", "Certificado"], ["PENDIENTE", "Pendiente"]].forEach(([value, labelText]) => {
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = `coherence-${index}`;
+      input.value = value;
+      input.addEventListener("change", updateCoherenceState);
+      label.append(input, document.createTextNode(labelText));
+      options.appendChild(label);
+    });
+    row.append(documentCell, nameCell, groupCell, options);
+    coherenceList.appendChild(row);
+  });
+  updateCoherenceState();
+}
+
+function collectConflictResolutions() {
+  return [...coherenceList.querySelectorAll(".coherence-conflict-row")]
+    .map((row) => {
+      const checked = row.querySelector("input[type=radio]:checked");
+      return checked
+        ? { identification: row.dataset.identification, status: checked.value }
+        : null;
+    })
+    .filter(Boolean);
+}
+
 async function validateFile() {
   if (!selectedFile) return;
+  resetCoherenceConflicts();
   validateButton.disabled = true;
   fileStatus.textContent = "VALIDANDO...";
   showFeedback(`Validando ${selectedType.toUpperCase()}...`);
@@ -291,6 +367,7 @@ async function validateFile() {
       item.textContent = `⚠ ${warning}`;
       return item;
     }));
+    renderCoherenceConflicts(preview.coherence_conflicts || []);
     confirmationPanel.hidden = false;
     confirmButton.hidden = false;
     validateButton.hidden = true;
@@ -309,7 +386,11 @@ async function confirmImport() {
   if (!validationId) return;
   confirmButton.disabled = true;
   try {
-    const result = await readResponse(await fetch(`/api/imports/${validationId}/confirm`, { method: "POST" }));
+    const result = await readResponse(await fetch(`/api/imports/${validationId}/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conflict_resolutions: collectConflictResolutions() }),
+    }));
     fileStatus.textContent = "IMPORTACION COMPLETA";
     showFeedback(`${result.message} ${result.records_count} registros procesados.`);
     confirmButton.hidden = true;
@@ -319,7 +400,7 @@ async function confirmImport() {
   } catch (error) {
     showFeedback(error.message, true);
   } finally {
-    confirmButton.disabled = false;
+    if (!confirmButton.hidden) updateCoherenceState();
   }
 }
 
@@ -348,8 +429,8 @@ async function loadHistory() {
 
 let learnerPageNumber = 1;
 const learnerPageSize = 25;
-let learnerStatusCounts = null;
-let pendingFilterActive = false;
+const selectedRequirementValues = new Set();
+const requirementLabelsByValue = new Map();
 
 function normalizeStatusText(status) {
   return (status || "")
@@ -376,41 +457,62 @@ function renderStatusCell(status) {
   return cell;
 }
 
-function syncLearnerFilterButtons() {
-  const porCertificarActivo = normalizeStatusText(learnerStatus.value) === "por certificar";
-  porCertificarLearnersButton.classList.toggle("is-active", porCertificarActivo);
-  porCertificarLearnersButton.setAttribute("aria-pressed", porCertificarActivo ? "true" : "false");
-  pendingLearnersButton.classList.toggle("is-active", pendingFilterActive);
-  pendingLearnersButton.setAttribute("aria-pressed", pendingFilterActive ? "true" : "false");
+function statusSortRank(status) {
+  const normalized = normalizeStatusText(status);
+  if (normalized.startsWith("certificado")) return 0;
+  if (normalized.startsWith("pendiente")) return 1;
+  if (normalized.startsWith("por certificar")) return 2;
+  if (normalized === "sin estado") return 3;
+  return 4;
 }
 
-async function refreshLearnerStatusCounts(statuses) {
-  try {
-    const entries = await Promise.all(
-      statuses.map(async (status) => {
-        const params = new URLSearchParams({ status, page: 1, page_size: 1 });
-        const result = await readResponse(await fetch(`/api/learners?${params}`));
-        return [normalizeStatusText(status), result.total];
-      }),
-    );
-    learnerStatusCounts = new Map(entries);
-  } catch (error) {
-    learnerStatusCounts = null;
-  }
+function statusIsActive(status) {
+  if (!status) return !learnerStatus.value;
+  return normalizeStatusText(learnerStatus.value) === normalizeStatusText(status);
 }
 
-function learnerSummaryLabel(result, conDesglose) {
+function renderStatusChips(statusCounts) {
+  const counts = [...(statusCounts || [])].sort(
+    (left, right) =>
+      statusSortRank(left.status) - statusSortRank(right.status) ||
+      left.status.localeCompare(right.status),
+  );
+  const total = counts.reduce((sum, item) => sum + item.count, 0);
+  const items = [
+    { status: "", label: "Todos", count: total, variant: "is-neutral" },
+    ...counts.map((item) => ({
+      status: item.status,
+      label: item.status,
+      count: item.count,
+      variant: statusChipVariant(item.status),
+    })),
+  ];
+  learnerStatusChips.replaceChildren(
+    ...items.map((item) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = `status-chip status-chip-button ${item.variant}`;
+      chip.classList.toggle("is-active", statusIsActive(item.status));
+      chip.setAttribute("aria-pressed", statusIsActive(item.status) ? "true" : "false");
+      chip.textContent = `${item.label} ${item.count.toLocaleString("es-CO")}`;
+      chip.addEventListener("click", () => {
+        const nextStatus = statusIsActive(item.status) ? "" : item.status;
+        if (nextStatus && ![...learnerStatus.options].some((option) => option.value === nextStatus)) {
+          learnerStatus.add(new Option(nextStatus, nextStatus));
+        }
+        learnerStatus.value = nextStatus;
+        learnerPageNumber = 1;
+        loadLearners();
+      });
+      return chip;
+    }),
+  );
+}
+
+function learnerSummaryLabel(result) {
   const total = result.total;
-  const base = `${total} ${total === 1 ? "aprendiz registrado" : "aprendices registrados"}`;
-  if (!conDesglose || !learnerStatusCounts) {
-    return `${base} · ${result.por_certificar_total} por certificar`;
-  }
-  let certificados = 0;
-  learnerStatusCounts.forEach((count, status) => {
-    if (status.startsWith("certificado")) certificados += count;
-  });
-  const pendientes = Math.max(total - certificados, 0);
-  return `${base} · ${certificados} ${certificados === 1 ? "certificado" : "certificados"} · ${pendientes} ${pendientes === 1 ? "pendiente" : "pendientes"}`;
+  const label = total === 1 ? "aprendiz" : "aprendices";
+  return `${total} ${label} en la consulta actual · Página ${result.page} de ${Math.max(result.pages, 1)}`;
 }
 
 // Texto compacto de procedencia: motivo + requisitos pendientes + origen. Se usa
@@ -539,13 +641,61 @@ function renderLearnerRow(item) {
   return row;
 }
 
+function selectedMissingRequirements() {
+  return [...selectedRequirementValues];
+}
+
+function updateRequirementFilterUI() {
+  const selected = selectedMissingRequirements();
+  const labels = selected.map((value) => requirementLabelsByValue.get(value) || value);
+  learnerRequirementSummary.textContent = labels.length ? labels.join(", ") : "Cualquiera";
+  learnerRequirementSummary.title = labels.length ? labels.join(", ") : "Todos los requisitos";
+  [...learnerRequirementOptions.querySelectorAll(".requirement-option")].forEach((option) => {
+    const isSelected = option.dataset.value
+      ? selectedRequirementValues.has(option.dataset.value)
+      : selected.length === 0;
+    option.classList.toggle("is-selected", isSelected);
+    option.setAttribute("aria-selected", isSelected ? "true" : "false");
+  });
+}
+
+function setSelectedMissingRequirements(values) {
+  selectedRequirementValues.clear();
+  values.filter(Boolean).forEach((value) => selectedRequirementValues.add(value));
+  updateRequirementFilterUI();
+}
+
+function renderRequirementOptions(types) {
+  requirementLabelsByValue.clear();
+  Object.entries(types || {}).forEach(([value, label]) => {
+    requirementLabelsByValue.set(value, label);
+  });
+  const options = [document.createElement("button")];
+  options[0].type = "button";
+  options[0].className = "requirement-option";
+  options[0].dataset.value = "";
+  options[0].setAttribute("role", "option");
+  options[0].textContent = "Cualquiera";
+  for (const [value, label] of requirementLabelsByValue) {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "requirement-option";
+    option.dataset.value = value;
+    option.setAttribute("role", "option");
+    option.textContent = label;
+    options.push(option);
+  }
+  learnerRequirementOptions.replaceChildren(...options);
+  updateRequirementFilterUI();
+}
+
 function renderLearnerEmptyState() {
   const searchTerm = learnerSearch.value.trim();
   const selectedStatus = learnerStatus.value;
-  const selectedRequirement = learnerMissingRequirement.value;
-  const requirementLabel =
-    selectedRequirement &&
-    learnerMissingRequirement.selectedOptions[0]?.textContent;
+  const selectedRequirement = selectedMissingRequirements();
+  const requirementLabels = selectedRequirement.map(
+    (value) => requirementLabelsByValue.get(value) || value,
+  );
   let message = "Aun no hay aprendices cargados. Confirma una importacion DF14A para empezar.";
   if (searchTerm && selectedStatus) {
     message = `No se encontro ningun aprendiz que coincida con "${searchTerm}" y tenga el estado "${selectedStatus}".`;
@@ -554,8 +704,8 @@ function renderLearnerEmptyState() {
   } else if (selectedStatus) {
     message = `No se encontro ningun aprendiz con el estado "${selectedStatus}".`;
   }
-  if (selectedRequirement) {
-    message += ` No hay aprendices con el requisito "${requirementLabel}" en estado Pendiente.`;
+  if (selectedRequirement.length) {
+    message += ` No hay aprendices con alguno de los requisitos "${requirementLabels.join(", ")}" en estado Pendiente.`;
   }
   const row = document.createElement("tr");
   const cell = document.createElement("td");
@@ -695,34 +845,31 @@ async function loadLearnerDetail(learnerId) {
 
 async function loadLearners() {
   try {
-    pendingFilterActive = false;
     const params = new URLSearchParams({
       search: learnerSearch.value.trim(),
       status: learnerStatus.value,
-      missing_requirement: learnerMissingRequirement.value,
       page: learnerPageNumber,
       page_size: learnerPageSize,
     });
+    selectedMissingRequirements().forEach((value) => {
+      params.append("missing_requirement", value);
+    });
     const result = await readResponse(await fetch(`/api/learners?${params}`));
     const selectedStatus = learnerStatus.value;
+    const statusOptions = [...result.statuses];
+    if (
+      (result.status_counts || []).some((item) => item.status === "Sin estado") &&
+      !statusOptions.includes("Sin estado")
+    ) {
+      statusOptions.push("Sin estado");
+    }
     learnerStatus.replaceChildren(new Option("Todos los estados", ""));
-    result.statuses.forEach((status) => learnerStatus.add(new Option(status, status)));
+    statusOptions.forEach((status) => learnerStatus.add(new Option(status, status)));
     if (selectedStatus) setLearnerStatus(selectedStatus);
     // Opciones del filtro "Requisito faltante" segun los tipos del backend.
-    const selectedRequirement = learnerMissingRequirement.value;
-    learnerMissingRequirement.replaceChildren(new Option("Cualquiera", ""));
-    Object.entries(result.requirement_types || {}).forEach(([value, label]) => {
-      learnerMissingRequirement.add(new Option(label, value));
-    });
-    if (selectedRequirement) learnerMissingRequirement.value = selectedRequirement;
-    porCertificarLearnersButton.textContent = `Por Certificar (${result.por_certificar_total})`;
-    syncLearnerFilterButtons();
-    const sinFiltros =
-      !learnerSearch.value.trim() && !learnerStatus.value && !learnerMissingRequirement.value;
-    if (sinFiltros) {
-      await refreshLearnerStatusCounts(result.statuses);
-    }
-    learnersSummary.textContent = learnerSummaryLabel(result, sinFiltros);
+    renderRequirementOptions(result.requirement_types);
+    renderStatusChips(result.status_counts);
+    learnersSummary.textContent = learnerSummaryLabel(result);
     learnersPage.textContent = `Pagina ${result.page} de ${Math.max(result.pages, 1)}`;
     learnersPrev.disabled = result.page <= 1;
     learnersNext.disabled = result.page >= result.pages;
@@ -739,18 +886,6 @@ async function loadLearners() {
 
 }
 
-async function loadPendingLearners() {
-  try {
-    pendingFilterActive = true;
-    syncLearnerFilterButtons();
-    const result = await readResponse(await fetch("/api/learners/with-pending-requirements"));
-    learnersSummary.textContent = `${result.items.length} ${result.items.length === 1 ? "aprendiz" : "aprendices"} con requisitos pendientes`;
-    learnersList.replaceChildren(...result.items.map(renderLearnerRow));
-  } catch (error) {
-    learnersSummary.textContent = error.message;
-  }
-}
-
 backToLearners.addEventListener("click", () => {
   learnerDetail.hidden = true;
   learnersFrame.hidden = false;
@@ -762,7 +897,7 @@ learnerSearch.addEventListener("input", () => {
 clearLearnerSearch.addEventListener("click", () => {
   learnerSearch.value = "";
   learnerStatus.value = "";
-  learnerMissingRequirement.value = "";
+  setSelectedMissingRequirements([]);
   learnerPageNumber = 1;
   loadLearners();
 });
@@ -770,24 +905,32 @@ learnerStatus.addEventListener("change", () => {
   learnerPageNumber = 1;
   loadLearners();
 });
-learnerMissingRequirement.addEventListener("change", () => {
-  learnerPageNumber = 1;
-  loadLearners();
-});
-porCertificarLearnersButton.addEventListener("click", () => {
-  setLearnerStatus(
-    learnerStatus.value.toLowerCase() === "por certificar" ? "" : "Por Certificar",
-  );
-  learnerPageNumber = 1;
-  loadLearners();
-});
-pendingLearnersButton.addEventListener("click", () => {
-  if (pendingFilterActive) {
-    learnerPageNumber = 1;
-    loadLearners();
-    return;
+learnerRequirementOptions.addEventListener("click", (event) => {
+  const option = event.target.closest(".requirement-option");
+  if (!option) return;
+  event.preventDefault();
+  const value = option.dataset.value;
+  if (!value) {
+    selectedRequirementValues.clear();
+  } else if (selectedRequirementValues.has(value)) {
+    selectedRequirementValues.delete(value);
+  } else {
+    selectedRequirementValues.add(value);
   }
-  loadPendingLearners();
+  updateRequirementFilterUI();
+  learnerPageNumber = 1;
+  loadLearners();
+});
+document.addEventListener("click", (event) => {
+  if (!learnerMissingRequirement.contains(event.target)) {
+    learnerMissingRequirement.open = false;
+  }
+});
+learnerMissingRequirement.addEventListener("toggle", () => {
+  learnerRequirementSummary.setAttribute(
+    "aria-expanded",
+    learnerMissingRequirement.open ? "true" : "false",
+  );
 });
 learnersPrev.addEventListener("click", () => {
   if (learnerPageNumber > 1) {

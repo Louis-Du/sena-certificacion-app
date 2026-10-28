@@ -24,7 +24,7 @@ def test_act_detail_and_learner_link_unlink(page, app_url, tmp_path):
     page.wait_for_selector("#acts-list tr")
 
     page.goto(app_url)
-    page.click('.type-option[data-type="df14a"]')
+    page.click('.category-option[data-type="df14a"]')
     csv_path = tmp_path / "learner.csv"
     csv_path.write_bytes(csv_bytes("identificacion,nombre,FICHA\n6001,Hugo,4401\n"))
     page.set_input_files("#file-input", str(csv_path))

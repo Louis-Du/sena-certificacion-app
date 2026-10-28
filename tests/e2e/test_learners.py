@@ -11,7 +11,7 @@ def _write_file(tmp_path: Path, name: str, content: bytes) -> Path:
 
 def _import_learners(page, app_url, tmp_path, content: bytes) -> None:
     page.goto(app_url)
-    page.click('.type-option[data-type="df14a"]')
+    page.click('.category-option[data-type="df14a"]')
     file_path = _write_file(tmp_path, "df14a.csv", content)
     page.set_input_files("#file-input", str(file_path))
     page.click("#validate-button")

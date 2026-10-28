@@ -29,7 +29,7 @@ from app.services.records import (
 from app.services.validation import (
     TYPE_LABELS,
     ValidationResult,
-    conflicting_pairs,
+    coherence_conflicts,
     validate_file,
 )
 
@@ -44,6 +44,60 @@ class StagedImport:
 
 
 _staged_imports: dict[str, StagedImport] = {}
+
+# Estados canonicos admitidos al resolver un cruce CERTIFICADOS/PENDIENTES.
+CONFLICT_STATUSES = {"CERTIFICADOS", "PENDIENTE"}
+_CONFLICT_STATUS_LABELS = {"CERTIFICADOS": "Certificado", "PENDIENTE": "Pendiente"}
+
+
+def _conflict_resolution_map(
+    conflicts: list[dict[str, Any]],
+    raw_resolutions: list[dict[str, Any]] | None,
+) -> dict[str, str]:
+    """Valida que cada conflicto tenga una decision explicita del usuario."""
+    required = {item["identification"]: item for item in conflicts}
+    if not required:
+        return {}
+
+    resolutions: dict[str, str] = {}
+    invalid: list[str] = []
+    for item in raw_resolutions or []:
+        identification = str(item.get("identification") or "").strip()
+        status = str(item.get("status") or "").strip().upper()
+        if identification not in required:
+            continue
+        if status not in CONFLICT_STATUSES:
+            invalid.append(f"{identification}: {status or 'sin estado'}")
+            continue
+        resolutions[identification] = status
+
+    if invalid:
+        raise ValueError(
+            "Resolucion de conflicto no valida para "
+            f"{', '.join(invalid)}. Use CERTIFICADOS o PENDIENTE."
+        )
+    missing = [identification for identification in required if identification not in resolutions]
+    if missing:
+        raise ValueError(
+            f"Faltan {len(missing)} resolucion(es) de conflicto: {', '.join(missing)}. "
+            "Elija Certificado o Pendiente para cada aprendiz antes de confirmar."
+        )
+    return resolutions
+
+
+def _apply_conflict_resolutions(session: Session, resolutions: dict[str, str]) -> None:
+    """Fija el estado elegido y deja rastro en las notas de seguimiento."""
+    learners = session.scalars(
+        select(Learner).where(Learner.identification.in_(resolutions))
+    ).all()
+    for learner in learners:
+        status = resolutions[learner.identification]
+        learner.certification_status = status
+        note = f"Conflicto resuelto: {_CONFLICT_STATUS_LABELS[status]}"
+        current = (learner.tracking_notes or "").strip()
+        if note not in current:
+            learner.tracking_notes = f"{current}; {note}" if current else note
+    session.flush()
 
 
 def stage_file(file_name: str, content: bytes, information_type: str) -> StagedImport:
@@ -88,6 +142,11 @@ def import_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
         "detected_columns": staged.result.detected_columns,
         "missing_columns": staged.result.missing_columns,
         "breakdown": prepared.breakdown(),
+        "coherence_conflicts": (
+            coherence_conflicts(prepared)
+            if staged.information_type == "actas_completo"
+            else []
+        ),
     }
     if staged.information_type == "acta":
         # Una acta no se revisa como una tabla: la vista previa explica si el
@@ -201,7 +260,11 @@ def _format_breakdown_message(breakdown: dict[str, dict[str, int]]) -> str:
     return "Se importaron: " + ", ".join(parts) + "."
 
 
-def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
+def confirm_import(
+    validation_id: str,
+    session: Session,
+    conflict_resolutions: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     staged = get_staged(validation_id)
     if staged is None:
         raise KeyError("La validacion ya no esta disponible. Cargue el archivo nuevamente.")
@@ -215,6 +278,13 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
                 "El archivo no contiene registros importables. Corrija los errores de "
                 "validacion antes de confirmar."
             )
+
+        conflicts = (
+            coherence_conflicts(prepared)
+            if staged.information_type == "actas_completo"
+            else []
+        )
+        resolutions = _conflict_resolution_map(conflicts, conflict_resolutions)
 
         final_records = [
             (entry.record, entry.information_type) for entry in prepared.importable
@@ -273,6 +343,12 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
         ]
         if learners_records:
             upsert_learners_from_records(session, learners_records)
+
+        if resolutions:
+            _apply_conflict_resolutions(session, resolutions)
+            history.message = (
+                f"{history.message} Conflictos resueltos manualmente: {len(resolutions)}."
+            )
 
         # Las columnas de evidencias de CERTIFICADOS/PENDIENTES se convierten en
         # requisitos del aprendiz (X -> Cumplido, N.A -> No aplica, vacio ->
