@@ -93,7 +93,15 @@ def list_learners(
             )
         )
     if status.strip():
-        filters.append(Learner.certification_status.ilike(status.strip()))
+        if status.strip().lower() == "sin estado":
+            filters.append(
+                or_(
+                    Learner.certification_status.is_(None),
+                    func.trim(Learner.certification_status) == "",
+                )
+            )
+        else:
+            filters.append(Learner.certification_status.ilike(status.strip()))
     missing_values = (
         [missing_requirement]
         if isinstance(missing_requirement, str)
@@ -124,6 +132,23 @@ def list_learners(
         .select_from(Learner)
         .where(func.lower(Learner.certification_status) == POR_CERTIFICAR_STATUS.lower())
     ) or 0
+    # Conteos globales por estado (independientes de pagina y filtros) para los
+    # chips del listado. No se normalizan los valores: se muestran los mismos
+    # strings que guarda la BD y que usa el selector de estado.
+    status_counts: list[dict[str, Any]] = []
+    sin_estado = 0
+    for status_value, count in session.execute(
+        select(Learner.certification_status, func.count(Learner.id)).group_by(
+            Learner.certification_status
+        )
+    ).all():
+        if status_value is None or not str(status_value).strip():
+            sin_estado += count
+        else:
+            status_counts.append({"status": str(status_value), "count": count})
+    if sin_estado:
+        status_counts.append({"status": "Sin estado", "count": sin_estado})
+    status_counts.sort(key=lambda item: (item["status"].lower(), item["status"]))
     learners = session.scalars(
         query.offset((page - 1) * page_size).limit(page_size)
     ).all()
@@ -144,6 +169,7 @@ def list_learners(
             if value
         ],
         "requirement_types": REQUIREMENT_TYPES,
+        "status_counts": status_counts,
         "total": total,
         "page": page,
         "page_size": page_size,

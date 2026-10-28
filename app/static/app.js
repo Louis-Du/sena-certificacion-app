@@ -44,8 +44,7 @@ const clearLearnerSearch = document.querySelector("#clear-learner-search");
 const learnersPrev = document.querySelector("#learners-prev");
 const learnersNext = document.querySelector("#learners-next");
 const learnersPage = document.querySelector("#learners-page");
-const porCertificarLearnersButton = document.querySelector("#por-certificar-learners-button");
-const pendingLearnersButton = document.querySelector("#pending-learners-button");
+const learnerStatusChips = document.querySelector("#learner-status-chips");
 const learnersFrame = document.querySelector(".learners-frame");
 const learnerDetail = document.querySelector("#learner-detail");
 const backToLearners = document.querySelector("#back-to-learners");
@@ -430,8 +429,6 @@ async function loadHistory() {
 
 let learnerPageNumber = 1;
 const learnerPageSize = 25;
-let learnerStatusCounts = null;
-let pendingFilterActive = false;
 const selectedRequirementValues = new Set();
 const requirementLabelsByValue = new Map();
 
@@ -460,41 +457,62 @@ function renderStatusCell(status) {
   return cell;
 }
 
-function syncLearnerFilterButtons() {
-  const porCertificarActivo = normalizeStatusText(learnerStatus.value) === "por certificar";
-  porCertificarLearnersButton.classList.toggle("is-active", porCertificarActivo);
-  porCertificarLearnersButton.setAttribute("aria-pressed", porCertificarActivo ? "true" : "false");
-  pendingLearnersButton.classList.toggle("is-active", pendingFilterActive);
-  pendingLearnersButton.setAttribute("aria-pressed", pendingFilterActive ? "true" : "false");
+function statusSortRank(status) {
+  const normalized = normalizeStatusText(status);
+  if (normalized.startsWith("certificado")) return 0;
+  if (normalized.startsWith("pendiente")) return 1;
+  if (normalized.startsWith("por certificar")) return 2;
+  if (normalized === "sin estado") return 3;
+  return 4;
 }
 
-async function refreshLearnerStatusCounts(statuses) {
-  try {
-    const entries = await Promise.all(
-      statuses.map(async (status) => {
-        const params = new URLSearchParams({ status, page: 1, page_size: 1 });
-        const result = await readResponse(await fetch(`/api/learners?${params}`));
-        return [normalizeStatusText(status), result.total];
-      }),
-    );
-    learnerStatusCounts = new Map(entries);
-  } catch (error) {
-    learnerStatusCounts = null;
-  }
+function statusIsActive(status) {
+  if (!status) return !learnerStatus.value;
+  return normalizeStatusText(learnerStatus.value) === normalizeStatusText(status);
 }
 
-function learnerSummaryLabel(result, conDesglose) {
+function renderStatusChips(statusCounts) {
+  const counts = [...(statusCounts || [])].sort(
+    (left, right) =>
+      statusSortRank(left.status) - statusSortRank(right.status) ||
+      left.status.localeCompare(right.status),
+  );
+  const total = counts.reduce((sum, item) => sum + item.count, 0);
+  const items = [
+    { status: "", label: "Todos", count: total, variant: "is-neutral" },
+    ...counts.map((item) => ({
+      status: item.status,
+      label: item.status,
+      count: item.count,
+      variant: statusChipVariant(item.status),
+    })),
+  ];
+  learnerStatusChips.replaceChildren(
+    ...items.map((item) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = `status-chip status-chip-button ${item.variant}`;
+      chip.classList.toggle("is-active", statusIsActive(item.status));
+      chip.setAttribute("aria-pressed", statusIsActive(item.status) ? "true" : "false");
+      chip.textContent = `${item.label} ${item.count.toLocaleString("es-CO")}`;
+      chip.addEventListener("click", () => {
+        const nextStatus = statusIsActive(item.status) ? "" : item.status;
+        if (nextStatus && ![...learnerStatus.options].some((option) => option.value === nextStatus)) {
+          learnerStatus.add(new Option(nextStatus, nextStatus));
+        }
+        learnerStatus.value = nextStatus;
+        learnerPageNumber = 1;
+        loadLearners();
+      });
+      return chip;
+    }),
+  );
+}
+
+function learnerSummaryLabel(result) {
   const total = result.total;
-  const base = `${total} ${total === 1 ? "aprendiz registrado" : "aprendices registrados"}`;
-  if (!conDesglose || !learnerStatusCounts) {
-    return `${base} · ${result.por_certificar_total} por certificar`;
-  }
-  let certificados = 0;
-  learnerStatusCounts.forEach((count, status) => {
-    if (status.startsWith("certificado")) certificados += count;
-  });
-  const pendientes = Math.max(total - certificados, 0);
-  return `${base} · ${certificados} ${certificados === 1 ? "certificado" : "certificados"} · ${pendientes} ${pendientes === 1 ? "pendiente" : "pendientes"}`;
+  const label = total === 1 ? "aprendiz" : "aprendices";
+  return `${total} ${label} en la consulta actual · Página ${result.page} de ${Math.max(result.pages, 1)}`;
 }
 
 // Texto compacto de procedencia: motivo + requisitos pendientes + origen. Se usa
@@ -827,7 +845,6 @@ async function loadLearnerDetail(learnerId) {
 
 async function loadLearners() {
   try {
-    pendingFilterActive = false;
     const params = new URLSearchParams({
       search: learnerSearch.value.trim(),
       status: learnerStatus.value,
@@ -839,21 +856,20 @@ async function loadLearners() {
     });
     const result = await readResponse(await fetch(`/api/learners?${params}`));
     const selectedStatus = learnerStatus.value;
+    const statusOptions = [...result.statuses];
+    if (
+      (result.status_counts || []).some((item) => item.status === "Sin estado") &&
+      !statusOptions.includes("Sin estado")
+    ) {
+      statusOptions.push("Sin estado");
+    }
     learnerStatus.replaceChildren(new Option("Todos los estados", ""));
-    result.statuses.forEach((status) => learnerStatus.add(new Option(status, status)));
+    statusOptions.forEach((status) => learnerStatus.add(new Option(status, status)));
     if (selectedStatus) setLearnerStatus(selectedStatus);
     // Opciones del filtro "Requisito faltante" segun los tipos del backend.
     renderRequirementOptions(result.requirement_types);
-    porCertificarLearnersButton.textContent = `Por Certificar (${result.por_certificar_total})`;
-    syncLearnerFilterButtons();
-    const sinFiltros =
-      !learnerSearch.value.trim() &&
-      !learnerStatus.value &&
-      selectedMissingRequirements().length === 0;
-    if (sinFiltros) {
-      await refreshLearnerStatusCounts(result.statuses);
-    }
-    learnersSummary.textContent = learnerSummaryLabel(result, sinFiltros);
+    renderStatusChips(result.status_counts);
+    learnersSummary.textContent = learnerSummaryLabel(result);
     learnersPage.textContent = `Pagina ${result.page} de ${Math.max(result.pages, 1)}`;
     learnersPrev.disabled = result.page <= 1;
     learnersNext.disabled = result.page >= result.pages;
@@ -868,18 +884,6 @@ async function loadLearners() {
     learnersList.textContent = "No fue posible cargar los aprendices.";
   }
 
-}
-
-async function loadPendingLearners() {
-  try {
-    pendingFilterActive = true;
-    syncLearnerFilterButtons();
-    const result = await readResponse(await fetch("/api/learners/with-pending-requirements"));
-    learnersSummary.textContent = `${result.items.length} ${result.items.length === 1 ? "aprendiz" : "aprendices"} con requisitos pendientes`;
-    learnersList.replaceChildren(...result.items.map(renderLearnerRow));
-  } catch (error) {
-    learnersSummary.textContent = error.message;
-  }
 }
 
 backToLearners.addEventListener("click", () => {
@@ -927,21 +931,6 @@ learnerMissingRequirement.addEventListener("toggle", () => {
     "aria-expanded",
     learnerMissingRequirement.open ? "true" : "false",
   );
-});
-porCertificarLearnersButton.addEventListener("click", () => {
-  setLearnerStatus(
-    learnerStatus.value.toLowerCase() === "por certificar" ? "" : "Por Certificar",
-  );
-  learnerPageNumber = 1;
-  loadLearners();
-});
-pendingLearnersButton.addEventListener("click", () => {
-  if (pendingFilterActive) {
-    learnerPageNumber = 1;
-    loadLearners();
-    return;
-  }
-  loadPendingLearners();
 });
 learnersPrev.addEventListener("click", () => {
   if (learnerPageNumber > 1) {
