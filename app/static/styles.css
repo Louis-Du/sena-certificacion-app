@@ -522,7 +522,6 @@ h1 { margin-bottom: 2px; font: 700 22px/1.15 "Space Grotesk", sans-serif; }
 	font-weight: 400;
 	line-height: 1.3;
 }
-
 .learners-table-wrap { overflow-x: auto; }
 .learners-data { width: 100%; border-collapse: collapse; font-size: 11px; }
 .learners-data th { color: var(--muted); background: #f7faf8; font-size: 10px; text-align: left; text-transform: uppercase; }
@@ -537,6 +536,11 @@ h1 { margin-bottom: 2px; font: 700 22px/1.15 "Space Grotesk", sans-serif; }
 .status-chip.is-warning { color: #956000; background: var(--amber-soft); }
 .status-chip.is-info { color: #1f5f9e; background: var(--blue-soft); }
 .status-chip.is-neutral { color: var(--muted); background: #eef3f0; }
+.learner-status-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -4px 0 14px; }
+.learner-status-chips:empty { display: none; }
+.status-chip-button { border: 1px solid transparent; cursor: pointer; font: inherit; }
+.status-chip-button:hover { border-color: currentColor; }
+.status-chip-button.is-active { outline: 2px solid currentColor; outline-offset: 1px; }
 .detail-hint { display: block; color: var(--muted); margin-top: 5px; }
 
 .origin-label {

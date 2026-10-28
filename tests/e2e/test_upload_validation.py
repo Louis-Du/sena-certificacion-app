@@ -122,7 +122,8 @@ def test_incorrect_actas_preview_shows_ten_records_and_conflict(page, app_url):
     assert "1 metas institucionales" in breakdown
     warnings = page.locator("#confirm-warnings").text_content()
     assert "figuran simult" in warnings
-    assert "No se resuelve automaticamente" in warnings
+    assert "Elija el estado final" in warnings
+    assert page.locator("#coherence-conflicts").is_visible()
 
 
 def test_correct_actas_preview_shows_twenty_one_records(page, app_url):
