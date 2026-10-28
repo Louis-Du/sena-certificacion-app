@@ -166,8 +166,9 @@ def test_df14a_without_ficha_has_zero_importable_records(client: TestClient):
     assert "FICHA" in body["missing_columns"]
     labels = _labels(body)
     assert "Falta FICHA" in labels
-    # El nivel sin clasificar se informa, pero no se inventa una equivalencia.
-    assert "OPERARIO" in labels
+    # OPERARIO ahora equivale a AUXILIAR; solo el nivel realmente desconocido se
+    # informa como sin clasificar.
+    assert "OPERARIO" not in labels
     assert "CURSO_NO_FORMAL" in labels
     # Hallazgo 3: con 0 registros importables, la advertencia de nivel no debe
     # afirmar que esas filas se van a importar.
@@ -460,7 +461,7 @@ def test_unclassified_level_is_importable_but_reported_as_warning(client: TestCl
                 "DOCUMENTO": "1001",
                 "NOMBRES": "Ana",
                 "FICHA": "3001",
-                "NIVEL_FORMACION": "OPERARIO",
+                "NIVEL_FORMACION": "NIVEL_DESCONOCIDO",
                 "ESTADO_ASPIRANTE": "Por Certificar",
             }
         ]
@@ -473,7 +474,7 @@ def test_unclassified_level_is_importable_but_reported_as_warning(client: TestCl
 
     assert body["status"] == "warning"
     assert body["valid_records"] == 1
-    assert "OPERARIO" in labels
+    assert "NIVEL_DESCONOCIDO" in labels
     assert "no se asignan automaticamente" in labels
 
 

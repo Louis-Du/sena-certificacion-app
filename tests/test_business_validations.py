@@ -145,9 +145,9 @@ def test_check_formation_levels_warns_on_unclassified_level():
         {"NIVEL DE FORMACION": "DOCTORADO", "DOCUMENTO": "3"},
     ])
     count, unclass = check_formation_levels(df)
-    assert count == 2
+    assert count == 1
     assert "DOCTORADO" in unclass
-    assert "OPERARIO" in unclass
+    assert "OPERARIO" not in unclass
 
 
 def test_check_formation_levels_passes_on_valid_levels():

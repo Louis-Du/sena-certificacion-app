@@ -256,16 +256,19 @@ NIVEL_ALIASES: dict[str, str] = {
     "profundizacion tecnica": "profundizacion tecnica",
     "profundacion tecnica": "profundizacion tecnica",
     "media tecnica": "media tecnica",
-    "operario": "operario",
-    "operarios": "operario",
+    # OPERARIO se clasifica igual que AUXILIAR (regla de negocio #33).
+    "operario": "auxiliar",
+    "operarios": "auxiliar",
 }
 
 # Regla misional acordada con el Centro de Comercio y Servicios:
 #   * Educacion Superior           -> Tecnologo
 #   * Tecnica Laboral y Otros      -> Auxiliar, Profundizacion Tecnica, SENATIC, Tecnico
 #   * Articulacion con la Media    -> Media Tecnica
-# Cualquier otro nivel (por ejemplo OPERARIO) NO se asigna por defecto: queda
-# como "sin clasificar" para que la persona responsable decida con evidencia.
+# OPERARIO se trata como AUXILIAR (regla de negocio #33).
+# Cualquier otro nivel no documentado (por ejemplo NIVEL_DESCONOCIDO) NO se
+# asigna por defecto: queda como "sin clasificar" para que la persona
+# responsable decida con evidencia.
 NIVEL_A_CATEGORIA: dict[str, str] = {
     "tecnologo": "superior",
     "tecnico": "tecnica",

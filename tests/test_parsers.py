@@ -243,6 +243,7 @@ def test_classify_nivel_maps_every_documented_level():
     # Tecnica Laboral y Otros -> Tecnico, Auxiliar, Profundizacion Tecnica, SENATIC.
     assert classify_nivel("TÉCNICO") == "tecnica"
     assert classify_nivel("AUXILIAR") == "tecnica"
+    assert classify_nivel("OPERARIO") == "tecnica"
     assert classify_nivel("PROFUNDIZACIÓN TÉCNICA") == "tecnica"
     assert classify_nivel("SENATIC") == "tecnica"
     # Articulacion con la Media -> Media Tecnica.
@@ -250,8 +251,8 @@ def test_classify_nivel_maps_every_documented_level():
 
 
 def test_classify_nivel_returns_none_when_there_is_no_documented_rule():
-    # OPERARIO no esta en la regla institucional: NO se asigna por defecto.
-    assert classify_nivel("OPERARIO") is None
+    # OPERARIO equivale a AUXILIAR; los niveles no documentados no se asignan.
+    assert classify_nivel("OPERARIO") == "tecnica"
     assert classify_nivel("") is None
     assert classify_nivel(None) is None
     assert classify_nivel("NIVEL DESCONOCIDO") is None
