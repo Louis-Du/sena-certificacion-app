@@ -426,7 +426,7 @@ def test_learner_detail_history_is_always_empty_even_with_imports(client: TestCl
         files={"file": ("df14a.csv", content, "text/csv")},
     )
     validation_id = response.json()["validation_id"]
-    client.post(f"/api/imports/{validation_id}/confirm")
+    client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True})
     learner_id = client.get("/api/learners").json()["items"][0]["id"]
 
     body = client.get(f"/api/learners/{learner_id}").json()

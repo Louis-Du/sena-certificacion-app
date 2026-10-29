@@ -35,7 +35,7 @@ def _import_actas(client: TestClient, rows: list[dict]) -> None:
     )
     assert validated.status_code == 200, validated.text
     assert validated.json()["status"] in {"ready", "warning"}, validated.text
-    confirmed = client.post(f"/api/imports/{validated.json()['validation_id']}/confirm")
+    confirmed = client.post(f"/api/imports/{validated.json()['validation_id']}/confirm", json={"accept_missing_complementaria": True})
     assert confirmed.status_code == 200, confirmed.text
 
 
@@ -99,7 +99,7 @@ def test_requisitos_import_records_history_with_its_own_source(client: TestClien
             files={"file": ("requisitos.csv", content, "text/csv")},
         )
         assert validated.status_code == 200, validated.text
-        confirmed = client.post(f"/api/imports/{validated.json()['validation_id']}/confirm")
+        confirmed = client.post(f"/api/imports/{validated.json()['validation_id']}/confirm", json={"accept_missing_complementaria": True})
         assert confirmed.status_code == 200, confirmed.text
 
     learners = {

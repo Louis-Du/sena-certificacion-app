@@ -148,6 +148,7 @@ def import_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
             if staged.information_type == "actas_completo"
             else []
         ),
+        "missing_complementaria": getattr(staged.result, "missing_complementaria", False),
     }
     if staged.information_type == "acta":
         # Una acta no se revisa como una tabla: la vista previa explica si el
@@ -265,13 +266,17 @@ def confirm_import(
     validation_id: str,
     session: Session,
     conflict_resolutions: list[dict[str, Any]] | None = None,
+    accept_missing_complementaria: bool = False,
 ) -> dict[str, Any]:
     staged = get_staged(validation_id)
     if staged is None:
         raise KeyError("La validacion ya no esta disponible. Cargue el archivo nuevamente.")
     if staged.result.status == "error":
         raise ValueError("El archivo tiene errores que impiden la importacion.")
-
+    if getattr(staged.result, "missing_complementaria", False) and not accept_missing_complementaria:
+        raise ValueError(
+            "Falta la hoja COMPLEMENTARIA. Acepte continuar sin ella o cargue otro archivo."
+        )
     try:
         prepared = prepare_records(staged.file_name, staged.content, staged.information_type)
         if not prepared.importable:

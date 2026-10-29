@@ -94,6 +94,7 @@ class ConflictResolutionRequest(BaseModel):
 
 class ConfirmImportRequest(BaseModel):
     conflict_resolutions: list[ConflictResolutionRequest] = []
+    accept_missing_complementaria: bool = False
 
 # Esta ruta devuelve el archivo index.html ubicado en el directorio static cuando se accede a la raíz del sitio web. Se utiliza FileResponse para enviar el archivo como respuesta HTTP.
 @app.get("/", include_in_schema=False)
@@ -185,7 +186,15 @@ async def confirm_import_endpoint(
             if request is not None
             else None
         )
-        return confirm_import(validation_id, session, resolutions)
+        accept_missing_complementaria = (
+            request.accept_missing_complementaria if request is not None else False
+        )
+        return confirm_import(
+            validation_id,
+            session,
+            resolutions,
+            accept_missing_complementaria=accept_missing_complementaria,
+        )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
