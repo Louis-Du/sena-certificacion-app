@@ -31,6 +31,9 @@ const coherenceSection = document.querySelector("#coherence-conflicts");
 const coherenceTitle = document.querySelector("#coherence-conflicts-title");
 const coherenceList = document.querySelector("#coherence-conflict-list");
 const coherenceHelp = document.querySelector("#coherence-help");
+const missingComplementariaSection = document.querySelector("#missing-complementaria");
+const acceptMissingComplementaria = document.querySelector("#accept-missing-complementaria");
+const missingComplementariaHelp = document.querySelector("#missing-complementaria-help");
 const historyList = document.querySelector("#history-list");
 const learnersList = document.querySelector("#learners-list");
 const learnersSummary = document.querySelector("#learners-summary");
@@ -98,6 +101,7 @@ const extensionsByType = {
 let selectedType = "acta";
 let selectedFile = null;
 let validationId = null;
+let missingComplementariaRequired = false;
 
 // La fuente elegida determina el tipo de procesamiento: no hay selectores de
 // subtipos. La carga de requisitos vive en la seccion secundaria.
@@ -153,6 +157,7 @@ function hideReview() {
   validationPanel.hidden = true;
   confirmationPanel.hidden = true;
   resetCoherenceConflicts();
+  resetMissingComplementaria();
   confirmButton.hidden = true;
   validateButton.hidden = false;
   validateButton.disabled = !selectedFile;
@@ -234,20 +239,38 @@ function resetCoherenceConflicts() {
   confirmButton.disabled = false;
 }
 
+function resetMissingComplementaria() {
+  missingComplementariaSection.hidden = true;
+  missingComplementariaRequired = false;
+  acceptMissingComplementaria.checked = false;
+  missingComplementariaHelp.textContent = "";
+  missingComplementariaHelp.classList.remove("ready");
+}
+
 function updateCoherenceState() {
   const rows = [...coherenceList.querySelectorAll(".coherence-conflict-row")];
-  if (!rows.length) {
+  const pending = rows.filter((row) => !row.querySelector("input[type=radio]:checked")).length;
+  const missingPending = missingComplementariaRequired && !acceptMissingComplementaria.checked;
+  confirmButton.disabled = pending > 0 || missingPending;
+  if (rows.length) {
+    coherenceHelp.classList.toggle("ready", pending === 0);
+    coherenceHelp.textContent = pending
+      ? `Resuelva los ${pending} conflictos para continuar.`
+      : "Todos los conflictos fueron resueltos. Puede confirmar la importación.";
+  } else {
     coherenceHelp.textContent = "";
     coherenceHelp.classList.remove("ready");
-    confirmButton.disabled = false;
-    return;
   }
-  const pending = rows.filter((row) => !row.querySelector("input[type=radio]:checked")).length;
-  confirmButton.disabled = pending > 0;
-  coherenceHelp.classList.toggle("ready", pending === 0);
-  coherenceHelp.textContent = pending
-    ? `Resuelva los ${pending} conflictos para continuar.`
-    : "Todos los conflictos fueron resueltos. Puede confirmar la importación.";
+  if (missingPending) {
+    missingComplementariaHelp.textContent = "Debe aceptar continuar sin la hoja COMPLEMENTARIA.";
+    missingComplementariaHelp.classList.remove("ready");
+  } else if (missingComplementariaRequired) {
+    missingComplementariaHelp.textContent = "Se continuará sin formación complementaria.";
+    missingComplementariaHelp.classList.add("ready");
+  } else {
+    missingComplementariaHelp.textContent = "";
+    missingComplementariaHelp.classList.remove("ready");
+  }
 }
 
 function renderCoherenceConflicts(items) {
@@ -297,6 +320,7 @@ function collectConflictResolutions() {
 async function validateFile() {
   if (!selectedFile) return;
   resetCoherenceConflicts();
+  resetMissingComplementaria();
   validateButton.disabled = true;
   fileStatus.textContent = "VALIDANDO...";
   showFeedback(`Validando ${selectedType.toUpperCase()}...`);
@@ -369,6 +393,11 @@ async function validateFile() {
       return item;
     }));
     renderCoherenceConflicts(preview.coherence_conflicts || []);
+    missingComplementariaRequired = Boolean(preview.missing_complementaria);
+    if (missingComplementariaRequired) {
+      missingComplementariaSection.hidden = false;
+    }
+    updateCoherenceState();
     confirmationPanel.hidden = false;
     confirmButton.hidden = false;
     validateButton.hidden = true;
@@ -390,7 +419,10 @@ async function confirmImport() {
     const result = await readResponse(await fetch(`/api/imports/${validationId}/confirm`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conflict_resolutions: collectConflictResolutions() }),
+      body: JSON.stringify({
+        conflict_resolutions: collectConflictResolutions(),
+        accept_missing_complementaria: acceptMissingComplementaria.checked,
+      }),
     }));
     fileStatus.textContent = "IMPORTACION COMPLETA";
     showFeedback(`${result.message} ${result.records_count} registros procesados.`);
@@ -1512,6 +1544,7 @@ removeButton.addEventListener("click", clearFile);
 cancelButton.addEventListener("click", () => { clearFile(); clearFeedback(); resetSelection(); });
 validateButton.addEventListener("click", validateFile);
 confirmButton.addEventListener("click", confirmImport);
+acceptMissingComplementaria.addEventListener("change", updateCoherenceState);
 resetSelection();
 loadHistory();
 loadLearners();

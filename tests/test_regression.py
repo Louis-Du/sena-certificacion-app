@@ -33,7 +33,7 @@ def test_validate_preview_confirm_persists_only_after_confirm(client: TestClient
     assert preview.json()["updated_records"] == 0
     assert client.get("/api/learners").json()["total"] == 0
 
-    confirmed = client.post(f"/api/imports/{validation_id}/confirm")
+    confirmed = client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True})
     assert confirmed.status_code == 200
     assert confirmed.json()["new_records"] == 2
     assert confirmed.json()["status"] == "completed"
@@ -55,8 +55,8 @@ def test_second_confirm_of_same_validation_is_rejected(client: TestClient):
     validated = _validate(client, "df14a.csv", csv_bytes("FICHA,nombre\n3001,Ana\n"))
     validation_id = validated["validation_id"]
 
-    assert client.post(f"/api/imports/{validation_id}/confirm").status_code == 200
-    second = client.post(f"/api/imports/{validation_id}/confirm")
+    assert client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True}).status_code == 200
+    second = client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True})
 
     assert second.status_code == 404
     assert client.get("/api/imports/history").json()["items"].__len__() == 1
@@ -68,16 +68,16 @@ def test_reimport_updates_learners_without_duplicating_sqlite_rows(client: TestC
     changed = csv_bytes("DOCUMENTO,NOMBRES,PROGRAMA,FICHA\n1001,Ana Maria,Redes,3001\n")
 
     first_id = _validate(client, "df14a.csv", first)["validation_id"]
-    client.post(f"/api/imports/{first_id}/confirm")
+    client.post(f"/api/imports/{first_id}/confirm", json={"accept_missing_complementaria": True})
 
     same_id = _validate(client, "df14a.csv", same)["validation_id"]
     same_preview = client.get(f"/api/imports/{same_id}/preview").json()
-    client.post(f"/api/imports/{same_id}/confirm")
+    client.post(f"/api/imports/{same_id}/confirm", json={"accept_missing_complementaria": True})
     assert same_preview["updated_records"] == 1
     assert same_preview["new_records"] == 0
 
     changed_id = _validate(client, "df14a.csv", changed)["validation_id"]
-    client.post(f"/api/imports/{changed_id}/confirm")
+    client.post(f"/api/imports/{changed_id}/confirm", json={"accept_missing_complementaria": True})
 
     learners = client.get("/api/learners").json()
     assert learners["total"] == 1
@@ -98,7 +98,7 @@ def test_xlsx_import_then_learner_search_and_act_association(client: TestClient)
         ]
     )
     validation_id = _validate(client, "df14a.xlsx", content)["validation_id"]
-    client.post(f"/api/imports/{validation_id}/confirm")
+    client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True})
 
     search = client.get("/api/learners", params={"search": "Carla"})
     assert search.status_code == 200
@@ -141,7 +141,7 @@ def test_acta_pdf_confirm_creates_act_and_links_learners(client: TestClient):
         "1 LAURA SOFIA PEREZ GOMEZ 1043000100"
     )
     validation_id = _validate(client, "acta.pdf", content, "acta")["validation_id"]
-    confirmed = client.post(f"/api/imports/{validation_id}/confirm")
+    confirmed = client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True})
 
     assert confirmed.status_code == 200
     assert confirmed.json()["records_count"] == 1
@@ -165,7 +165,7 @@ def test_preview_and_confirm_missing_or_invalid_validation(client: TestClient):
 
     error_id = _validate(client, "acta.pdf", pdf_bytes(), "df14a")["validation_id"]
     assert client.get(f"/api/imports/{error_id}/preview").status_code == 400
-    assert client.post(f"/api/imports/{error_id}/confirm").status_code == 400
+    assert client.post(f"/api/imports/{error_id}/confirm", json={"accept_missing_complementaria": True}).status_code == 400
 
 
 def test_deleting_act_removes_associations_but_keeps_learner(client: TestClient):
@@ -193,7 +193,7 @@ def test_deleting_act_removes_associations_but_keeps_learner(client: TestClient)
 
 def test_failed_confirm_does_not_leave_partial_sqlite_rows(client: TestClient):
     error_id = _validate(client, "acta.pdf", pdf_bytes(), "df14a")["validation_id"]
-    assert client.post(f"/api/imports/{error_id}/confirm").status_code == 400
+    assert client.post(f"/api/imports/{error_id}/confirm", json={"accept_missing_complementaria": True}).status_code == 400
 
     with client.session_factory() as session:
         assert session.query(ImportHistory).count() == 0
@@ -209,7 +209,7 @@ def test_acta_file_import_creates_act_entity_and_keeps_history(client: TestClien
         "1 LAURA SOFIA PEREZ GOMEZ 1043000100"
     )
     validation_id = _validate(client, "acta.pdf", content, "acta")["validation_id"]
-    confirmed = client.post(f"/api/imports/{validation_id}/confirm")
+    confirmed = client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True})
 
     assert confirmed.status_code == 200
     with client.session_factory() as session:
@@ -226,7 +226,7 @@ def test_search_and_pagination_keep_working_after_import(client: TestClient):
         for index in range(26)
     )
     validation_id = _validate(client, "df14a.csv", csv_bytes("\n".join(rows)))["validation_id"]
-    client.post(f"/api/imports/{validation_id}/confirm")
+    client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True})
 
     page = client.get("/api/learners", params={"page": 2, "page_size": 5})
     search = client.get("/api/learners", params={"search": "Aprendiz 03"})

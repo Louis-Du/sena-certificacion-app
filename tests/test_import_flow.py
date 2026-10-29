@@ -72,7 +72,7 @@ def test_confirm_creates_history_and_updates_existing_records(client: TestClient
         b"FICHA,nombre,estado\n3001,Ana,Por Certificar\n3002,Luis,Por Certificar\n",
     )
     preview = client.get(f"/api/imports/{validation_id}/preview")
-    first_import = client.post(f"/api/imports/{validation_id}/confirm")
+    first_import = client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True})
 
     assert preview.json()["new_records"] == 2
     assert preview.json()["updated_records"] == 0
@@ -83,7 +83,7 @@ def test_confirm_creates_history_and_updates_existing_records(client: TestClient
         b"FICHA,nombre,estado\n3001,Ana,Por Certificar\n3002,Luis,Por Certificar\n",
     )
     second_preview = client.get(f"/api/imports/{second_validation}/preview")
-    second_import = client.post(f"/api/imports/{second_validation}/confirm")
+    second_import = client.post(f"/api/imports/{second_validation}/confirm", json={"accept_missing_complementaria": True})
 
     assert second_preview.json()["new_records"] == 0
     assert second_preview.json()["updated_records"] == 2
@@ -97,7 +97,7 @@ def test_confirm_updates_learners_list_in_sqlite(client: TestClient):
         b"identificacion,nombre,programa,estado,FICHA\n1001,Ana,Analisis y Desarrollo,Por certificar,3001\n",
     )
 
-    confirmed = client.post(f"/api/imports/{validation_id}/confirm")
+    confirmed = client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True})
     learners = client.get("/api/learners")
 
     assert confirmed.status_code == 200

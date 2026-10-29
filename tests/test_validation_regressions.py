@@ -105,7 +105,7 @@ def test_requisitos_file_cannot_be_confirmed_without_importable_records(
     validation_id = body["validation_id"]
 
     assert client.get(f"/api/imports/{validation_id}/preview").status_code == 400
-    assert client.post(f"/api/imports/{validation_id}/confirm").status_code == 400
+    assert client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True}).status_code == 400
     assert client.get("/api/imports/history").json()["items"] == []
 
 
@@ -134,7 +134,7 @@ def test_unreadable_pdf_and_docx_are_rejected_without_records(
     assert "Contenido legible" in labels
     validation_id = body["validation_id"]
     assert client.get(f"/api/imports/{validation_id}/preview").status_code == 400
-    assert client.post(f"/api/imports/{validation_id}/confirm").status_code == 400
+    assert client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True}).status_code == 400
     assert client.get("/api/imports/history").json()["items"] == []
 
 
@@ -151,7 +151,7 @@ def test_csv_without_required_columns_has_zero_valid_records(client: TestClient)
     assert "Falta NUMERO DE DOCUMENTO" in _labels(body)
     validation_id = body["validation_id"]
     assert client.get(f"/api/imports/{validation_id}/preview").status_code == 400
-    assert client.post(f"/api/imports/{validation_id}/confirm").status_code == 400
+    assert client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True}).status_code == 400
 
 
 def test_df14a_without_ficha_has_zero_importable_records(client: TestClient):
@@ -177,7 +177,7 @@ def test_df14a_without_ficha_has_zero_importable_records(client: TestClient):
     assert "se importan" not in labels
     validation_id = body["validation_id"]
     assert client.get(f"/api/imports/{validation_id}/preview").status_code == 400
-    assert client.post(f"/api/imports/{validation_id}/confirm").status_code == 400
+    assert client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True}).status_code == 400
 
 
 def test_partial_import_saves_only_valid_unique_records(client: TestClient, tmp_path):
@@ -202,7 +202,7 @@ def test_partial_import_saves_only_valid_unique_records(client: TestClient, tmp_
     assert preview["new_records"] == 1
     assert preview["rejected_records"] == 1
 
-    confirmed = client.post(f"/api/imports/{body['validation_id']}/confirm").json()
+    confirmed = client.post(f"/api/imports/{body['validation_id']}/confirm", json={"accept_missing_complementaria": True}).json()
     assert confirmed["records_count"] == 1
     assert confirmed["new_records"] == 1
     with client.session_factory() as session:
@@ -263,7 +263,7 @@ def test_incorrect_actas_counters_match_preview_and_saved_records(client: TestCl
     assert preview_body["rejected_records"] == 0
     assert preview_body["coherence_conflicts"] == conflicts
 
-    blocked = client.post(f"/api/imports/{validation_id}/confirm")
+    blocked = client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True})
     assert blocked.status_code == 400
     assert "resolucion" in blocked.json()["detail"].lower()
 
@@ -273,7 +273,10 @@ def test_incorrect_actas_counters_match_preview_and_saved_records(client: TestCl
     ]
     confirmed = client.post(
         f"/api/imports/{validation_id}/confirm",
-        json={"conflict_resolutions": resolutions},
+        json={
+            "conflict_resolutions": resolutions,
+            "accept_missing_complementaria": True,
+        },
     )
     assert confirmed.status_code == 200
     assert confirmed.json()["records_count"] == 10
@@ -291,7 +294,7 @@ def test_conflict_does_not_auto_change_existing_learner_status(client: TestClien
         )
     )
     seed = _validate(client, seed_path, "df14a")
-    assert client.post(f"/api/imports/{seed['validation_id']}/confirm").status_code == 200
+    assert client.post(f"/api/imports/{seed['validation_id']}/confirm", json={"accept_missing_complementaria": True}).status_code == 200
 
     with client.session_factory() as session:
         learner = session.query(Learner).filter_by(identification="5555").one()
@@ -329,7 +332,7 @@ def test_conflict_does_not_auto_change_existing_learner_status(client: TestClien
             "in_pendientes": True,
         }
     ]
-    blocked = client.post(f"/api/imports/{body['validation_id']}/confirm")
+    blocked = client.post(f"/api/imports/{body['validation_id']}/confirm", json={"accept_missing_complementaria": True})
     assert blocked.status_code == 400
 
     confirmed = client.post(
@@ -337,7 +340,8 @@ def test_conflict_does_not_auto_change_existing_learner_status(client: TestClien
         json={
             "conflict_resolutions": [
                 {"identification": "5555", "status": "PENDIENTE"}
-            ]
+            ],
+            "accept_missing_complementaria": True,
         },
     )
     assert confirmed.status_code == 200
@@ -384,7 +388,8 @@ def test_new_conflicted_learner_is_not_assigned_an_invented_status(
         json={
             "conflict_resolutions": [
                 {"identification": "7777", "status": "CERTIFICADOS"}
-            ]
+            ],
+            "accept_missing_complementaria": True,
         },
     )
     assert confirmed.status_code == 200
@@ -422,7 +427,7 @@ def test_correct_actas_expands_complementaria_and_reports_the_breakdown(client: 
     assert preview["records_count"] == 21
     assert preview["new_records"] == 21
 
-    confirmed = client.post(f"/api/imports/{validation_id}/confirm").json()
+    confirmed = client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True}).json()
     assert confirmed["records_count"] == 21
     assert confirmed["new_records"] == 21
     with client.session_factory() as session:
@@ -450,8 +455,9 @@ def test_missing_complementaria_remains_an_explicit_warning(client: TestClient, 
 
     assert body["status"] == "warning"
     assert body["valid_records"] == 2
-    assert "Hoja COMPLEMENTARIA no encontrada" in labels
-    assert "decision administrativa pendiente" in labels
+    assert body["missing_complementaria"] is True
+    assert "No se detectó la hoja COMPLEMENTARIA" in labels
+    assert "no actualizará formación complementaria" in labels
 
 
 def test_unclassified_level_is_importable_but_reported_as_warning(client: TestClient, tmp_path):
@@ -617,7 +623,7 @@ def _preview(client: TestClient, validation_id: str) -> dict:
 
 
 def _confirm(client: TestClient, validation_id: str) -> dict:
-    response = client.post(f"/api/imports/{validation_id}/confirm")
+    response = client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True})
     assert response.status_code == 200
     return response.json()
 
@@ -733,7 +739,7 @@ def test_acta_without_number_is_rejected_and_not_registered(client: TestClient):
     )
 
     # Sin registros importables la confirmacion queda bloqueada y no hay acta.
-    confirm = client.post(f"/api/imports/{body['validation_id']}/confirm")
+    confirm = client.post(f"/api/imports/{body['validation_id']}/confirm", json={"accept_missing_complementaria": True})
     assert confirm.status_code == 400
     assert client.get("/api/acts").json()["items"] == []
 
@@ -1007,7 +1013,7 @@ def test_acta_persistence_failure_leaves_no_partial_records(
     )
 
     with pytest.raises(RuntimeError):
-        client.post(f"/api/imports/{body['validation_id']}/confirm")
+        client.post(f"/api/imports/{body['validation_id']}/confirm", json={"accept_missing_complementaria": True})
 
     # La confirmacion es atomica: no quedan actas, aprendices ni historial a medias.
     assert client.get("/api/acts").json()["items"] == []
