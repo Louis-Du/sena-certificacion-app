@@ -57,6 +57,7 @@ const learnerTracking = document.querySelector("#learner-tracking");
 const learnerSourcesSection = document.querySelector("#learner-sources-section");
 const learnerSources = document.querySelector("#learner-sources");
 const learnerRequirements = document.querySelector("#learner-requirements");
+const learnerRequirementHistory = document.querySelector("#learner-requirement-history");
 const learnerMoreData = document.querySelector("#learner-more-data");
 const learnerExtra = document.querySelector("#learner-extra");
 const viewLinks = document.querySelectorAll("[data-view]");
@@ -768,6 +769,10 @@ function renderRequirementEditor(items) {
         item.id = result.id;
         item.status = result.status;
         item.observations = result.observations;
+        const detail = await readResponse(
+          await fetch(`/api/learners/${window.currentLearnerId}`),
+        );
+        renderRequirementHistory(detail.requirement_history);
         feedback.textContent = "Guardado.";
       } catch (error) {
         feedback.textContent = error.message;
@@ -775,6 +780,72 @@ function renderRequirementEditor(items) {
     });
     learnerRequirements.appendChild(form);
   });
+}
+
+function requirementSourceLabel(source) {
+  if (source === "import:actas_completo") return "Importación ACTAS 2026";
+  if (source === "import:requisitos") return "Importación matriz de requisitos";
+  if (source === "manual") return "Edición manual";
+  return source || "Origen no registrado";
+}
+
+function formatRequirementHistoryDate(value) {
+  if (!value) return "Sin fecha";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" });
+}
+
+function requirementStatusChipVariant(status) {
+  const normalized = normalizeStatusText(status);
+  if (normalized === "cumplido") return "is-ok";
+  if (normalized === "pendiente") return "is-warning";
+  return "is-neutral";
+}
+
+function renderRequirementHistory(items) {
+  learnerRequirementHistory.replaceChildren();
+  if (!items || !items.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-detail";
+    empty.textContent = "Aún no hay cambios de requisitos registrados.";
+    learnerRequirementHistory.appendChild(empty);
+    return;
+  }
+  const list = document.createElement("div");
+  list.className = "requirement-history-list";
+  items.forEach((event) => {
+    const row = document.createElement("div");
+    row.className = "requirement-history-row";
+
+    const when = document.createElement("time");
+    when.className = "requirement-history-date";
+    when.dateTime = event.recorded_at || "";
+    when.textContent = formatRequirementHistoryDate(event.recorded_at);
+
+    const detail = document.createElement("div");
+    detail.className = "requirement-history-detail";
+    const label = document.createElement("strong");
+    label.textContent = event.requirement_label || event.requirement_type;
+    const source = document.createElement("span");
+    source.className = "requirement-history-source";
+    source.textContent = requirementSourceLabel(event.source);
+    detail.append(label, source);
+
+    const status = document.createElement("span");
+    status.className = `status-chip ${requirementStatusChipVariant(event.status)}`;
+    status.textContent = event.status || "Sin estado";
+
+    row.append(when, detail, status);
+    if (event.note) {
+      const note = document.createElement("span");
+      note.className = "requirement-history-note";
+      note.textContent = event.note;
+      row.appendChild(note);
+    }
+    list.appendChild(row);
+  });
+  learnerRequirementHistory.appendChild(list);
 }
 
 function fillDetailList(container, entries) {
@@ -827,6 +898,7 @@ async function loadLearnerDetail(learnerId) {
       ["Fuente(s) de origen", sources.length ? sources.join(" · ") : "Desconocido"],
     ]);
     renderRequirementEditor(result.requirements);
+    renderRequirementHistory(result.requirement_history);
     const dates = result.dates || {};
     const extraEntries = [
       ["Inicio de ficha", dates.start_date],

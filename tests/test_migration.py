@@ -93,7 +93,9 @@ def test_init_db_adds_missing_columns_and_keeps_existing_data(legacy_engine):
 def test_init_db_creates_tables_that_did_not_exist_in_old_schema(legacy_engine):
     database.init_db()
 
-    assert {"acts", "act_learners", "imported_records"} <= set(inspect(legacy_engine).get_table_names())
+    assert {"acts", "act_learners", "imported_records", "requirement_status_history"} <= set(
+        inspect(legacy_engine).get_table_names()
+    )
 
 
 def test_running_migration_twice_is_idempotent(legacy_engine):
