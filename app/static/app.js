@@ -791,7 +791,10 @@ function requirementSourceLabel(source) {
 
 function formatRequirementHistoryDate(value) {
   if (!value) return "Sin fecha";
-  const date = new Date(value);
+  // recorded_at se guarda en UTC. Si la API entrega una fecha sin zona horaria,
+  // se interpreta como UTC para evitar el desfase de 5 horas de Colombia.
+  const normalized = /(Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`;
+  const date = new Date(normalized);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" });
 }
