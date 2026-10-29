@@ -79,6 +79,7 @@ class ValidationResult:
     extra_columns: list[str] = field(default_factory=list)
     breakdown: dict[str, dict[str, int]] = field(default_factory=dict)
     coherence_conflicts: list[dict[str, Any]] = field(default_factory=list)
+    missing_complementaria: bool = False
 
     def as_dict(self) -> dict:
         return {
@@ -97,6 +98,7 @@ class ValidationResult:
             "extra_columns": self.extra_columns,
             "breakdown": self.breakdown,
             "coherence_conflicts": self.coherence_conflicts,
+            "missing_complementaria": self.missing_complementaria,
         }
 
 
@@ -145,12 +147,14 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
     missing_columns: list[str] = []
     extra_columns: list[str] = []
     inconsistencies = 0
+    missing_complementaria = False
     target_type = information_type
     frame: pd.DataFrame | None = None
 
     try:
         if information_type == "actas_completo":
-            inconsistencies += _check_actas_sheets(content, checks)
+            missing_count, missing_complementaria = _check_actas_sheets(content, checks)
+            inconsistencies += missing_count
         elif extension == ".csv":
             frame = parsers.read_csv_frame(content)
             checks.append({"label": "Columnas leidas correctamente", "status": "ok"})
@@ -361,6 +365,7 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
                 extra_columns=extra_columns,
                 breakdown=breakdown,
                 coherence_conflicts=coherence,
+                missing_complementaria=missing_complementaria,
             )
 
         status = (
@@ -388,6 +393,7 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
             extra_columns=extra_columns,
             breakdown=breakdown,
             coherence_conflicts=coherence,
+            missing_complementaria=missing_complementaria,
         )
     except Exception as error:
         return ValidationResult(
@@ -439,15 +445,21 @@ def _check_actas_sheets(content: bytes, checks: list[dict[str, str]]) -> int:
             "El archivo no contiene ninguna de las hojas esperadas del paquete ACTAS 2026."
         )
 
+    missing_complementaria = "COMPLEMENTARIA" in missing
     for name in missing:
-        suffix = ""
         if name == "COMPLEMENTARIA":
-            suffix = (
-                "; la ausencia se conserva como advertencia (decision administrativa "
-                "pendiente sobre si debe ser bloqueante)"
+            checks.append(
+                {
+                    "label": (
+                        "No se detectó la hoja COMPLEMENTARIA. Esta importación no "
+                        "actualizará formación complementaria."
+                    ),
+                    "status": "warning",
+                }
             )
-        checks.append({"label": f"Hoja {name} no encontrada{suffix}", "status": "warning"})
-    return len(missing)
+        else:
+            checks.append({"label": f"Hoja {name} no encontrada", "status": "warning"})
+    return len(missing), missing_complementaria
 
 
 def _people_frame(entries) -> pd.DataFrame | None:
