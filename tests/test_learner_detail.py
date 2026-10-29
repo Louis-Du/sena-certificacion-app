@@ -1,6 +1,7 @@
-"""Detalle del aprendiz: el campo `acts` refleja las asociaciones reales con actas.
+"""Detalle del aprendiz: `acts` refleja asociaciones reales y `requirement_history`
+el historial RF-19 de cambios de estado de requisitos.
 
-El campo `history` queda sin definición funcional (ver docs en learners.py):
+El campo `history` sigue sin definición funcional (ver docs en learners.py):
 ImportHistory/ImportedRecord no tienen relación con Learner.
 """
 from app.models import ImportHistory, ImportedRecord, Learner
@@ -31,8 +32,16 @@ def test_detail_without_acts_returns_empty_list_and_keeps_contract(client):
 
     detail = client.get(f"/api/learners/{learner_id}").json()
 
-    assert set(detail) == {"basic_info", "requirements", "acts", "history", "dates"}
+    assert set(detail) == {
+        "basic_info",
+        "requirements",
+        "requirement_history",
+        "acts",
+        "history",
+        "dates",
+    }
     assert detail["acts"] == []
+    assert detail["requirement_history"] == []
     assert detail["history"] == []
 
 

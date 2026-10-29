@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -75,6 +75,9 @@ class Learner(Base):
     requirements: Mapped[list["Requirement"]] = relationship(
         back_populates="learner", cascade="all, delete-orphan"
     )
+    requirement_status_history: Mapped[list["RequirementStatusHistory"]] = relationship(
+        back_populates="learner", cascade="all, delete-orphan"
+    )
     acts: Mapped[list["ActLearner"]] = relationship(
         back_populates="learner", cascade="all, delete-orphan"
     )
@@ -95,6 +98,35 @@ class Requirement(Base):
     observations: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     learner: Mapped[Learner] = relationship(back_populates="requirements")
+
+
+# Esta clase representa un evento del historial de cambios de estado de los
+# requisitos de un aprendiz (RF-19). Es complemento del estado actual que vive
+# en la tabla ``requirements``: cada alta o cambio de estado genera un evento.
+class RequirementStatusHistory(Base):
+    __tablename__ = "requirement_status_history"
+    __table_args__ = (
+        Index("ix_requirement_status_history_learner_recorded", "learner_id", "recorded_at"),
+        Index(
+            "ix_requirement_status_history_learner_type_recorded",
+            "learner_id",
+            "requirement_type",
+            "recorded_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    learner_id: Mapped[int] = mapped_column(ForeignKey("learners.id"), index=True)
+    requirement_type: Mapped[str] = mapped_column(String(100), index=True)
+    status: Mapped[str] = mapped_column(String(50))
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    learner: Mapped["Learner"] = relationship(back_populates="requirement_status_history")
+
 
 # Esta clase representa un acta asociada a un aprendiz en la base de datos.
 class Act(Base):

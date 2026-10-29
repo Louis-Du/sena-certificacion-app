@@ -39,9 +39,9 @@ def test_status_chips_control_select_and_clear(page, app_url):
         "() => document.querySelector('#learner-status').value === 'PENDIENTE'"
     )
     page.wait_for_function(
-        "() => document.querySelector('#learners-list').textContent.includes('Bruno')"
+        "() => { const text = document.querySelector('#learners-list').textContent;"
+        " return text.includes('Bruno') && !text.includes('Ana'); }"
     )
-    assert "Ana" not in page.locator("#learners-list").text_content()
     assert (
         page.locator("#learner-status-chips .status-chip-button.is-active").text_content()
         == "PENDIENTE 1"
@@ -55,7 +55,8 @@ def test_status_chips_control_select_and_clear(page, app_url):
 
     page.select_option("#learner-status", "CERTIFICADOS")
     page.wait_for_function(
-        "() => document.querySelector('#learners-list').textContent.includes('Ana')"
+        "() => { const text = document.querySelector('#learners-list').textContent;"
+        " return text.includes('Ana') && !text.includes('Bruno'); }"
     )
     assert "Bruno" not in page.locator("#learners-list").text_content()
     assert (

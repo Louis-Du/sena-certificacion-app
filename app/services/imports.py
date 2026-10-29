@@ -4,6 +4,7 @@ import hashlib
 import json
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -358,14 +359,25 @@ def confirm_import(
             for record, rtype in final_records
             if rtype in {"certificados", "pendientes"}
         ]
+        sync_recorded_at = datetime.now(timezone.utc)
         if evidence_records:
-            _sync_actas_requirements(session, evidence_records)
+            _sync_actas_requirements(
+                session,
+                evidence_records,
+                source="import:actas_completo",
+                recorded_at=sync_recorded_at,
+            )
 
         requisitos_records = [
             record for record, rtype in final_records if rtype == "requisitos"
         ]
         if requisitos_records:
-            _sync_requirements_from_records(session, requisitos_records)
+            _sync_requirements_from_records(
+                session,
+                requisitos_records,
+                source="import:requisitos",
+                recorded_at=sync_recorded_at,
+            )
 
         if staged.information_type == "acta":
             # El acta y sus relaciones se guardan en la misma transaccion que el
@@ -394,7 +406,11 @@ def import_result(history: ImportHistory) -> dict[str, Any]:
         "id": history.id,
         "file_name": history.file_name,
         "information_type": history.information_type,
-        "imported_at": history.imported_at.isoformat(),
+        "imported_at": (
+            history.imported_at.replace(tzinfo=timezone.utc).isoformat()
+            if history.imported_at is not None and history.imported_at.tzinfo is None
+            else (history.imported_at.isoformat() if history.imported_at else None)
+        ),
         "records_count": history.records_count,
         "new_records": history.new_records,
         "updated_records": history.updated_records,
@@ -478,10 +494,14 @@ def _normalize_key(value: str) -> str:
     return " ".join(ascii_value.lower().replace("_", " ").split())
 
 
-def _sync_requirements_from_records(session: Session, records: list[dict[str, Any]]) -> int:
-    from app.models import Requirement
+def _sync_requirements_from_records(
+    session: Session,
+    records: list[dict[str, Any]],
+    source: str = "import:requisitos",
+    recorded_at: datetime | None = None,
+) -> int:
     from app.services.parsers import clean_identification, normalize_text
-    from app.services.requirements import REQUIREMENT_TYPES
+    from app.services.requirements import REQUIREMENT_TYPES, upsert_requirement_status
 
     req_map = {
         "rap": "learning_outcome",
@@ -549,25 +569,15 @@ def _sync_requirements_from_records(session: Session, records: list[dict[str, An
         obs = norm.get("observaciones") or norm.get("novedades") or norm.get("motivo")
         obs_text = str(obs).strip() if obs and not pd.isna(obs) else None
 
-        existing_req = session.scalar(
-            select(Requirement).where(
-                Requirement.learner_id == learner.id,
-                Requirement.requirement_type == req_type,
-            )
+        upsert_requirement_status(
+            session,
+            learner_id=learner.id,
+            requirement_type=req_type,
+            status=status,
+            observations=obs_text,
+            source=source,
+            recorded_at=recorded_at,
         )
-        if existing_req is None:
-            session.add(
-                Requirement(
-                    learner_id=learner.id,
-                    requirement_type=req_type,
-                    status=status,
-                    observations=obs_text,
-                )
-            )
-        else:
-            existing_req.status = status
-            if obs_text:
-                existing_req.observations = obs_text
         count += 1
     return count
 
@@ -630,7 +640,12 @@ def _register_sources(
     set_learner_sources(session, sources)
 
 
-def _sync_actas_requirements(session: Session, records: list[dict[str, Any]]) -> int:
+def _sync_actas_requirements(
+    session: Session,
+    records: list[dict[str, Any]],
+    source: str = "import:actas_completo",
+    recorded_at: datetime | None = None,
+) -> int:
     """Crea o actualiza los requisitos desde las columnas de evidencias del acta.
 
     Cada columna de checklist de CERTIFICADOS/PENDIENTES es un requisito del
@@ -638,9 +653,8 @@ def _sync_actas_requirements(session: Session, records: list[dict[str, Any]]) ->
     aplica, vacio u otro -> Pendiente. Solo se procesan las columnas que existen
     en la hoja; una columna ausente no genera un requisito inventado.
     """
-    from app.models import Requirement
     from app.services.parsers import clean_identification
-    from app.services.requirements import evidence_status
+    from app.services.requirements import evidence_status, upsert_requirement_status
 
     count = 0
     for record in records:
@@ -658,21 +672,13 @@ def _sync_actas_requirements(session: Session, records: list[dict[str, Any]]) ->
             if field not in record:
                 continue
             status = evidence_status(record.get(field))
-            existing = session.scalar(
-                select(Requirement).where(
-                    Requirement.learner_id == learner.id,
-                    Requirement.requirement_type == field,
-                )
+            upsert_requirement_status(
+                session,
+                learner_id=learner.id,
+                requirement_type=field,
+                status=status,
+                source=source,
+                recorded_at=recorded_at,
             )
-            if existing is None:
-                session.add(
-                    Requirement(
-                        learner_id=learner.id,
-                        requirement_type=field,
-                        status=status,
-                    )
-                )
-            else:
-                existing.status = status
             count += 1
     return count
