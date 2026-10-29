@@ -229,7 +229,11 @@ def list_requirement_history(
                 event.requirement_type or "", event.requirement_type
             ),
             "status": event.status,
-            "recorded_at": event.recorded_at.isoformat() if event.recorded_at else None,
+            "recorded_at": (
+                event.recorded_at.replace(tzinfo=timezone.utc).isoformat()
+                if event.recorded_at is not None and event.recorded_at.tzinfo is None
+                else (event.recorded_at.isoformat() if event.recorded_at else None)
+            ),
             "source": event.source,
             "note": event.note,
         }

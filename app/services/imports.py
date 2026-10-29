@@ -406,7 +406,11 @@ def import_result(history: ImportHistory) -> dict[str, Any]:
         "id": history.id,
         "file_name": history.file_name,
         "information_type": history.information_type,
-        "imported_at": history.imported_at.isoformat(),
+        "imported_at": (
+            history.imported_at.replace(tzinfo=timezone.utc).isoformat()
+            if history.imported_at is not None and history.imported_at.tzinfo is None
+            else (history.imported_at.isoformat() if history.imported_at else None)
+        ),
         "records_count": history.records_count,
         "new_records": history.new_records,
         "updated_records": history.updated_records,
