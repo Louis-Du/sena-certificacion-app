@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Learner, Requirement
+from app.models import Learner, Requirement, RequirementStatusHistory
 
 REQUIREMENT_TYPES = {
     # Tipos genéricos: se conservan para la edición manual y las cargas
@@ -82,12 +83,25 @@ def save_requirement(
     if duplicate is not None:
         raise ValueError("Ya existe este requisito para el aprendiz.")
 
+    is_new = requirement is None
+    previous_status = requirement.status if requirement is not None else None
     if requirement is None:
         requirement = Requirement(learner_id=learner_id, requirement_type=requirement_type)
         session.add(requirement)
     requirement.requirement_type = requirement_type
     requirement.status = status
     requirement.observations = observations.strip() if observations else None
+    # Historial (RF-19): solo se registra alta o cambio de estado, nunca
+    # duplicados cuando el estado se repite.
+    if is_new or previous_status != status:
+        _record_requirement_status_change(
+            session,
+            learner_id=learner_id,
+            requirement_type=requirement_type,
+            status=status,
+            source="manual",
+            recorded_at=datetime.now(timezone.utc),
+        )
     session.commit()
     session.refresh(requirement)
     return requirement_result(requirement)
@@ -103,6 +117,124 @@ def requirement_result(requirement: Requirement) -> dict[str, Any]:
         "status": requirement.status,
         "observations": requirement.observations,
     }
+
+
+def upsert_requirement_status(
+    session: Session,
+    learner_id: int,
+    requirement_type: str,
+    status: str,
+    observations: str | None = None,
+    source: str = "import",
+    recorded_at: datetime | None = None,
+    note: str | None = None,
+) -> Requirement:
+    """Crea o actualiza un requisito y registra historial solo si cambia.
+
+    No hace commit: el llamador controla la transaccion (import o guardado
+    manual). La regla RF-19 es unica: alta o cambio de estado generan un evento;
+    repetir el mismo estado no duplica historial.
+    """
+    validate_requirement_type(requirement_type)
+    validate_status(status)
+    requirement = session.scalar(
+        select(Requirement).where(
+            Requirement.learner_id == learner_id,
+            func.lower(Requirement.requirement_type) == requirement_type.lower(),
+        )
+    )
+    if requirement is None:
+        requirement = Requirement(
+            learner_id=learner_id,
+            requirement_type=requirement_type,
+            status=status,
+            observations=observations,
+        )
+        session.add(requirement)
+        _record_requirement_status_change(
+            session,
+            learner_id=learner_id,
+            requirement_type=requirement_type,
+            status=status,
+            source=source,
+            recorded_at=recorded_at,
+            note=note,
+        )
+        session.flush()
+        return requirement
+
+    if requirement.status != status:
+        requirement.status = status
+        _record_requirement_status_change(
+            session,
+            learner_id=learner_id,
+            requirement_type=requirement_type,
+            status=status,
+            source=source,
+            recorded_at=recorded_at,
+            note=note,
+        )
+    if observations is not None:
+        requirement.observations = observations
+    session.flush()
+    return requirement
+
+
+def _record_requirement_status_change(
+    session: Session,
+    learner_id: int,
+    requirement_type: str,
+    status: str,
+    source: str,
+    recorded_at: datetime | None = None,
+    note: str | None = None,
+) -> None:
+    if recorded_at is None:
+        recorded_at = datetime.now(timezone.utc)
+    session.add(
+        RequirementStatusHistory(
+            learner_id=learner_id,
+            requirement_type=requirement_type,
+            status=status,
+            recorded_at=recorded_at,
+            source=source,
+            note=note,
+        )
+    )
+
+
+def list_requirement_history(
+    session: Session, learner_id: int
+) -> list[dict[str, Any]] | None:
+    """Historial RF-19 del aprendiz, ordenado del evento más reciente al más antiguo.
+
+    ``recorded_at`` es el momento de confirmación del import o del guardado
+    manual; no se inventan fechas de negocio que no vengan en la fuente.
+    """
+    if session.get(Learner, learner_id) is None:
+        return None
+    events = session.scalars(
+        select(RequirementStatusHistory)
+        .where(RequirementStatusHistory.learner_id == learner_id)
+        .order_by(
+            RequirementStatusHistory.recorded_at.desc(),
+            RequirementStatusHistory.id.desc(),
+        )
+    ).all()
+    return [
+        {
+            "id": event.id,
+            "requirement_type": event.requirement_type,
+            "requirement_label": REQUIREMENT_TYPES.get(
+                event.requirement_type or "", event.requirement_type
+            ),
+            "status": event.status,
+            "recorded_at": event.recorded_at.isoformat() if event.recorded_at else None,
+            "source": event.source,
+            "note": event.note,
+        }
+        for event in events
+    ]
 
 
 def validate_requirement_type(requirement_type: str) -> None:

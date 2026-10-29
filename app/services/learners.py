@@ -15,7 +15,11 @@ from sqlalchemy.orm import Session
 
 from app.models import Act, ActLearner, ImportedRecord, Learner, Requirement
 from app.services.parsers import normalize_learner_name, normalize_program_name
-from app.services.requirements import REQUIREMENT_TYPES, editor_requirements
+from app.services.requirements import (
+    REQUIREMENT_TYPES,
+    editor_requirements,
+    list_requirement_history,
+)
 
 POR_CERTIFICAR_STATUS = "Por Certificar"
 
@@ -277,6 +281,7 @@ def get_learner_detail(session: Session, learner_id: int) -> dict[str, Any] | No
     return {
         "basic_info": learner_result(learner, summary),
         "requirements": requirements or [],
+        "requirement_history": list_requirement_history(session, learner_id) or [],
         "acts": learner_acts(session, learner_id),
         # Pendiente de definición funcional: ImportHistory/ImportedRecord no tienen
         # relación con Learner, así que no se atribuyen importaciones al aprendiz.
