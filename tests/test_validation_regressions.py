@@ -1167,3 +1167,96 @@ def test_acta_does_not_degrade_program_of_existing_learner(client: TestClient):
     learners = _learners_by_identification(client)
     # El acta no degrada el programa ya consolidado por DF14A.
     assert learners["1001017001"]["program"] == "OPERACIONES COMERCIALES"
+
+
+def test_import_does_not_degrade_clean_name_of_existing_learner(client: TestClient):
+    from app.services.learners import _text_is_weaker
+
+    assert _text_is_weaker("MATEO LOPEZ ESPINOSA", "MATEO LOPEZ ESPINOS A") is True
+    assert _text_is_weaker("MATEO LOPEZ ESPINOS A", "MATEO LOPEZ ESPINOSA") is False
+
+    df14a = (
+        "DOCUMENTO,NOMBRES,FICHA,PROGRAMA,ESTADO_ASPIRANTE\n"
+        "1001018001,MATEO LOPEZ ESPINOSA,3001,GESTION DE REDES,Por Certificar\n"
+    ).encode("utf-8")
+    seeded = _upload_bytes(client, "df14a.csv", df14a, information_type="df14a")
+    _confirm(client, seeded["validation_id"])
+
+    # Segunda carga simulando una fuente con nombre fragmentado
+    second = (
+        "DOCUMENTO,NOMBRES,FICHA,PROGRAMA,ESTADO_ASPIRANTE\n"
+        "1001018001,MATEO LOPEZ ESPINOS A,3001,GESTION DE REDES,Por Certificar\n"
+    ).encode("utf-8")
+    reimported = _upload_bytes(client, "df14a_2.csv", second, information_type="df14a")
+    _confirm(client, reimported["validation_id"])
+
+    learners = _learners_by_identification(client)
+    assert learners["1001018001"]["name"] == "MATEO LOPEZ ESPINOSA"
+
+
+def test_renormalize_persisted_learners(db_session):
+    from app.models import Learner
+    from app.services.learners import renormalize_persisted_learners
+
+    db_session.add_all([
+        Learner(
+            identification="999888777",
+            name="MATEO LOPEZ ESPINOS A",
+            program="PROCESOS PARA LA COMERCIALI ZACION INTERNACIO NAL",
+            group_code="12345",
+        ),
+        Learner(
+            identification="1002412610",
+            name="YOLAINE JUDITH HERNAN DEZ CASTRO",
+            program="OPERACIO NES COMERCI ALES EN RETAIL",
+            group_code="3140661",
+        ),
+        Learner(
+            identification="1043973527",
+            name="VALERYN ZENITH LOPEZ CHARRAS QUIEL",
+            program="GESTION CONTABLE Y DE INFORMACI ON FINANCIERA",
+            group_code="3020613",
+        ),
+        Learner(
+            identification="1043648540",
+            name="VANESA PALACIO GALLEGO",
+            program="COORDIN ACION DE PROCESOS LOGISTICOS",
+            group_code="2993445",
+        ),
+        Learner(
+            identification="57270204",
+            name="YOLIBETH BENAVIDES",
+            program="PANIFICACI ON.",
+            group_code="3067100",
+        ),
+        Learner(
+            identification="1151201822",
+            name="YULIS ISABEL CASTRO TERAN",
+            program="CONTABILIZ ACION DE OPERACIONES COMERCIALES Y FINANCIERAS.",
+            group_code="3140690",
+        ),
+    ])
+    db_session.flush()
+
+    updated = renormalize_persisted_learners(db_session)
+    assert updated == 6
+
+    l1 = db_session.query(Learner).filter_by(identification="999888777").one()
+    assert l1.name == "MATEO LOPEZ ESPINOSA"
+    assert l1.program == "PROCESOS PARA LA COMERCIALIZACION INTERNACIONAL"
+
+    l2 = db_session.query(Learner).filter_by(identification="1002412610").one()
+    assert l2.name == "YOLAINE JUDITH HERNANDEZ CASTRO"
+    assert l2.program == "OPERACIONES COMERCIALES EN RETAIL"
+
+    l3 = db_session.query(Learner).filter_by(identification="1043973527").one()
+    assert l3.program == "GESTION CONTABLE Y DE INFORMACION FINANCIERA"
+
+    l4 = db_session.query(Learner).filter_by(identification="1043648540").one()
+    assert l4.program == "COORDINACION DE PROCESOS LOGISTICOS"
+
+    l5 = db_session.query(Learner).filter_by(identification="57270204").one()
+    assert l5.program == "PANIFICACION"
+
+    l6 = db_session.query(Learner).filter_by(identification="1151201822").one()
+    assert l6.program == "CONTABILIZACION DE OPERACIONES COMERCIALES Y FINANCIERAS"
