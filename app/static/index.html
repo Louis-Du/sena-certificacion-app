@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-  <link href="/static/styles.css?v=20261030-1" rel="stylesheet">
+  <link href="/static/styles.css?v=20261030-2" rel="stylesheet">
 </head>
 
 <body>
@@ -28,7 +28,7 @@
 
     <header class="topbar" id="carga">
       <div class="brand-mark" aria-hidden="true">SC</div>
-      <div><p class="eyebrow">Sena Certificación</p><h1>Cargar información</h1><p class="subtitle">Importa archivos utilizados para el seguimiento del proceso de certificación.</p></div>
+      <div><p class="eyebrow">SENA Certificación</p><h1>Cargar información</h1><p class="subtitle">Importa archivos oficiales, bases DF14A o matrices de seguimiento para la certificación.</p></div>
       <span class="prototype-note">◈ Prototipo - reglas por confirmar</span>
     </header>
 
@@ -84,7 +84,7 @@
           </div>
         </article>
 
-        <article class="panel upload-panel"><div class="panel-heading"><div><h2>Archivo</h2><p>Tamaño maximo recomendado: 20 MB</p></div></div><div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="Seleccionar archivo">
+        <article class="panel upload-panel"><div class="panel-heading"><div><h2>Archivo</h2><p>Tamaño máximo recomendado: 20 MB</p></div></div><div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="Seleccionar archivo">
           <div class="upload-icon">↑</div><h3>Arrastra el archivo aquí</h3><p>o selecciona un archivo desde tu equipo</p><button id="select-button" class="select-button" type="button">▣ &nbsp; Seleccionar archivo</button><small>Formatos admitidos: XLSX, XLS, CSV, PDF y DOCX</small><input id="file-input" type="file" hidden accept=".xlsx,.xls,.csv,.pdf,.docx">
         </div></article>
 
@@ -117,7 +117,7 @@
         <div class="actions"><button id="cancel-button" class="cancel-button" type="button">Cancelar</button><button id="validate-button" class="primary-button" type="button" disabled>→ &nbsp; Validar información</button><button id="confirm-button" class="primary-button" type="button" hidden>✓ &nbsp; Confirmar importación</button></div>
       </section>
 
-      <aside class="side-column"><article class="panel guidance-panel"><h2>Antes de cargar</h2><p>Verifica el archivo antes de continuar</p><ul><li>Los documentos deben ser ficticios en este prototipo.</li><li>La primera fila debe contener encabezados.</li><li>No se conecta con SOFIA Plus ni con sistemas externos.</li><li>La importacion podra cancelarse antes de confirmar.</li></ul></article><article class="panel history-panel" id="historial"><div class="panel-heading"><div><h2>Ultimas importaciones</h2><p>Archivos confirmados en este equipo</p></div></div><div id="history-list" class="history-list"><small>Aun no hay importaciones.</small></div></article></aside>
+      <aside class="side-column"><article class="panel guidance-panel"><div class="panel-heading"><div><h2>Antes de cargar</h2><p>Verifica el archivo antes de continuar</p></div></div><ul><li>Los documentos deben ser ficticios en este prototipo.</li><li>La primera fila debe contener encabezados.</li><li>No se conecta con SOFIA Plus ni con sistemas externos.</li><li>La importación podrá cancelarse antes de confirmar.</li></ul></article><article class="panel history-panel" id="historial"><div class="panel-heading"><div><h2>Últimas importaciones</h2><p>Archivos confirmados en este equipo</p></div></div><div id="history-list" class="history-list"><small>Aún no hay importaciones.</small></div></article></aside>
     </div>
       </div>
       <div id="aprendices-view" class="app-view" hidden>
