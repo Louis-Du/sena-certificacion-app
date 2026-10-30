@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 # Importamos varias funciones y clases de nuestro propio módulo app para manejar la base de datos, modelos, servicios y validaciones.
-from app.database import get_db, init_db
+from app.database import SessionLocal, get_db, init_db
 from app.models import Act
 from app.services.imports import (
     confirm_import,
@@ -37,7 +37,12 @@ from app.services.acts import (
     unlink_learner_from_act,
     update_act,
 )
-from app.services.learners import get_learner_detail, learners_with_pending, list_learners
+from app.services.learners import (
+    get_learner_detail,
+    learners_with_pending,
+    list_learners,
+    renormalize_persisted_learners,
+)
 from app.services.requirements import (
     REQUIREMENT_STATUSES,
     REQUIREMENT_TYPES,
@@ -53,6 +58,12 @@ BASE_DIR = Path(__file__).resolve().parent
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    try:
+        with SessionLocal() as session:
+            renormalize_persisted_learners(session)
+            session.commit()
+    except Exception:
+        pass
     yield
 
 
