@@ -117,7 +117,7 @@ def clean_act_number(value: Any) -> str | None:
     return clean_identification(value)
 
 
-def heal_fragmented_text(text: str) -> str:
+def heal_fragmented_text(text: str, is_name: bool = False) -> str:
     """
     Intenta corregir texto fragmentado por el extractor de PDF.
 
@@ -128,10 +128,10 @@ def heal_fragmented_text(text: str) -> str:
     if not text:
         return text
 
-    # Limpieza inicial de ruidos comunes en PDF
-    text = re.sub(r"\s+\.\s*$", "", text)
-    text = re.sub(r"^\.\s*", "", text)
+    # Limpieza inicial de ruidos comunes en PDF (puntos y espacios flotantes al inicio/fin)
     text = re.sub(r"\s+\.", ".", text)
+    text = re.sub(r"^[.\s]+", "", text)
+    text = re.sub(r"[.\s]+$", "", text)
 
     words = text.split()
     if not words:
@@ -139,16 +139,25 @@ def heal_fragmented_text(text: str) -> str:
 
     # Conectores y palabras cortas que NO deben unirse al anterior
     connectors = {
-        "de", "del", "la", "las", "los", "y", "e", "en", "para", "a", "o", "u",
-        "con", "por", "si", "no", "su", "sus"
+        "de", "del", "la", "las", "los", "el", "y", "e", "en", "para",
+        "con", "por", "si", "no", "su", "sus", "sin", "sobre"
     }
-    # Casos especiales: 'al' puede ser conector ("atencion al cliente") o
-    # fragmento ("document al"). Si es la ultima palabra o le sigue un
-    # conector, suele ser fragmento.
+    # Sufijos y fragmentos terminales comunes en cortes de linea de PDF
     suffixes = {
         "es", "al", "iva", "ica", "as", "tiva", "ora", "dor", "cion",
         "ion", "os", "ez", "za", "erly", "na", "ria", "rio", "ico",
-        "ero", "era", "ment", "ante", "ente", "ista", "ismo"
+        "ero", "era", "ment", "ante", "ente", "ista", "ismo",
+        # Sufijos adicionales frecuentes en programas y nombres
+        "zacion", "zaciones", "nal", "nales", "ro", "ra", "rro", "rra",
+        "ros", "ras", "rros", "rras", "miento", "mientos", "ciones",
+        "sion", "siones", "tivo", "tivos", "tivas", "dora", "dores",
+        "doras", "dad", "dades", "icos", "icas", "logia", "logico",
+        "logica", "logicos", "logicas",
+        # Cortes a mitad de raiz frecuentes
+        "nes", "ales", "on", "acion", "aciones", "dez", "tez",
+        "ble", "bles", "encia", "encias", "ancia", "ancias",
+        "tor", "tores", "tora", "toras", "tura", "turas",
+        "lez", "rez", "quez", "chez", "pez", "gues", "guez",
     }
 
     healed = [words[0]]
@@ -160,11 +169,52 @@ def heal_fragmented_text(text: str) -> str:
         should_join = False
         if lower_word in connectors:
             should_join = False
-        # Heuristica: unir si es una sola letra (ej. "INTEGRACIO N")
-        elif len(lower_word) == 1 and lower_word.isalpha():
-            # Excepcion: 'y', 'e', 'a', 'o', 'u' son conectores de una letra
-            if lower_word not in {"y", "e", "a", "o", "u"}:
+        # Manejo de 'a', 'o', 'u' (vocales que pueden ser conector en frases pero fragmento en nombres o al final)
+        elif lower_word in {"a", "o", "u"}:
+            prev_lower = prev.lower()
+            last_char = prev_lower[-1]
+            # Si la palabra previa ya termina en vocal (a, e, o, u) o es un descriptor
+            # clasificador como "programa", "nivel", "grupo", "curso", "fase":
+            # "Programa A", "Nivel A", "Grupo A", "Curso A", "Fase A", etc. NO deben unirse.
+            if last_char in {"a", "e", "o", "u"} or prev_lower in {
+                "programa", "nivel", "grupo", "curso", "fase", "modulo",
+                "bloque", "categoria", "tipo", "clase", "grado", "seccion"
+            }:
+                should_join = False
+            elif is_name:
+                # En nombres de personas, las consonantes finales seguidas de 'a' u 'o'
+                # corresponden a fragmentos (ej. "ESPINOS A", "CARCAM O", "ALEJANDR A", "FERNAND A").
                 should_join = True
+            elif i == len(words) - 1:
+                # En programas al final: si termina en 'i' (tecnologi a) o consonante truncada
+                # (logistic a, administrac a, espinos a), se une.
+                if last_char == "i" and len(prev_lower) >= 4:
+                    should_join = True
+                elif prev_lower.endswith((
+                    "ndr", "nd", "str", "ntr", "mbr", "rbr", "ldr", "ncl", "mpl",
+                    "rcam", "sayonar", "brocher", "espinos"
+                )):
+                    should_join = True
+                elif len(prev_lower) >= 4 and last_char in {"m", "b", "c", "p", "t", "v", "s", "r"}:
+                    should_join = True
+                else:
+                    should_join = False
+            else:
+                # En posición intermedia de programas
+                if last_char == "i" and len(prev_lower) >= 4:
+                    should_join = True
+                elif prev_lower.endswith((
+                    "ndr", "nd", "str", "ntr", "mbr", "rbr", "ldr", "ncl", "mpl",
+                    "rcam", "sayonar", "brocher", "espinos"
+                )):
+                    should_join = True
+                elif len(prev_lower) >= 4 and last_char in {"m", "b", "c", "p", "t", "v"}:
+                    should_join = True
+                else:
+                    should_join = False
+        # Heuristica: unir si es una sola letra (ej. "INTEGRACIO N", "HOTELERO S")
+        elif len(lower_word) == 1 and lower_word.isalpha():
+            should_join = True
         # Heuristica: unir si es un sufijo conocido fragmentado
         elif lower_word in suffixes:
             # Excepcion para 'al': solo unir si parece fragmento
@@ -190,11 +240,11 @@ def heal_fragmented_text(text: str) -> str:
                 should_join = True
 
         if should_join:
-            healed[-1] = prev + word
+            healed[-1] = prev + word.strip(".,")
         else:
             healed.append(word)
 
-    return " ".join(healed)
+    return " ".join(healed).strip(" .")
 
 
 def normalize_program_name(value: Any) -> str | None:
@@ -216,8 +266,9 @@ def normalize_program_name(value: Any) -> str | None:
     if text.strip().lower() in {"nan", "nat", "none"}:
         return None
     # Colapsar espacios y sanar fragmentos
-    clean = " ".join(text.split())
-    return heal_fragmented_text(clean) or None
+    clean = " ".join(text.split()).strip(" .")
+    res = heal_fragmented_text(clean, is_name=False)
+    return res.strip(" .") if res else None
 
 
 def normalize_learner_name(value: Any) -> str | None:
@@ -230,8 +281,9 @@ def normalize_learner_name(value: Any) -> str | None:
     if text.strip().lower() in {"nan", "nat", "none"}:
         return None
     # Colapsar espacios y sanar fragmentos
-    clean = " ".join(text.split())
-    return heal_fragmented_text(clean) or None
+    clean = " ".join(text.split()).strip(" .")
+    res = heal_fragmented_text(clean, is_name=True)
+    return res.strip(" .") if res else None
 
 
 # ---------------------------------------------------------------------------
@@ -1172,9 +1224,11 @@ def _learners_from_rows(
         # nombre completo en el orden en que aparecen en el documento.
         if learner.get("apellidos") and learner.get("nombre"):
             if mapping.get("apellidos", 0) < mapping.get("nombre", 0):
-                learner["nombre"] = f"{learner['apellidos']} {learner['nombre']}".strip()
+                full_raw = f"{learner['apellidos']} {learner['nombre']}".strip()
             else:
-                learner["nombre"] = f"{learner['nombre']} {learner['apellidos']}".strip()
+                full_raw = f"{learner['nombre']} {learner['apellidos']}".strip()
+            name = normalize_learner_name(full_raw) or name
+        learner["nombre"] = name
         learner.pop("apellidos", None)
         learners.append(learner)
     return learners
@@ -1357,6 +1411,9 @@ def extract_acta_data(file_name: str, content: bytes) -> dict[str, Any]:
     # El programa se guarda en una sola linea: en los PDF la columna suele venir
     # partida por el ancho de la celda ("OPERACIONES\nCOMERCIALES").
     for learner in learners:
+        name = normalize_learner_name(learner.get("nombre"))
+        if name:
+            learner["nombre"] = name
         program = normalize_program_name(learner.get("programa"))
         if program:
             learner["programa"] = program

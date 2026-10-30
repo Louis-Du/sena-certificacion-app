@@ -10,7 +10,7 @@ from unicodedata import normalize
 # Se importa Any del módulo typing para indicar que una variable puede ser de cualquier tipo, lo que es útil para funciones que devuelven datos heterogéneos.
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, inspect, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import Act, ActLearner, ImportedRecord, Learner, Requirement
@@ -385,7 +385,7 @@ def upsert_learners_from_records(
     ).all()
     existing_by_identification = {learner.identification: learner for learner in existing}
 
-    # Heurística #53: sanar programas fragmentados usando otros registros ya limpios en la BD
+    # Heurística #53: sanar programas y nombres fragmentados usando otros registros ya limpios en la BD
     unique_programs = {row["program"] for row in deduplicated_rows if row.get("program")}
     if unique_programs:
         program_clean_map = {}
@@ -408,6 +408,31 @@ def upsert_learners_from_records(
                 if row.get("program") in program_clean_map:
                     row["program"] = program_clean_map[row["program"]]
 
+    unique_names = {
+        row["name"]
+        for row in deduplicated_rows
+        if row.get("name") and row["name"] != "Aprendiz sin nombre"
+    }
+    if unique_names:
+        name_clean_map = {}
+        for nm in unique_names:
+            slug = re.sub(r"\s+", "", nm)
+            if len(slug) < 5:
+                continue
+            cleaner = session.execute(
+                select(Learner.name)
+                .where(func.replace(Learner.name, " ", "") == slug)
+                .order_by(func.length(Learner.name).asc())
+                .limit(1)
+            ).scalar()
+            if cleaner and len(cleaner.split()) < len(nm.split()):
+                name_clean_map[nm] = cleaner
+
+        if name_clean_map:
+            for row in deduplicated_rows:
+                if row.get("name") in name_clean_map:
+                    row["name"] = name_clean_map[row["name"]]
+
     updated = 0
     for row in deduplicated_rows:
         if row["identification"] in skip_status:
@@ -423,7 +448,7 @@ def upsert_learners_from_records(
                 continue
             if field == "name" and value == "Aprendiz sin nombre" and learner.name and learner.name != "Aprendiz sin nombre":
                 continue
-            if field == "program" and _program_is_weaker(learner.program, value):
+            if field in ("program", "name") and _text_is_weaker(getattr(learner, field), value):
                 continue
             if getattr(learner, field) != value:
                 setattr(learner, field, value)
@@ -434,25 +459,28 @@ def upsert_learners_from_records(
     return updated
 
 
-def _program_is_weaker(existing: str | None, incoming: str | None) -> bool:
-    """Indica si ``incoming`` es una version mas fragmentada del programa.
+def _text_is_weaker(existing: str | None, incoming: str | None) -> bool:
+    """Indica si ``incoming`` es una version mas fragmentada del texto.
 
     Un acta PDF puede partir el nombre en varias lineas ("OPERACION ES COMERCIAL
     ES") mientras que el consolidado trae la forma limpia ("OPERACIONES
     COMERCIALES"). Cuando al quitar los espacios ambas formas coinciden, se
     conserva la que tiene menos fragmentos; tambien se conserva la existente si
     el valor entrante es solo una parte de ella. Asi una fuente menos limpia no
-    degrada un programa ya guardado.
+    degrada un programa o nombre ya guardado.
     """
     if not existing or not incoming:
         return False
-    existing_slug = re.sub(r"\s+", "", existing)
-    incoming_slug = re.sub(r"\s+", "", incoming)
+    existing_slug = re.sub(r"[\s.,]+", "", existing)
+    incoming_slug = re.sub(r"[\s.,]+", "", incoming)
     if not incoming_slug:
         return True
     if existing_slug == incoming_slug:
         return len(incoming.split()) > len(existing.split())
     return incoming_slug in existing_slug
+
+
+_program_is_weaker = _text_is_weaker
 
 
 def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
@@ -558,3 +586,41 @@ def _clean_identification(value: str) -> str:
         if suffix.isdigit():
             return suffix
     return cleaned
+
+
+def renormalize_persisted_learners(session: Session) -> int:
+    """Re-aplica la normalización y saneamiento a nombres y programas ya guardados."""
+    try:
+        bind = session.get_bind()
+        if not inspect(bind).has_table("learners"):
+            return 0
+        learners = session.scalars(select(Learner)).all()
+    except Exception:
+        return 0
+    updated = 0
+    for learner in learners:
+        changed = False
+        if learner.name:
+            healed_name = normalize_learner_name(learner.name)
+            if healed_name and healed_name != learner.name:
+                learner.name = healed_name
+                changed = True
+        if learner.program:
+            healed_prog = normalize_program_name(learner.program)
+            if healed_prog and healed_prog != learner.program:
+                learner.program = healed_prog
+                changed = True
+        if changed:
+            updated += 1
+    if updated > 0:
+        session.flush()
+    return updated
+
+
+if __name__ == "__main__":
+    from app.database import SessionLocal
+
+    with SessionLocal() as s:
+        count = renormalize_persisted_learners(s)
+        s.commit()
+        print(f"Aprendices renormalizados: {count}")
