@@ -6,142 +6,46 @@
   <title>SENA Certificación</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-  <link href="/static/styles.css?v=20261030-final" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="/static/styles.css?v=20261030-v2" rel="stylesheet">
 </head>
 
 <body>
   <main class="shell">
     <div class="app-layout">
-      <nav class="sidebar" aria-label="Navegación principal">
-        <div class="sidebar-brand"><div class="brand-mark" aria-hidden="true">SC</div><strong>SENA<br>Certificación</strong></div>
-        <a class="sidebar-link" href="#dashboard" data-view="dashboard">📊 <span>Dashboard</span></a>
-        <a class="sidebar-link active" href="#carga" data-view="carga">↑ <span>Cargar información</span></a>
-        <a class="sidebar-link" href="#historial" data-view="carga">▤ <span>Historial</span></a>
-        <a class="sidebar-link" href="#aprendices" data-view="aprendices">♙ <span>Aprendices</span></a>
-        <a class="sidebar-link" href="#actas" data-view="actas">📋 <span>Actas</span></a>
-        <a class="sidebar-link" href="#indicadores" data-view="indicadores">◐ <span>Indicadores</span></a>
-        <div class="sidebar-footer">Sistema Local · 2026<br><small>Centro de Comercio y Servicios</small></div>
+            <nav class="sidebar" id="app-sidebar" aria-label="Navegación principal">
+        <div class="sidebar-brand">
+          <div class="brand-mark" aria-hidden="true">SC</div>
+          <strong>SENA Certificación</strong>
+        </div>
+        <div class="sidebar-nav">
+          <a class="sidebar-link active" href="#carga" data-view="carga" title="Cargar información">
+            <span class="nav-icon" aria-hidden="true">↑</span>
+            <span>Cargar</span>
+          </a>
+          <a class="sidebar-link" href="#aprendices" data-view="aprendices" title="Aprendices">
+            <span class="nav-icon" aria-hidden="true">♟</span>
+            <span>Aprendices</span>
+          </a>
+          <a class="sidebar-link" href="#actas" data-view="actas" title="Actas">
+            <span class="nav-icon" aria-hidden="true">☰</span>
+            <span>Actas</span>
+          </a>
+          <a class="sidebar-link" href="#indicadores" data-view="indicadores" title="Indicadores">
+            <span class="nav-icon" aria-hidden="true">◐</span>
+            <span>Indicadores</span>
+          </a>
+          <a class="sidebar-link" href="#historial" data-view="carga" title="Historial">
+            <span class="nav-icon" aria-hidden="true">▤</span>
+            <span>Historial</span>
+          </a>
+        </div>
+        <div class="sidebar-footer">Sistema local · 2026</div>
       </nav>
 
       <section class="page-content">
-      <div id="dashboard-view" class="app-view" hidden>
-        <header class="topbar">
-          <div class="brand-mark" aria-hidden="true">📊</div>
-          <div>
-            <p class="eyebrow">SENA Certificación</p>
-            <h1>Panel de control</h1>
-            <p class="subtitle">Resumen ejecutivo del estado de aprendices, actas y trazabilidad del proceso.</p>
-          </div>
-          <button id="refresh-dashboard" class="primary-button refresh-button" type="button">↻ Actualizar</button>
-        </header>
-
-        <section class="dashboard-metrics" aria-label="Métricas principales">
-          <article class="metric-card">
-            <div class="metric-header">
-              <span class="metric-label">Total Aprendices</span>
-              <span class="metric-icon" aria-hidden="true">👥</span>
-            </div>
-            <div class="metric-value" id="dash-total-learners">--</div>
-            <p class="metric-footer">Registrados en la base de datos</p>
-          </article>
-
-          <article class="metric-card is-warning">
-            <div class="metric-header">
-              <span class="metric-label">Por Certificar</span>
-              <span class="metric-icon" aria-hidden="true">⏳</span>
-            </div>
-            <div class="metric-value" id="dash-pending-learners">--</div>
-            <p class="metric-footer">Con requisitos pendientes</p>
-          </article>
-
-          <article class="metric-card is-success">
-            <div class="metric-header">
-              <span class="metric-label">Certificados</span>
-              <span class="metric-icon" aria-hidden="true">🎓</span>
-            </div>
-            <div class="metric-value" id="dash-certified-learners">--</div>
-            <p class="metric-footer">Cumplieron el 100% de requisitos</p>
-          </article>
-
-          <article class="metric-card is-info">
-            <div class="metric-header">
-              <span class="metric-label">Actas Registradas</span>
-              <span class="metric-icon" aria-hidden="true">📋</span>
-            </div>
-            <div class="metric-value" id="dash-total-acts">--</div>
-            <p class="metric-footer">Comités y actas en sistema</p>
-          </article>
-        </section>
-
-        <div class="dashboard-grid">
-          <section class="panel dashboard-heatmap-panel">
-            <div class="panel-heading">
-              <div>
-                <h2>Actividad de certificación y cambios de estado</h2>
-                <p>Trazabilidad por semanas y trimestres (2026)</p>
-              </div>
-              <span class="heatmap-badge">Histórico 2026</span>
-            </div>
-            <div class="heatmap-wrapper">
-              <div id="dashboard-heatmap" class="github-heatmap" role="img" aria-label="Mapa de calor de actividad de certificación"></div>
-            </div>
-            <div class="heatmap-legend">
-              <span>Menos actividad</span>
-              <span class="legend-cell lvl-0"></span>
-              <span class="legend-cell lvl-1"></span>
-              <span class="legend-cell lvl-2"></span>
-              <span class="legend-cell lvl-3"></span>
-              <span class="legend-cell lvl-4"></span>
-              <span>Más actividad</span>
-              <small class="heatmap-note">◈ Matriz de actividad y cambios de estado (proyectada / demostrativa)</small>
-            </div>
-          </section>
-
-          <section class="panel dashboard-quick-actions">
-            <div class="panel-heading">
-              <div>
-                <h2>Accesos directos</h2>
-                <p>Operaciones frecuentes del sistema</p>
-              </div>
-            </div>
-            <div class="quick-actions-list">
-              <button type="button" class="quick-action-card" data-view="carga">
-                <span class="quick-icon">📤</span>
-                <div class="quick-info">
-                  <strong>Cargar archivos</strong>
-                  <small>Importar Actas, DF14A o requisitos</small>
-                </div>
-                <span class="quick-arrow">→</span>
-              </button>
-              <button type="button" class="quick-action-card" data-view="aprendices">
-                <span class="quick-icon">♙</span>
-                <div class="quick-info">
-                  <strong>Consultar aprendices</strong>
-                  <small>Filtros por estado, fichas y requisitos</small>
-                </div>
-                <span class="quick-arrow">→</span>
-              </button>
-              <button type="button" class="quick-action-card" data-view="actas">
-                <span class="quick-icon">📋</span>
-                <div class="quick-info">
-                  <strong>Gestionar actas</strong>
-                  <small>Registro manual y asociación</small>
-                </div>
-                <span class="quick-arrow">→</span>
-              </button>
-              <button type="button" class="quick-action-card" data-view="indicadores">
-                <span class="quick-icon">◐</span>
-                <div class="quick-info">
-                  <strong>Metas e indicadores</strong>
-                  <small>Avance, efectividad y causas de no certificación</small>
-                </div>
-                <span class="quick-arrow">→</span>
-              </button>
-            </div>
-          </section>
-        </div>
-      </div>
+      <!-- dashboard fusionado en indicadores -->
+      <div id="dashboard-view" class="app-view" hidden></div>
       <div id="carga-view" class="app-view">
 
     <header class="topbar" id="carga">
@@ -203,12 +107,17 @@
         </article>
 
         <article class="panel upload-panel"><div class="panel-heading"><div><h2>Archivo</h2><p>Tamaño máximo recomendado: 20 MB</p></div></div><div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="Seleccionar archivo">
-          <div class="upload-icon">↑</div><h3>Arrastra el archivo aquí</h3><p>o selecciona un archivo desde tu equipo</p><button id="select-button" class="select-button" type="button">▣ &nbsp; Seleccionar archivo</button><small>Formatos admitidos: XLSX, XLS, CSV, PDF y DOCX</small><input id="file-input" type="file" hidden accept=".xlsx,.xls,.csv,.pdf,.docx">
+          <div class="upload-icon">↑</div><h3>Arrastra el archivo aquí</h3><p>o selecciona un archivo desde tu equipo</p><button id="select-button" class="select-button" type="button">▣ &nbsp; Seleccionar archivo</button><small>Formatos admitidos: XLSX, XLS, CSV, PDF y DOCX</small><div class="upload-progress" id="upload-progress" aria-live="polite">
+            <div class="upload-progress-track"><div class="upload-progress-bar"></div></div>
+            <p class="upload-progress-label" id="upload-progress-label">Validando archivo…</p>
+          </div>
+          <input id="file-input" type="file" hidden accept=".xlsx,.xls,.csv,.pdf,.docx">
         </div></article>
 
         <article class="panel file-panel" id="file-panel" hidden><div class="file-badge">▦</div><div class="file-meta"><strong id="file-name"></strong><small id="file-details"></small></div><span class="file-status" id="file-status">LISTO PARA VALIDAR</span><button id="remove-file" class="remove-button" type="button" aria-label="Quitar archivo">×</button></article>
         <article class="panel validation-panel" id="validation-panel" hidden><div class="panel-heading"><div><h2>Resultado de validación</h2><p id="validation-message">La validación es preliminar.</p></div><span class="result-badge" id="validation-status"></span></div><div class="validation-checks" id="validation-checks"></div></article>
         <article class="panel confirmation-panel" id="confirmation-panel" hidden>
+          <h2 id="import-modal-title" class="eyebrow" style="font-size:0.8rem;margin:0 0 6px">Revisión de importación</h2>
           <div class="panel-heading"><div><h2>Revisar antes de importar</h2><p>Confirma que deseas guardar estos registros.</p></div></div>
           <div class="confirmation-grid">
             <div><small>Archivo</small><strong id="confirm-file"></strong></div>
@@ -330,6 +239,52 @@
         <section class="panel learner-detail-frame" id="act-detail" hidden><div class="detail-heading"><button id="back-to-acts" class="cancel-button" type="button">Volver</button><div><p class="eyebrow">Acta</p><h2 id="act-detail-title"></h2></div></div><p id="act-detail-feedback" class="detail-feedback" role="status"></p><div id="act-detail-content" hidden><dl id="act-basic-info" class="detail-grid"></dl><article class="detail-section"><div class="panel-heading"><div><h3>Aprendices asociados</h3></div></div><div id="act-learners" class="detail-list"></div><form id="act-learner-form" class="act-inline-form"><label>ID del aprendiz<input name="learner_id" type="number" required></label><label>Observaciones<input name="observations"></label><button class="primary-button" type="submit">Asociar</button></form></article></div></section>
       </div>
       <div id="indicadores-view" class="app-view" hidden>
+        <div class="metrics-grid" id="indicadores-metrics">
+          <article class="metric-card">
+            <p class="metric-label">Total aprendices</p>
+            <p class="metric-value" id="ind-metric-learners">—</p>
+            <small>Registrados en la base de datos</small>
+          </article>
+          <article class="metric-card">
+            <p class="metric-label">Por certificar</p>
+            <p class="metric-value" id="ind-metric-por-certificar">—</p>
+            <small>Con requisitos pendientes</small>
+          </article>
+          <article class="metric-card">
+            <p class="metric-label">Certificados</p>
+            <p class="metric-value" id="ind-metric-certificados">—</p>
+            <small>En período / consolidado</small>
+          </article>
+          <article class="metric-card">
+            <p class="metric-label">Actas registradas</p>
+            <p class="metric-value" id="ind-metric-actas">—</p>
+            <small>Comités y actas en sistema</small>
+          </article>
+        </div>
+
+        <section class="panel heatmap-panel">
+          <div class="heatmap-header">
+            <div>
+              <h2 style="margin:0 0 4px;font-size:1.2rem;font-weight:750">Actividad de certificación y cambios de estado</h2>
+              <p style="margin:0;color:var(--muted);font-size:0.95rem">Trazabilidad por días (datos reales de historial e importaciones)</p>
+            </div>
+            <label class="search-field" for="heatmap-year">Año
+              <select id="heatmap-year"><option value="2026" selected>2026</option><option value="2025">2025</option></select>
+            </label>
+          </div>
+          <div id="indicadores-heatmap" class="github-heatmap" role="img" aria-label="Mapa de actividad de certificación"></div>
+          <div class="heatmap-legend" aria-hidden="true">
+            Menos actividad
+            <i style="background:#e2e8f0"></i>
+            <i style="background:#99f6e4"></i>
+            <i style="background:#5eead4"></i>
+            <i style="background:#14b8a6"></i>
+            <i style="background:#0f766e"></i>
+            Más actividad
+          </div>
+          <p id="heatmap-empty" class="chart-note" hidden style="color:var(--muted);font-size:0.9rem;margin-top:10px">No hay actividad registrada en el período seleccionado.</p>
+        </section>
+
         <header class="topbar"><div class="brand-mark" aria-hidden="true">◐</div><div><p class="eyebrow">Sena Certificación</p><h1>Indicadores de Certificación 2026</h1><p class="subtitle">Seguimiento de metas, ejecución y pendientes (Enero - Septiembre 2026).</p></div><button id="refresh-indicadores" class="primary-button refresh-button" type="button">↻ Actualizar</button></header>
         <div id="indicadores-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;"></div>
         <div id="indicadores-avisos" style="margin-bottom:16px;"></div>
@@ -374,9 +329,21 @@
       </section>
     </div>
   </main>
-  <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+    <!-- Modal de confirmación y resolución de conflictos -->
+  <div class="modal-root" id="import-modal" aria-hidden="true" role="dialog" aria-labelledby="import-modal-title">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-dialog">
+      <div id="import-modal-body"></div>
+      <div class="modal-actions">
+        <button id="modal-cancel-button" class="cancel-button" type="button">Cancelar</button>
+        <button id="modal-confirm-button" class="primary-button" type="button">✓ &nbsp; Confirmar importación</button>
+      </div>
+    </div>
+  </div>
+
+<div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="/static/app.js?v=20261030-final"></script>
-  <script src="/static/ui-enhancements.js?v=20261030-final"></script>
+  <script src="/static/app.js?v=20261030-v2"></script>
+  <script src="/static/ui-enhancements.js?v=20261030-v2"></script>
 </body>
 </html>

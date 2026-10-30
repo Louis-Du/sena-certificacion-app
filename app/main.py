@@ -26,6 +26,7 @@ from app.services.imports import (
     list_imports,
     stage_file,
 )
+from app.services.activity import build_activity_heatmap, learners_for_activity_date
 from app.services.acts import (
     REVIEW_STATUSES,
     act_options,
@@ -409,3 +410,19 @@ async def unlink_act_learner(
 async def indicadores_endpoint(session: Session = Depends(get_db)) -> dict:
     from app.services.indicadores import compute_indicadores_2026
     return compute_indicadores_2026(session)
+
+@app.get("/api/activity/heatmap")
+async def activity_heatmap(
+    year: int = 2026,
+    session: Session = Depends(get_db),
+) -> dict:
+    return build_activity_heatmap(session, year=year)
+
+
+@app.get("/api/activity/day/{day}")
+async def activity_day(
+    day: date,
+    session: Session = Depends(get_db),
+) -> dict:
+    return learners_for_activity_date(session, day)
+

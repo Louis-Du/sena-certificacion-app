@@ -75,6 +75,10 @@ class Learner(Base):
     requirements: Mapped[list["Requirement"]] = relationship(
         back_populates="learner", cascade="all, delete-orphan"
     )
+
+    @property
+    def full_name(self) -> str:
+        return self.name
     requirement_status_history: Mapped[list["RequirementStatusHistory"]] = relationship(
         back_populates="learner", cascade="all, delete-orphan"
     )
