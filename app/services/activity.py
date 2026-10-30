@@ -143,7 +143,7 @@ def learners_for_activity_date(
         learners.append(
             {
                 "id": learner.id,
-                "name": getattr(learner, "full_name", None) or getattr(learner, "name", None) or "Sin nombre",
+                "name": learner.full_name or learner.name or "Sin nombre",
                 "identification": learner.identification,
                 "certification_status": learner.certification_status,
                 "requirement_type": row.requirement_type,
