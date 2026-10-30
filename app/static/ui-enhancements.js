@@ -1,450 +1,453 @@
 /**
- * SENA Certificación - UI Enhancements & Toast System
- * - Sistema de notificaciones flotantes (toasts)
- * - Observador de estados feedback para reducir ruido visual
- * - Dashboard ejecutivo con 4 métricas y Heatmap estilo GitHub
- * - Integración fluida de navegación entre vistas
+ * SENA Certificación — UI v2 enhancements
+ * - Toasts
+ * - Modal de revisión / conflictos de importación
+ * - Barra de carga al validar
+ * - KPIs + heatmap real en Indicadores (hover con aprendices)
+ * - Sidebar rail activo
  */
-
 (function () {
   "use strict";
 
-  const ICONS = {
-    success: "✓",
-    error: "✕",
-    warning: "⚠",
-    info: "ℹ",
-  };
-
-  const TITLES = {
-    success: "Éxito",
-    error: "Error",
-    warning: "Atención",
-    info: "Información",
-  };
-
-  function getContainer() {
-    let container = document.getElementById("toast-container");
-    if (!container) {
-      container = document.createElement("div");
-      container.id = "toast-container";
-      container.className = "toast-container";
-      container.setAttribute("aria-live", "polite");
-      container.setAttribute("aria-atomic", "true");
-      document.body.appendChild(container);
+  /* ---------------- Toasts ---------------- */
+  function getToastContainer() {
+    let el = document.getElementById("toast-container");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "toast-container";
+      el.className = "toast-container";
+      el.setAttribute("aria-live", "polite");
+      document.body.appendChild(el);
     }
-    return container;
+    return el;
   }
 
-  function normalizeType(type) {
-    if (!type) return "info";
-    const t = String(type).toLowerCase().trim();
-    if (t === "ok" || t === "success" || t === "exito") return "success";
-    if (t === "error" || t === "danger" || t === "fail") return "error";
-    if (t === "warning" || t === "warn" || t === "alerta") return "warning";
-    return "info";
-  }
-
-  /**
-   * Muestra un toast flotante en la interfaz.
-   * @param {string} message - Texto del mensaje a mostrar.
-   * @param {string} [type='info'] - 'success' | 'error' | 'warning' | 'info'.
-   * @param {Object} [options] - Opciones adicionales ({ title, duration }).
-   * @returns {Object} { element, dismiss }
-   */
   function showToast(message, type = "info", options = {}) {
-    if (!message || typeof message !== "string") return null;
-
-    const container = getContainer();
-    const finalType = normalizeType(type);
-    const duration = typeof options.duration === "number" ? options.duration : 4500;
-    const titleText = options.title !== undefined ? options.title : TITLES[finalType];
-
+    if (!message) return null;
+    const container = getToastContainer();
     const toast = document.createElement("div");
-    toast.className = `toast toast-${finalType}`;
-    toast.setAttribute("role", finalType === "error" ? "alert" : "status");
-
-    // Icon
-    const iconEl = document.createElement("span");
-    iconEl.className = "toast-icon";
-    iconEl.setAttribute("aria-hidden", "true");
-    iconEl.textContent = ICONS[finalType] || ICONS.info;
-
-    // Body
-    const bodyEl = document.createElement("div");
-    bodyEl.className = "toast-body";
-
-    if (titleText) {
-      const titleEl = document.createElement("div");
-      titleEl.className = "toast-title";
-      titleEl.textContent = titleText;
-      bodyEl.appendChild(titleEl);
-    }
-
-    const messageEl = document.createElement("div");
-    messageEl.className = "toast-message";
-    messageEl.textContent = message;
-    bodyEl.appendChild(messageEl);
-
-    // Close button
-    const closeBtn = document.createElement("button");
-    closeBtn.className = "toast-close";
-    closeBtn.type = "button";
-    closeBtn.setAttribute("aria-label", "Cerrar notificación");
-    closeBtn.textContent = "×";
-
-    toast.appendChild(iconEl);
-    toast.appendChild(bodyEl);
-    toast.appendChild(closeBtn);
-
-    let dismissed = false;
-    let timer = null;
-
-    function dismiss() {
-      if (dismissed) return;
-      dismissed = true;
-      if (timer) clearTimeout(timer);
+    const t = String(type).toLowerCase();
+    const normalized =
+      t === "error" || t === "danger"
+        ? "error"
+        : t === "success" || t === "ok"
+          ? "success"
+          : t === "warning" || t === "warn"
+            ? "warning"
+            : "info";
+    toast.className = `toast toast-${normalized}`;
+    toast.setAttribute("role", normalized === "error" ? "alert" : "status");
+    const icons = { success: "✓", error: "✕", warning: "!", info: "i" };
+    toast.innerHTML = `
+      <span class="toast-icon" aria-hidden="true">${icons[normalized]}</span>
+      <div class="toast-body"></div>
+      <button type="button" class="toast-close" aria-label="Cerrar">×</button>
+    `;
+    toast.querySelector(".toast-body").textContent = message;
+    const dismiss = () => {
       toast.classList.add("is-leaving");
-      toast.addEventListener(
-        "animationend",
-        () => {
-          if (toast.parentElement) toast.parentElement.removeChild(toast);
-        },
-        { once: true }
-      );
-    }
-
-    closeBtn.addEventListener("click", dismiss);
-
-    if (duration > 0) {
-      timer = setTimeout(dismiss, duration);
-    }
-
+      setTimeout(() => toast.remove(), 220);
+    };
+    toast.querySelector(".toast-close").addEventListener("click", dismiss);
     container.appendChild(toast);
-    return { element: toast, dismiss };
+    const duration = options.duration ?? 4500;
+    if (duration > 0) setTimeout(dismiss, duration);
+    return { dismiss };
   }
 
-  // Exponer API global
   window.showToast = showToast;
-  window.SenaUI = {
-    showToast,
-    loadDashboardData,
-  };
 
-  /**
-   * Observa el elemento #feedback de la vista de carga para reflejar
-   * los mensajes importantes como toasts.
-   */
-  function setupFeedbackObserver() {
+  function observeFeedback() {
     const feedbackEl = document.getElementById("feedback");
     if (!feedbackEl) return;
-
-    let lastText = "";
-    let lastTime = 0;
-
-    const observer = new MutationObserver(() => {
+    let last = "";
+    const obs = new MutationObserver(() => {
       const text = (feedbackEl.textContent || "").trim();
-      const isVisible = feedbackEl.classList.contains("visible");
-      const now = Date.now();
-
-      if (!isVisible || !text) {
-        if (!isVisible) lastText = "";
-        return;
-      }
-
-      if (text === lastText && now - lastTime < 1000) {
-        return;
-      }
-
-      lastText = text;
-      lastTime = now;
-
-      const isError = feedbackEl.classList.contains("error");
-      const lower = text.toLowerCase();
-
-      let type = "info";
-      if (isError) {
-        type = "error";
-      } else if (
-        lower.includes("procesad") ||
-        lower.includes("completad") ||
-        lower.includes("éxito") ||
-        lower.includes("exito") ||
-        lower.includes("correctamente") ||
-        lower.includes("guardad")
-      ) {
-        type = "success";
-      } else if (lower.includes("revisa") || lower.includes("advertencia") || lower.includes("atención")) {
-        type = "warning";
-      }
-
-      showToast(text, type);
+      if (!text || text === last) return;
+      last = text;
+      const err =
+        feedbackEl.classList.contains("error") ||
+        /error|falló|invalid|rechaz|no se pudo/i.test(text);
+      const ok = /correctamente|guardad|completad|éxito|exito|procesad/i.test(text);
+      showToast(text, err ? "error" : ok ? "success" : "warning");
     });
-
-    observer.observe(feedbackEl, {
+    obs.observe(feedbackEl, {
       childList: true,
       characterData: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ["class"],
     });
   }
 
-  /**
-   * Observa feedbacks secundarios (actas, aprendices) para también reflejarlos como toasts.
-   */
-  function setupSecondaryFeedbackObservers() {
-    const targets = [
-      { id: "act-form-feedback", successMatch: "guardada" },
-      { id: "act-detail-feedback", successMatch: "correctamente" },
-    ];
+  /* ---------------- Modal importación ---------------- */
+  const modal = document.getElementById("import-modal");
+  const modalBody = document.getElementById("import-modal-body");
+  const modalConfirm = document.getElementById("modal-confirm-button");
+  const modalCancel = document.getElementById("modal-cancel-button");
+  const confirmationPanel = document.getElementById("confirmation-panel");
+  const confirmButton = document.getElementById("confirm-button");
+  const cancelButton = document.getElementById("cancel-button");
 
-    targets.forEach(({ id, successMatch }) => {
-      const el = document.getElementById(id);
-      if (!el) return;
+  function openImportModal() {
+    if (!modal || !confirmationPanel || !modalBody) return;
+    // Mover el panel al modal para que sea el foco visual
+    if (confirmationPanel.parentElement !== modalBody) {
+      modalBody.appendChild(confirmationPanel);
+    }
+    confirmationPanel.hidden = false;
+    modal.classList.add("is-open");
+    modal.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+    if (modalConfirm && confirmButton) {
+      modalConfirm.hidden = confirmButton.hidden;
+      modalConfirm.disabled = confirmButton.disabled;
+    }
+    // foco accesible
+    (modalCancel || modalConfirm)?.focus?.();
+  }
 
-      let lastMsg = "";
-      const observer = new MutationObserver(() => {
-        const text = (el.textContent || "").trim();
-        if (!text || text === lastMsg) return;
-        lastMsg = text;
+  function closeImportModal() {
+    if (!modal) return;
+    modal.classList.remove("is-open");
+    modal.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+    // Devolver panel al flujo original si existe contenedor
+    const host = document.querySelector("#carga-view .main-column") || document.getElementById("carga-view");
+    if (confirmationPanel && host && confirmationPanel.parentElement === modalBody) {
+      // insert before actions if possible
+      const actions = host.querySelector(".actions");
+      if (actions) host.insertBefore(confirmationPanel, actions);
+      else host.appendChild(confirmationPanel);
+    }
+    if (confirmationPanel) confirmationPanel.hidden = true;
+  }
 
-        const isSuccess = text.toLowerCase().includes(successMatch);
-        const type = isSuccess ? "success" : "error";
-        showToast(text, type);
-      });
+  function syncModalConfirmState() {
+    if (!modalConfirm || !confirmButton) return;
+    modalConfirm.hidden = confirmButton.hidden;
+    modalConfirm.disabled = confirmButton.disabled;
+  }
 
-      observer.observe(el, { childList: true, characterData: true, subtree: true });
+  if (confirmationPanel) {
+    const panelObs = new MutationObserver(() => {
+      if (!confirmationPanel.hidden) openImportModal();
+      else if (modal?.classList.contains("is-open") && confirmationPanel.hidden) {
+        // solo cerrar si app.js lo ocultó tras confirmar
+        closeImportModal();
+      }
+      syncModalConfirmState();
+    });
+    panelObs.observe(confirmationPanel, { attributes: true, attributeFilter: ["hidden"] });
+  }
+
+  if (confirmButton) {
+    const btnObs = new MutationObserver(syncModalConfirmState);
+    btnObs.observe(confirmButton, { attributes: true, attributeFilter: ["hidden", "disabled"] });
+  }
+
+  modal?.querySelectorAll("[data-close-modal]").forEach((el) => {
+    el.addEventListener("click", () => {
+      cancelButton?.click();
+      closeImportModal();
+    });
+  });
+
+  modalCancel?.addEventListener("click", () => {
+    cancelButton?.click();
+    closeImportModal();
+  });
+
+  modalConfirm?.addEventListener("click", () => {
+    if (confirmButton && !confirmButton.disabled) confirmButton.click();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && modal?.classList.contains("is-open")) {
+      cancelButton?.click();
+      closeImportModal();
+    }
+  });
+
+  /* ---------------- Loading bar en validación ---------------- */
+  const progress = document.getElementById("upload-progress");
+  const progressLabel = document.getElementById("upload-progress-label");
+  const validateButton = document.getElementById("validate-button");
+
+  function setProgress(active, label) {
+    if (!progress) return;
+    progress.classList.toggle("is-active", !!active);
+    if (progressLabel && label) progressLabel.textContent = label;
+  }
+
+  if (validateButton) {
+    validateButton.addEventListener(
+      "click",
+      () => {
+        setProgress(true, "Validando y preparando vista previa…");
+      },
+      true
+    );
+  }
+
+  // Desactivar cuando aparece confirmación o feedback de error
+  const stopProgressObs = new MutationObserver(() => {
+    if (confirmationPanel && !confirmationPanel.hidden) setProgress(false);
+  });
+  if (confirmationPanel) {
+    stopProgressObs.observe(confirmationPanel, { attributes: true, attributeFilter: ["hidden"] });
+  }
+
+  const originalFetch = window.fetch;
+  window.fetch = function patchedFetch(input, init) {
+    const url = String(input);
+    const isValidate = url.includes("/api/files/validate");
+    const isConfirm = url.includes("/api/imports/") && url.includes("/confirm");
+    if (isValidate) setProgress(true, "Subiendo y validando archivo…");
+    if (isConfirm) setProgress(true, "Confirmando importación…");
+    return originalFetch.apply(this, arguments).finally(() => {
+      if (isValidate || isConfirm) {
+        // pequeña espera para que el usuario perciba cierre
+        setTimeout(() => setProgress(false), 250);
+      }
+    });
+  };
+
+  /* ---------------- Sidebar active state ---------------- */
+  function activateSidebar(view) {
+    document.querySelectorAll(".sidebar-link[data-view]").forEach((link) => {
+      const match =
+        link.dataset.view === view ||
+        (view === "carga" && link.getAttribute("href") === "#historial" && location.hash === "#historial");
+      link.classList.toggle("active", link.dataset.view === view);
     });
   }
 
-  /* ==========================================================================
-     DASHBOARD & HEATMAP ESTILO GITHUB (Fase 4)
-     ========================================================================== */
+  document.querySelectorAll(".sidebar-link[data-view]").forEach((link) => {
+    link.addEventListener("click", () => activateSidebar(link.dataset.view));
+  });
 
-  function formatNumber(num) {
-    if (num === null || num === undefined || isNaN(num)) return "0";
-    return Number(num).toLocaleString("es-CO");
+  /* ---------------- Indicadores: KPIs + heatmap real ---------------- */
+  function formatNum(n) {
+    if (n == null || Number.isNaN(Number(n))) return "—";
+    return Number(n).toLocaleString("es-CO");
   }
 
-  /**
-   * Carga métricas en tiempo real desde los endpoints existentes:
-   * - /api/indicadores
-   * - /api/acts
-   * - /api/learners?page=1&page_size=1
-   */
-  async function loadDashboardData() {
-    const totalLearnersEl = document.getElementById("dash-total-learners");
-    const pendingLearnersEl = document.getElementById("dash-pending-learners");
-    const certifiedLearnersEl = document.getElementById("dash-certified-learners");
-    const totalActsEl = document.getElementById("dash-total-acts");
-
+  async function safeJson(url) {
     try {
-      const [resInd, resActs, resLearners] = await Promise.all([
-        fetch("/api/indicadores").then((r) => (r.ok ? r.json() : null)).catch(() => null),
-        fetch("/api/acts").then((r) => (r.ok ? r.json() : null)).catch(() => null),
-        fetch("/api/learners?page=1&page_size=1").then((r) => (r.ok ? r.json() : null)).catch(() => null),
-      ]);
-
-      const certified = resInd && resInd.total_certificados !== undefined ? resInd.total_certificados : 0;
-      const pending = resInd && resInd.total_pendientes !== null && resInd.total_pendientes !== undefined ? resInd.total_pendientes : 0;
-      const actsCount = resActs && resActs.items ? resActs.items.length : 0;
-      const learnersCount = resLearners && typeof resLearners.total === "number" ? resLearners.total : (certified + pending);
-
-      if (totalLearnersEl) totalLearnersEl.textContent = formatNumber(learnersCount);
-      if (pendingLearnersEl) pendingLearnersEl.textContent = formatNumber(pending);
-      if (certifiedLearnersEl) certifiedLearnersEl.textContent = formatNumber(certified);
-      if (totalActsEl) totalActsEl.textContent = formatNumber(actsCount);
-
-      renderGithubHeatmap(resActs ? resActs.items : []);
-    } catch (err) {
-      console.warn("Error cargando métricas de dashboard:", err);
-      renderGithubHeatmap([]);
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
     }
   }
 
-  /**
-   * Renderiza el Heatmap estilo GitHub con semanas y trimestres del 2026.
-   * Si no hay serie temporal detallada por día en BD, usa una matriz demostrativa
-   * congruente con los cierres de mes y períodos de comités de certificación.
-   */
-  function renderGithubHeatmap(acts = []) {
-    const container = document.getElementById("dashboard-heatmap");
-    if (!container) return;
-    container.replaceChildren();
+  function setText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value ?? "—";
+  }
 
-    // Mapeo de actas reales a fechas si existen
-    const actsByDate = {};
-    if (Array.isArray(acts)) {
-      acts.forEach((act) => {
-        if (act.act_date) {
-          actsByDate[act.act_date] = (actsByDate[act.act_date] || 0) + (act.learners_count || 5);
+  async function loadIndicadoresExtras() {
+    const [indicadores, acts, learners] = await Promise.all([
+      safeJson("/api/indicadores"),
+      safeJson("/api/acts"),
+      safeJson("/api/learners?page=1&page_size=1"),
+    ]);
+
+    if (indicadores) {
+      const cert =
+        indicadores.certificados ??
+        indicadores.total_certificados ??
+        indicadores.resumen?.certificados ??
+        indicadores.kpis?.certificados;
+      const por =
+        indicadores.total_pendientes ??
+        indicadores.por_certificar ??
+        indicadores.total_por_certificar ??
+        indicadores.resumen?.por_certificar ??
+        indicadores.kpis?.por_certificar;
+      setText("ind-metric-certificados", formatNum(cert));
+      setText("ind-metric-por-certificar", formatNum(por));
+    }
+    if (acts) {
+      const total = acts.total ?? acts.count ?? (Array.isArray(acts.items) ? acts.items.length : null);
+      setText("ind-metric-actas", formatNum(total));
+    }
+    if (learners) {
+      setText("ind-metric-learners", formatNum(learners.total ?? learners.count ?? learners.total_count));
+    }
+
+    const yearSel = document.getElementById("heatmap-year");
+    const year = Number(yearSel?.value || 2026);
+    await loadHeatmap(year);
+  }
+
+  const tooltip = document.getElementById("heatmap-tooltip") || createTooltip();
+
+  function createTooltip() {
+    const el = document.createElement("div");
+    el.id = "heatmap-tooltip";
+    el.className = "heatmap-tooltip";
+    el.setAttribute("role", "tooltip");
+    document.body.appendChild(el);
+    return el;
+  }
+
+  function hideTooltip() {
+    tooltip.classList.remove("is-visible");
+    tooltip.innerHTML = "";
+  }
+
+  function positionTooltip(evt) {
+    const pad = 14;
+    const x = Math.min(window.innerWidth - 340, evt.clientX + pad);
+    const y = Math.min(window.innerHeight - 120, evt.clientY + pad);
+    tooltip.style.left = `${Math.max(8, x)}px`;
+    tooltip.style.top = `${Math.max(8, y)}px`;
+  }
+
+  async function showDayDetails(day, evt) {
+    positionTooltip(evt);
+    tooltip.innerHTML = `<strong>${day}</strong><div>Cargando aprendices…</div>`;
+    tooltip.classList.add("is-visible");
+
+    const data = await safeJson(`/api/activity/day/${day}`);
+    if (!data) {
+      tooltip.innerHTML = `<strong>${day}</strong><div>Sin detalle disponible (¿endpoint activo?).</div>`;
+      return;
+    }
+
+    const learners = data.learners || [];
+    const imports = data.imports || [];
+    let html = `<strong>${day}</strong>`;
+    html += `<div style="margin-bottom:6px;opacity:.85">${learners.length} aprendiz(es) · ${imports.length} importación(es)</div>`;
+    if (learners.length) {
+      html += "<ul>";
+      learners.slice(0, 8).forEach((l) => {
+        const name = l.name || "Sin nombre";
+        const id = l.identification || "";
+        const st = l.certification_status || l.status || "";
+        html += `<li>${name}${id ? " · " + id : ""}${st ? " · " + st : ""}</li>`;
+      });
+      html += "</ul>";
+      if (learners.length > 8) html += `<div>… y ${learners.length - 8} más</div>`;
+    } else if (imports.length) {
+      html += "<ul>";
+      imports.forEach((i) => {
+        html += `<li>${i.file_name || "Importación"} (+${i.new_records || 0} / ~${i.updated_records || 0})</li>`;
+      });
+      html += "</ul>";
+    } else {
+      html += "<div>Sin aprendices asociados en esta fecha.</div>";
+    }
+    tooltip.innerHTML = html;
+  }
+
+  async function loadHeatmap(year) {
+    const host = document.getElementById("indicadores-heatmap");
+    const empty = document.getElementById("heatmap-empty");
+    if (!host) return;
+    host.replaceChildren();
+    hideTooltip();
+
+    const data = await safeJson(`/api/activity/heatmap?year=${year}`);
+    if (!data || !Array.isArray(data.days) || !data.days.length) {
+      if (empty) {
+        empty.hidden = false;
+        empty.textContent =
+          "No hay actividad registrada o el endpoint /api/activity/heatmap no está disponible.";
+      }
+      // Fallback visual mínimo
+      return;
+    }
+    if (empty) empty.hidden = data.total_events > 0 ? true : false;
+
+    // Organizar en columnas semanales (GitHub-style): filas = días semana
+    // Empezar alineando el primer día al weekday
+    const days = data.days;
+    const first = new Date(days[0].date + "T00:00:00Z");
+    const pad = (first.getUTCDay() + 6) % 7; // lunes=0
+    for (let i = 0; i < pad; i++) {
+      const spacer = document.createElement("span");
+      spacer.className = "heatmap-cell level-0";
+      spacer.style.visibility = "hidden";
+      host.appendChild(spacer);
+    }
+
+    days.forEach((d) => {
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = `heatmap-cell level-${d.level || 0}`;
+      cell.title = `${d.date}: ${d.count} evento(s)`;
+      cell.setAttribute("aria-label", `${d.date}, ${d.count} eventos de actividad`);
+      cell.dataset.date = d.date;
+      cell.dataset.count = String(d.count || 0);
+
+      cell.addEventListener("mouseenter", (evt) => {
+        if (Number(d.count) > 0) showDayDetails(d.date, evt);
+        else {
+          positionTooltip(evt);
+          tooltip.innerHTML = `<strong>${d.date}</strong><div>Sin actividad</div>`;
+          tooltip.classList.add("is-visible");
         }
       });
-    }
+      cell.addEventListener("mousemove", positionTooltip);
+      cell.addEventListener("mouseleave", hideTooltip);
+      cell.addEventListener("focus", (evt) => {
+        if (Number(d.count) > 0) showDayDetails(d.date, evt);
+      });
+      cell.addEventListener("blur", hideTooltip);
+      cell.addEventListener("click", (evt) => showDayDetails(d.date, evt));
 
-    // Cabecera de meses (12 meses de 2026)
-    const monthsRow = document.createElement("div");
-    monthsRow.className = "heatmap-months";
-    const monthNames = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
-    monthNames.forEach((name) => {
-      const label = document.createElement("span");
-      label.className = "heatmap-month-label";
-      label.textContent = name;
-      monthsRow.appendChild(label);
+      host.appendChild(cell);
     });
-    container.appendChild(monthsRow);
-
-    // Cuerpo con leyenda de días y matriz de celdas
-    const body = document.createElement("div");
-    body.className = "heatmap-body";
-
-    // Días de la semana
-    const daysLegend = document.createElement("div");
-    daysLegend.className = "heatmap-days-legend";
-    ["", "Lun", "", "Mié", "", "Vie", ""].forEach((day) => {
-      const span = document.createElement("span");
-      span.textContent = day;
-      daysLegend.appendChild(span);
-    });
-    body.appendChild(daysLegend);
-
-    // Matriz de 52 semanas x 7 días = 364 celdas del año 2026
-    const grid = document.createElement("div");
-    grid.className = "heatmap-grid";
-
-    const startDate = new Date(2026, 0, 1); // 1 Ene 2026
-
-    for (let week = 0; week < 52; week++) {
-      for (let day = 0; day < 7; day++) {
-        const cellDate = new Date(startDate);
-        cellDate.setDate(startDate.getDate() + (week * 7 + day));
-
-        const yyyy = cellDate.getFullYear();
-        const mm = String(cellDate.getMonth() + 1).padStart(2, "0");
-        const dd = String(cellDate.getDate()).padStart(2, "0");
-        const dateKey = `${yyyy}-${mm}-${dd}`;
-
-        const cell = document.createElement("div");
-        cell.className = "heatmap-cell";
-        cell.dataset.date = dateKey;
-
-        // Determinar nivel de actividad:
-        // Si hay actas reales en esa fecha, usar nivel según aprendices
-        let level = 0;
-        let count = 0;
-
-        if (actsByDate[dateKey]) {
-          count = actsByDate[dateKey];
-          level = count > 30 ? 4 : count > 15 ? 3 : 2;
-        } else {
-          // Matriz de actividad demostrativa por trimestres:
-          // Picos en últimas semanas de trimestre (Marzo, Junio, Septiembre, Diciembre)
-          const month = cellDate.getMonth();
-          const dayOfMonth = cellDate.getDate();
-          const isQuarterEnd = (month === 2 || month === 5 || month === 8 || month === 11) && dayOfMonth > 18;
-          const isMidMonth = dayOfMonth >= 14 && dayOfMonth <= 17;
-
-          // Pseudo-aleatoriedad determinística por fecha para consistencia
-          const seed = (week * 13 + day * 7 + month * 19) % 100;
-
-          if (isQuarterEnd) {
-            level = seed > 40 ? (seed > 75 ? 4 : 3) : 2;
-            count = level === 4 ? 28 : level === 3 ? 18 : 10;
-          } else if (isMidMonth) {
-            level = seed > 50 ? 2 : 1;
-            count = level === 2 ? 8 : 4;
-          } else if (seed > 78) {
-            level = 1;
-            count = 2;
-          }
-        }
-
-        cell.classList.add(`lvl-${level}`);
-        const dateFormatted = `${dd}/${mm}/${yyyy}`;
-        const labelText = count > 0
-          ? `${count} cambios de estado / registros el ${dateFormatted}`
-          : `Sin actividad registrada el ${dateFormatted}`;
-        cell.title = labelText;
-        cell.setAttribute("aria-label", labelText);
-
-        grid.appendChild(cell);
-      }
-    }
-
-    body.appendChild(grid);
-    container.appendChild(body);
   }
 
-  /* ==========================================================================
-     NAVEGACIÓN DE VISTAS (DASHBOARD INTEGRADO)
-     ========================================================================== */
+  document.getElementById("heatmap-year")?.addEventListener("change", (e) => {
+    loadHeatmap(Number(e.target.value || 2026));
+  });
 
-  function setupNavigation() {
-    const dashboardView = document.getElementById("dashboard-view");
-    const cargaView = document.getElementById("carga-view");
-    const aprendicesView = document.getElementById("aprendices-view");
-    const actasView = document.getElementById("actas-view");
-    const indicadoresView = document.getElementById("indicadores-view");
-    const allViews = [dashboardView, cargaView, aprendicesView, actasView, indicadoresView].filter(Boolean);
-
-    function switchToView(target) {
-      if (!target) return;
-
-      const viewLinks = document.querySelectorAll("[data-view]");
-
-      if (target === "dashboard") {
-        allViews.forEach((v) => (v.hidden = v !== dashboardView));
-        viewLinks.forEach((link) => link.classList.toggle("active", link.dataset.view === "dashboard"));
-        loadDashboardData();
-      } else {
-        if (dashboardView) dashboardView.hidden = true;
-        // La función global de app.js o el listener existente gestiona las otras vistas
-      }
-    }
-
-    // Escuchar enlaces y botones con data-view
-    document.addEventListener("click", (event) => {
-      const targetBtn = event.target.closest("[data-view]");
-      if (!targetBtn) return;
-
-      const viewName = targetBtn.dataset.view;
+  // Hook into view changes
+  const originalShowView = window.showView;
+  if (typeof originalShowView === "function") {
+    window.showView = function (viewName, updateHash) {
+      originalShowView(viewName, updateHash);
+      activateSidebar(viewName);
+      if (viewName === "indicadores") loadIndicadoresExtras();
       if (viewName === "dashboard") {
-        event.preventDefault();
-        switchToView("dashboard");
-      } else if (dashboardView && !dashboardView.hidden) {
-        dashboardView.hidden = true;
+        // dashboard fusionado → redirigir
+        originalShowView("indicadores", true);
+        activateSidebar("indicadores");
+        loadIndicadoresExtras();
       }
-    });
+    };
+  }
 
-    // Botón refrescar dashboard
-    const refreshDashBtn = document.getElementById("refresh-dashboard");
-    if (refreshDashBtn) {
-      refreshDashBtn.addEventListener("click", () => {
-        loadDashboardData();
-        showToast("Métricas y actividad del dashboard actualizadas.", "success");
-      });
+  // Also when user hits indicadores link
+  document.querySelectorAll('[data-view="indicadores"]').forEach((link) => {
+    link.addEventListener("click", () => setTimeout(loadIndicadoresExtras, 50));
+  });
+
+  // Boot
+  function boot() {
+    observeFeedback();
+    const hash = (location.hash || "").replace("#", "");
+    if (hash === "indicadores" || hash === "dashboard") {
+      setTimeout(loadIndicadoresExtras, 80);
     }
-
-    // Si la URL arranca con #dashboard, abrirlo directamente
-    if (window.location.hash === "#dashboard") {
-      switchToView("dashboard");
-    }
+    // si app.js ya pintó confirmación
+    if (confirmationPanel && !confirmationPanel.hidden) openImportModal();
   }
 
-  /* ==========================================================================
-     INICIALIZACIÓN
-     ========================================================================== */
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+  else boot();
 
-  function init() {
-    setupFeedbackObserver();
-    setupSecondaryFeedbackObservers();
-    setupNavigation();
-  }
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
+  window.SenaUI = {
+    showToast,
+    openImportModal,
+    closeImportModal,
+    loadIndicadoresExtras,
+    loadHeatmap,
+    setProgress,
+  };
 })();
