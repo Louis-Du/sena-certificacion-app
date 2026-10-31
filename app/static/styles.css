@@ -18,8 +18,8 @@
   --accent-2-soft: #ffe4e6;
 
   --rail: #181b2d;
-  --rail-icon: #8d92a8;
-  --rail-w: 92px;
+  --rail-icon: #9ca3af;
+  --rail-w: 200px;
 
   --success: #059669;
   --success-soft: #d1fae5;
@@ -129,68 +129,30 @@ a {
   }
 }
 
-/* ---------- Icon rail sidebar (referencia visual) ---------- */
+/* ---------- Icon rail sidebar con etiqueta visible ---------- */
 .sidebar {
   position: sticky;
   top: 0;
   height: 100vh;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 14px;
+  align-items: stretch;
   padding: 16px 12px 18px;
   background: transparent;
   z-index: 50;
   overflow: visible;
 }
 
-.sidebar-brand {
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-}
-
-.sidebar-brand strong {
-  display: none; /* solo marca en rail */
-}
-
-.sidebar-brand .brand-mark {
-  position: relative;
-  width: 68px;
-  height: 68px;
-  display: grid;
-  place-items: center;
-  border-radius: 22px;
-  background: var(--rail);
-  color: transparent;
-  font-size: 0;
-  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.2);
-}
-
-.sidebar-brand .brand-mark::before {
-  content: "";
-  width: 30px;
-  height: 30px;
-  background:
-    linear-gradient(#f6c7d2, #f6c7d2) 0 0 / 12px 12px no-repeat,
-    linear-gradient(#f7f3ef, #f7f3ef) 18px 0 / 12px 12px no-repeat,
-    linear-gradient(#f7f3ef, #f7f3ef) 0 18px / 12px 12px no-repeat,
-    linear-gradient(#f6c7d2, #f6c7d2) 18px 18px / 12px 12px no-repeat;
-  border-radius: 4px;
-}
-
 .sidebar-nav {
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
   justify-content: center;
-  gap: 16px;
-  width: 68px;
+  gap: 8px;
+  width: 100%;
   flex: 1 1 auto;
-  max-height: calc(100vh - 150px);
-  padding: 20px 8px;
-  border-radius: 34px;
+  padding: 18px 10px;
+  border-radius: 28px;
   background: var(--rail);
   box-shadow: 0 20px 42px rgba(15, 23, 42, 0.24);
   overflow: visible;
@@ -203,62 +165,22 @@ a {
 
 .sidebar-link {
   position: relative;
-  width: 46px;
-  height: 46px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 12px;
+  border-radius: 16px;
   color: var(--rail-icon);
   background: transparent;
-  transition: background var(--transition), color var(--transition), transform var(--transition),
-    box-shadow var(--transition);
-}
-
-.sidebar-link span:not(.nav-icon) {
-  /* tooltip nativo accesible */
-  position: absolute;
-  left: calc(100% + 16px);
-  top: 50%;
-  transform: translateY(-50%) translateX(-4px);
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: #111827;
-  color: #f8fafc;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  box-shadow: var(--shadow);
-  transition: opacity var(--transition), transform var(--transition);
-  z-index: 60;
-}
-
-.sidebar-link:hover span:not(.nav-icon),
-.sidebar-link:focus-visible span:not(.nav-icon) {
-  opacity: 1;
-  transform: translateY(-50%) translateX(0);
-}
-
-.sidebar-link .nav-icon {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  font-size: 1.2rem;
-  line-height: 1;
-}
-
-.sidebar-link .nav-icon svg {
-  width: 22px;
-  height: 22px;
-  display: block;
+  text-decoration: none;
+  transition: background var(--transition), color var(--transition), transform var(--transition);
 }
 
 .sidebar-link:hover {
   color: #f8fafc;
   background: rgba(255, 255, 255, 0.07);
-  transform: translateY(-1px);
 }
 
 .sidebar-link:focus-visible {
@@ -266,25 +188,61 @@ a {
   outline-offset: 3px;
 }
 
-/* Ítem activo: círculo rosa que sobresale del rail, con halo suave */
-.sidebar-link.active,
-.sidebar-link.active:hover {
-  color: #181b2d;
+.sidebar-link .nav-icon {
+  position: relative;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: transparent;
+  transition: background var(--transition), box-shadow var(--transition), color var(--transition);
+}
+
+.sidebar-link .nav-icon svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.nav-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: inherit;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* Ítem activo: círculo rosa centrado sobre el icono, con halo suave */
+.sidebar-link.active {
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.sidebar-link.active .nav-icon {
   background: #f6c7d2;
-  transform: translateX(6px);
+  color: #181b2d;
   box-shadow:
     0 0 0 5px var(--bg),
-    0 0 0 10px rgba(246, 199, 210, 0.28),
+    0 0 0 10px rgba(246, 199, 210, 0.26),
     0 10px 20px rgba(244, 63, 94, 0.16);
 }
 
-.sidebar-link.active::before {
+.sidebar-link.active .nav-icon::before {
   content: "";
   position: absolute;
-  inset: 9px;
-  border-radius: inherit;
-  border: 1px solid rgba(24, 27, 45, 0.12);
+  inset: 6px;
+  border-radius: 50%;
+  border: 1px solid rgba(24, 27, 45, 0.1);
   pointer-events: none;
+}
+
+.sidebar-link.active .nav-label {
+  color: #ffffff;
+  font-weight: 750;
 }
 
 /* ---------- Topbar / tipografía grande ---------- */
@@ -1518,9 +1476,6 @@ a {
     padding: 0 12px 12px;
     background: transparent;
   }
-  .sidebar-brand {
-    display: none;
-  }
   .sidebar-nav {
     flex: 0 0 auto;
     width: 100%;
@@ -1528,27 +1483,34 @@ a {
     max-height: none;
     flex-direction: row;
     justify-content: space-around;
-    padding: 8px 10px;
+    padding: 8px 6px;
     border-radius: 24px;
     box-shadow: 0 -10px 30px rgba(15, 23, 42, 0.18);
   }
   .sidebar-link {
-    width: 44px;
-    height: 44px;
+    flex: 0 0 auto;
+    width: 48px;
+    min-height: 48px;
+    padding: 6px;
+    justify-content: center;
+    gap: 0;
   }
-  .sidebar-link.active,
-  .sidebar-link.active:hover {
-    transform: translateY(-6px);
+  .nav-label {
+    display: none;
+  }
+  .sidebar-link .nav-icon {
+    width: 36px;
+    height: 36px;
+  }
+  .sidebar-link.active .nav-icon {
+    transform: translateY(-5px);
     box-shadow:
       0 0 0 4px var(--bg),
       0 0 0 8px rgba(246, 199, 210, 0.28),
       0 8px 18px rgba(244, 63, 94, 0.16);
   }
-  .sidebar-link.active::before {
-    inset: 8px;
-  }
-  .sidebar-link span:not(.nav-icon) {
-    display: none;
+  .sidebar-link.active .nav-icon::before {
+    inset: 5px;
   }
   .page-content {
     padding: 20px 16px 96px;
