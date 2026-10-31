@@ -147,7 +147,13 @@
     syncModalConfirmState();
     syncModalProgress();
     setTimeout(() => {
-      (modalClose || modalCancel || modalConfirm)?.focus?.();
+      const focusTarget = document.getElementById("confirm-summary") || confirmationPanel || modalDialog;
+      const reduce = typeof window.matchMedia === "function"
+        && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (modalDialog) {
+        modalDialog.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" });
+      }
+      focusTarget?.focus?.({ preventScroll: true });
     }, 30);
   }
 

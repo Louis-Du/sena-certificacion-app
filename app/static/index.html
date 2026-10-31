@@ -1,420 +1,441 @@
-<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SENA Certificación</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link href="/static/styles.css?v=20261030-v10" rel="stylesheet">
-</head>
-
-<body>
-  <div id="global-progress" class="global-progress" role="progressbar" aria-label="Procesando archivo" aria-valuetext="Procesando" hidden>
-    <div class="global-progress-bar"></div>
-  </div>
-  <main class="shell">
-    <div class="app-layout">
-            <nav class="sidebar" id="app-sidebar" aria-label="Navegación principal">
-        <div class="sidebar-nav">
-          <a class="sidebar-link active" href="#carga" data-view="carga" title="Cargar información" aria-current="page">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M5 20h14"/></svg>
-            </span>
-            <span class="nav-label">Cargar</span>
-          </a>
-          <a class="sidebar-link" href="#aprendices" data-view="aprendices" title="Aprendices">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            </span>
-            <span class="nav-label">Aprendices</span>
-          </a>
-          <a class="sidebar-link" href="#actas" data-view="actas" title="Actas">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M8 11h8"/><path d="M8 16h6"/></svg>
-            </span>
-            <span class="nav-label">Actas</span>
-          </a>
-          <a class="sidebar-link" href="#indicadores" data-view="indicadores" title="Indicadores">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16v-5"/><path d="M12 16V8"/><path d="M17 16v-2"/></svg>
-            </span>
-            <span class="nav-label">Indicadores</span>
-          </a>
-          <a class="sidebar-link" href="#historial" data-view="historial" title="Historial de importaciones">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>
-            </span>
-            <span class="nav-label">Historial</span>
-          </a>
-        </div>
-      </nav>
-
-      <section class="page-content">
-      <div id="carga-view" class="app-view">
-
-    <header class="topbar" id="carga">
-      <div class="brand-mark" aria-hidden="true">SC</div>
-      <div><p class="eyebrow">SENA Certificación</p><h1>Cargar información</h1><p class="subtitle">Importa archivos oficiales, bases DF14A o matrices de seguimiento para la certificación.</p></div>
-      <span class="prototype-note">◈ Prototipo - reglas por confirmar</span>
-    </header>
-
-    <nav class="steps" aria-label="Progreso de carga"><span class="step active"><b>1</b> Seleccionar</span><i></i><span class="step"><b>2</b> Validar</span><i></i><span class="step"><b>3</b> Confirmar</span></nav>
-    <div id="feedback" class="feedback" role="status" aria-live="polite"></div>
-    <div class="workspace-grid">
-      <section class="main-column">
-        <article class="panel type-panel">
-          <div class="panel-heading">
-            <div>
-              <h2>Tipo de información</h2>
-              <p>Selecciona una de las tres fuentes principales</p>
-            </div>
-          </div>
-          <div class="category-options" id="category-options">
-            <button class="category-option selected" data-category="actas_oficiales" data-type="acta" type="button">
-              <span class="category-icon">📋</span>
-              <strong>Actas oficiales</strong>
-              <small>Documento del acta y los aprendices que cumplen los requisitos</small>
-              <span class="option-format">Formatos: PDF, DOCX</span>
-              <span class="check">✓</span>
-            </button>
-            <button class="category-option" data-category="df14a" data-type="df14a" type="button">
-              <span class="category-icon">▦</span>
-              <strong>DF14A</strong>
-              <small>Archivo institucional con la información de los aprendices</small>
-              <span class="option-format">Formatos: XML, XLSX, XLS, CSV</span>
-              <span class="check">✓</span>
-            </button>
-            <button class="category-option" data-category="actas_2026" data-type="actas_completo" type="button">
-              <span class="category-icon">📊</span>
-              <strong>ACTAS 2026 / seguimiento</strong>
-              <small>Excel con las hojas de seguimiento y los datos de los indicadores</small>
-              <span class="option-format">Formatos: XLSX, XLS</span>
-              <span class="check">✓</span>
-            </button>
-          </div>
-
-          <div class="subtype-section" id="secondary-section">
-            <div class="subtype-heading">
-              <h3>Cargas secundarias</h3>
-              <p>Opciones adicionales fuera de las tres fuentes principales</p>
-            </div>
-            <div class="type-options" id="secondary-options">
-              <button class="type-option" data-category="requisitos_aprendices" data-type="requisitos" type="button">
-                <span class="option-icon">☷</span>
-                <strong>Requisitos de aprendices</strong>
-                <small>Matriz de seguimiento de requisitos por aprendiz</small>
-                <span class="option-format">Formatos: XLSX, XLS, CSV</span>
-                <span class="check">✓</span>
-              </button>
-            </div>
-          </div>
-        </article>
-
-        <article class="panel upload-panel"><div class="panel-heading"><div><h2>Archivo</h2><p>Tamaño máximo recomendado: 20 MB</p></div></div><div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="Seleccionar archivo">
-          <div class="upload-icon">↑</div><h3>Arrastra el archivo aquí</h3><p>o selecciona un archivo desde tu equipo</p><button id="select-button" class="select-button" type="button">▣ &nbsp; Seleccionar archivo</button><small>Formatos admitidos: XLSX, XLS, CSV, PDF y DOCX</small><div class="upload-progress" id="upload-progress" aria-live="polite">
-            <div class="upload-progress-track"><div class="upload-progress-bar"></div></div>
-            <p class="upload-progress-label" id="upload-progress-label">Validando archivo…</p>
-          </div>
-          <input id="file-input" type="file" hidden accept=".xlsx,.xls,.csv,.pdf,.docx">
-        </div></article>
-
-        <article class="panel file-panel" id="file-panel" hidden><div class="file-badge">▦</div><div class="file-meta"><strong id="file-name"></strong><small id="file-details"></small></div><span class="file-status" id="file-status">LISTO PARA VALIDAR</span><button id="remove-file" class="remove-button" type="button" aria-label="Quitar archivo">×</button></article>
-        <article class="panel validation-panel" id="validation-panel" hidden><div class="panel-heading"><div><h2>Resultado de validación</h2><p id="validation-message">La validación es preliminar.</p></div><span class="result-badge" id="validation-status"></span></div><div class="validation-checks" id="validation-checks"></div></article>
-        <article class="panel confirmation-panel" id="confirmation-panel" hidden>
-          <h2 id="import-modal-title" class="eyebrow" style="font-size:0.8rem;margin:0 0 6px">Revisión de importación</h2>
-          <div class="panel-heading"><div><h2>Revisar antes de importar</h2><p>Confirma que deseas guardar estos registros.</p></div></div>
-          <div class="confirmation-grid">
-            <div><small>Archivo</small><strong id="confirm-file"></strong></div>
-            <div><small>Registros importables</small><strong id="confirm-importable"></strong></div>
-            <div><small>Registros nuevos</small><strong id="confirm-new"></strong></div>
-            <div><small>Registros a actualizar</small><strong id="confirm-updated"></strong></div>
-            <div><small>Registros rechazados</small><strong id="confirm-rejected"></strong></div>
-          </div>
-          <div class="warning-list" id="confirm-breakdown"></div>
-          <div class="warning-list" id="confirm-warnings"></div>
-          <section class="coherence-conflicts" id="coherence-conflicts" hidden>
-            <h3 id="coherence-conflicts-title">Conflictos de coherencia</h3>
-            <p>Estos aprendices figuran en CERTIFICADOS y PENDIENTES. Elija el estado final antes de importar.</p>
-            <div class="coherence-conflict-list" id="coherence-conflict-list"></div>
-            <p class="coherence-help" id="coherence-help" role="status"></p>
-          </section>
-          <section class="coherence-conflicts" id="missing-complementaria" hidden>
-            <h3>Hoja COMPLEMENTARIA ausente</h3>
-            <p>No se detectó la hoja COMPLEMENTARIA. Esta importación no actualizará formación complementaria.</p>
-            <label><input type="checkbox" id="accept-missing-complementaria"> Continuar sin hoja COMPLEMENTARIA</label>
-            <p class="coherence-help" id="missing-complementaria-help" role="status"></p>
-          </section>
-        </article>
-        <div class="actions"><button id="cancel-button" class="cancel-button" type="button">Cancelar</button><button id="validate-button" class="primary-button" type="button" disabled>→ &nbsp; Validar información</button><button id="confirm-button" class="primary-button" type="button" hidden>✓ &nbsp; Confirmar importación</button></div>
-      </section>
-
-      <aside class="side-column"><article class="panel guidance-panel"><div class="panel-heading"><div><h2>Antes de cargar</h2><p>Verifica el archivo antes de continuar</p></div></div><ul><li>Los documentos deben ser ficticios en este prototipo.</li><li>La primera fila debe contener encabezados.</li><li>No se conecta con SOFIA Plus ni con sistemas externos.</li><li>La importación podrá cancelarse antes de confirmar.</li></ul></article><article class="panel history-panel" id="historial"><div class="panel-heading"><div><h2>Últimas importaciones</h2><p>Archivos confirmados en este equipo</p></div></div><div id="history-list" class="history-list"><small>Aún no hay importaciones.</small></div></article></aside>
-    </div>
-      </div>
-      <div id="aprendices-view" class="app-view" hidden>
-        <header class="topbar">
-          <div class="brand-mark" aria-hidden="true">♙</div>
-          <div><p class="eyebrow">SENA Certificación</p><h1>Listado de aprendices</h1><p class="subtitle">Consulta los aprendices almacenados en la base de datos SQLite.</p></div>
-          <button id="refresh-learners" class="primary-button refresh-button" type="button">↻ Actualizar</button>
-        </header>
-
-        <section class="panel learners-frame">
-                    <div class="learner-toolbar">
-            <label class="search-field" for="learner-search">Buscar aprendiz
-              <input id="learner-search" type="search" placeholder="Nombre, documento, programa, ficha o estado">
-            </label>
-
-            <label class="status-field" for="learner-status">Filtrar por estado
-              <select id="learner-status"><option value="">Todos los estados</option></select>
-            </label>
-
-            <div class="requirement-field">
-              <span>Requisito faltante (varios)</span>
-              <details class="requirement-multiselect" id="learner-missing-requirement">
-                <summary aria-haspopup="listbox"><span id="learner-missing-requirement-summary">Cualquiera</span></summary>
-                <div class="requirement-options" id="learner-missing-requirement-options" role="listbox" aria-multiselectable="true">
-                  <button type="button" class="requirement-option is-selected" data-value="" role="option" aria-selected="true">Cualquiera</button>
-                </div>
-              </details>
-            </div>
-
-            <button id="clear-learner-search" class="cancel-button" type="button">Limpiar</button>
-
-            <small class="requirement-hint">Haz clic para elegir varios. Sin selección muestra todos.</small>
-          </div>
-
-          <div class="learner-status-chips" id="learner-status-chips" aria-label="Conteo de aprendices por estado"></div>
-
-          <div class="panel-heading"><div><h2>Aprendices registrados</h2><p id="learners-summary">Consultando SQLite...</p><small class="detail-hint">Usa <strong>Ver detalles</strong> para consultar y gestionar los requisitos del aprendiz.</small></div></div>
-          <div class="learners-table-wrap">
-            <table class="learners-data">
-              <thead><tr><th>Nombre</th><th>Documento</th><th>Programa</th><th>Ficha</th><th>Estado</th><th>Origen</th><th>Requisitos pendientes</th><th>Detalles</th></tr></thead>
-              <tbody id="learners-list"><tr><td colspan="8">Aun no hay aprendices cargados.</td></tr></tbody>
-            </table>
-          </div>
-
-          <div class="pagination" aria-label="Paginacion de aprendices">
-            <button id="learners-prev" class="cancel-button" type="button">← Anterior</button>
-            <span id="learners-page">Pagina 1 de 1</span>
-            <button id="learners-next" class="cancel-button" type="button">Siguiente →</button>
-          </div>
-          
-        </section>
-        <section class="panel learner-detail-frame" id="learner-detail" hidden>
-          <div class="detail-heading">
-            <button id="back-to-learners" class="cancel-button" type="button">← Volver</button>
-            <div><p class="eyebrow">Aprendiz</p><h2 id="learner-detail-title">Detalle</h2></div>
-          </div>
-          <p id="learner-detail-feedback" class="detail-feedback" role="status"></p>
-          <div id="learner-detail-content" hidden>
-            <article class="detail-section">
-              <div class="panel-heading"><div><h3>Identificación</h3></div></div>
-              <dl id="learner-basic-info" class="detail-grid"></dl>
-            </article>
-            <article class="detail-section" id="learner-tracking-section" hidden>
-              <div class="panel-heading"><div><h3>Seguimiento de certificación</h3><p>Motivo de no certificación y datos de contacto del proceso.</p></div></div>
-              <dl id="learner-tracking" class="detail-grid"></dl>
-            </article>
-            <article class="detail-section" id="learner-sources-section" hidden>
-              <div class="panel-heading"><div><h3>Origen de los datos</h3><p>Archivo(s) u hoja(s) desde donde se cargó la información del aprendiz.</p></div></div>
-              <dl id="learner-sources" class="detail-grid"></dl>
-            </article>
-            <article class="detail-section">
-              <div class="panel-heading"><div><h3>Requisitos y evidencias</h3><p>Solo se muestran los requisitos registrados para el aprendiz.</p></div></div>
-              <div id="learner-requirements" class="requirements-editor"></div>
-            </article>
-            <article class="detail-section">
-              <div class="panel-heading"><div><h3>Historial de requisitos</h3><p>Cambios de estado registrados por importación o edición manual.</p></div></div>
-              <div id="learner-requirement-history" class="requirement-history"></div>
-            </article>
-            <details class="chart-details" id="learner-more-data" hidden>
-              <summary>Más datos</summary>
-              <dl id="learner-extra" class="detail-grid"></dl>
-            </details>
-          </div>
-        </section>
-      </div>
-      <div id="actas-view" class="app-view" hidden>
-        <header class="topbar"><div class="brand-mark" aria-hidden="true">📋</div><div><p class="eyebrow">SENA Certificación</p><h1>Actas de certificación</h1><p class="subtitle">Registra y consulta actas y sus aprendices asociados.</p></div></header>
-        <section class="panel"><div class="panel-heading"><div><h2>Registrar acta</h2><p>Los datos se guardan en SQLite.</p></div></div>
-          <form id="act-form" class="act-form"><label>Número<input name="number" required></label><label>Fecha<input name="act_date" type="date" required></label><label>Tipo<input name="act_type"></label><label>Archivo original<input name="original_file" value="Registro manual" required></label><label>Estado<select name="review_status"><option value="pending">Pendiente</option><option value="reviewed">Revisada</option><option value="rejected">Rechazada</option></select></label><label class="act-wide">Observaciones<textarea name="observations" rows="2"></textarea></label><button class="primary-button" type="submit">Guardar acta</button><p id="act-form-feedback" class="detail-feedback" role="status"></p></form>
-        </section>
-        <section class="panel"><div class="learner-toolbar"><label class="search-field">Buscar acta<input id="act-search" type="search" placeholder="Número, tipo o archivo"></label><label class="search-field">Número<input id="act-number-filter" type="search" placeholder="Ej. 41"></label><label class="search-field">Desde<input id="act-date-from" type="date"></label><label class="search-field">Hasta<input id="act-date-to" type="date"></label><label class="search-field">Estado de revisión<select id="act-status-filter"><option value="">Todos los estados</option><option value="pending">Pendiente</option><option value="reviewed">Revisada</option><option value="rejected">Rechazada</option></select></label><button id="refresh-acts" class="cancel-button" type="button">Actualizar</button></div><div class="panel-heading"><div><h2>Actas registradas</h2><p id="acts-summary"></p></div></div><div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Número</th><th>Fecha</th><th>Tipo</th><th>Estado</th><th>Aprendices</th><th>Detalle</th></tr></thead><tbody id="acts-list"></tbody></table></div></section>
-        <section class="panel learner-detail-frame" id="act-detail" hidden><div class="detail-heading"><button id="back-to-acts" class="cancel-button" type="button">Volver</button><div><p class="eyebrow">Acta</p><h2 id="act-detail-title"></h2></div></div><p id="act-detail-feedback" class="detail-feedback" role="status"></p><div id="act-detail-content" hidden><dl id="act-basic-info" class="detail-grid"></dl><article class="detail-section"><div class="panel-heading"><div><h3>Aprendices asociados</h3></div></div><div id="act-learners" class="detail-list"></div><form id="act-learner-form" class="act-inline-form"><label>ID del aprendiz<input name="learner_id" type="number" required></label><label>Observaciones<input name="observations"></label><button class="primary-button" type="submit">Asociar</button></form></article></div></section>
-      </div>
-            <div id="indicadores-view" class="app-view" hidden>
-        <header class="topbar">
-          <div class="topbar-text">
-            <p class="eyebrow">SENA Certificación</p>
-            <h1>Indicadores de certificación 2026</h1>
-            <p class="subtitle">Resumen, actividad y detalle por pestañas · Enero – Septiembre 2026</p>
-          </div>
-          <button id="refresh-indicadores" class="primary-button refresh-button" type="button">Actualizar</button>
-        </header>
-
-        <div class="metrics-grid metrics-grid-compact" id="indicadores-metrics">
-          <article class="metric-card">
-            <p class="metric-label">Total aprendices</p>
-            <p class="metric-value" id="ind-metric-learners">—</p>
-            <small>Registrados en la base de datos</small>
-          </article>
-          <article class="metric-card metric-card-warning">
-            <p class="metric-label">Por certificar / pendientes</p>
-            <p class="metric-value" id="ind-metric-por-certificar">—</p>
-            <small>Estado en aprendices o pendientes únicos</small>
-          </article>
-          <article class="metric-card metric-card-success">
-            <p class="metric-label">Certificados</p>
-            <p class="metric-value" id="ind-metric-certificados">—</p>
-            <small>En período / consolidado</small>
-          </article>
-          <article class="metric-card">
-            <p class="metric-label">Actas registradas</p>
-            <p class="metric-value" id="ind-metric-actas">—</p>
-            <small>Comités y actas en sistema</small>
-          </article>
-        </div>
-
-        <section class="panel heatmap-panel heatmap-panel-compact">
-          <div class="heatmap-header">
-            <div>
-              <h2 class="heatmap-title">Actividad de certificación</h2>
-              <p class="heatmap-sub">Cambios de estado e importaciones por día</p>
-            </div>
-            <label class="search-field heatmap-year-field" for="heatmap-year">Año
-              <select id="heatmap-year">
-                <option value="2026" selected>2026</option>
-                <option value="2025">2025</option>
-              </select>
-            </label>
-          </div>
-          <div class="gh-heatmap-wrap">
-            <div class="gh-heatmap-months" id="heatmap-months" aria-hidden="true"></div>
-            <div class="gh-heatmap-body">
-              <div class="gh-heatmap-days" aria-hidden="true">
-                <span>Lun</span><span></span><span>Mié</span><span></span><span>Vie</span><span></span><span></span>
-              </div>
-              <div id="indicadores-heatmap" class="github-heatmap" role="img" aria-label="Mapa de actividad de certificación estilo GitHub"></div>
-            </div>
-            <div class="heatmap-legend" aria-hidden="true">
-              Menos
-              <i class="lv0"></i><i class="lv1"></i><i class="lv2"></i><i class="lv3"></i><i class="lv4"></i>
-              Más
-            </div>
-          </div>
-          <p class="heatmap-hint">Pasa el cursor o haz clic en un día con actividad para ver aprendices e importaciones.</p>
-          <p id="heatmap-empty" class="chart-note" hidden>No hay actividad registrada en el período seleccionado.</p>
-        </section>
-
-        <div class="pill-tabs indicadores-tabs" id="indicadores-pill-tabs">
-          <div class="pill-tab-list" role="tablist" aria-label="Secciones de indicadores">
-            <button class="pill-tab is-active" type="button" role="tab" id="tab-resumen" data-pill="resumen" aria-controls="panel-resumen" aria-selected="true">Resumen</button>
-            <button class="pill-tab tab-button" type="button" role="tab" id="tab-causas" data-pill="causas" data-tab="causas" aria-controls="panel-causas" aria-selected="false">Causas<span class="tab-count" id="indicadores-causas-count"></span></button>
-            <button class="pill-tab tab-button" type="button" role="tab" id="tab-actas" data-pill="actas" data-tab="actas" aria-controls="panel-actas" aria-selected="false">Actas del período<span class="tab-count" id="indicadores-actas-count"></span></button>
-          </div>
-
-          <section class="pill-panel is-active" id="panel-resumen" data-pill="resumen" role="tabpanel" aria-labelledby="tab-resumen">
-            <div id="indicadores-kpis" class="indicadores-kpis-grid"></div>
-            <div id="indicadores-avisos" class="indicadores-avisos"></div>
-            <div class="indicadores-main indicadores-main-split">
-              <section class="panel">
-                <div class="panel-heading">
-                  <div>
-                    <h2>Ejecución por nivel y tipo</h2>
-                    <p>Consolidado sin duplicidad de aprendices</p>
-                  </div>
-                </div>
-                <div class="learners-table-wrap">
-                  <table class="learners-data">
-                    <thead>
-                      <tr>
-                        <th>Categoría</th><th>Meta</th><th>Certificados</th><th>Pendientes</th>
-                        <th>% Avance</th><th>Brecha</th><th>Efectividad</th>
-                      </tr>
-                    </thead>
-                    <tbody id="indicadores-table"></tbody>
-                  </table>
-                </div>
-              </section>
-              <section class="panel">
-                <div class="panel-heading">
-                  <div>
-                    <h2>% de avance</h2>
-                    <p>Certificados sobre la meta de cada categoría</p>
-                  </div>
-                </div>
-                <div class="chart-canvas-wrap chart-canvas-compact">
-                  <canvas id="indicadores-avance-chart" role="img" aria-label="Gráfico de avance por categoría"></canvas>
-                  <p class="chart-empty" id="indicadores-avance-empty" hidden>Sin datos cargados</p>
-                </div>
-              </section>
-            </div>
-          </section>
-
-          <section class="pill-panel panel tab-panel" id="panel-causas" data-pill="causas" data-tab="causas" role="tabpanel" aria-labelledby="tab-causas" hidden>
-            <div class="panel-heading">
-              <div>
-                <h2>Causas de no certificación</h2>
-                <p id="indicadores-causas-summary">Distribución de incidencias vs. aprendices únicos</p>
-              </div>
-            </div>
-            <div class="chart-canvas-wrap">
-              <canvas id="indicadores-causas-chart" role="img" aria-label="Gráfico de causas de no certificación"></canvas>
-              <p class="chart-empty" id="indicadores-causas-empty" hidden>Aún no hay causas registradas</p>
-            </div>
-            <details class="chart-details">
-              <summary>Ver tabla detallada de causas</summary>
-              <div class="learners-table-wrap">
-                <table class="learners-data">
-                  <thead><tr><th>Causa / Requisito</th><th>Incidencias</th><th>%</th></tr></thead>
-                  <tbody id="indicadores-causas-table"></tbody>
-                </table>
-              </div>
-            </details>
-            <p id="indicadores-causas-note" class="chart-note"></p>
-          </section>
-
-          <section class="pill-panel panel tab-panel" id="panel-actas" data-pill="actas" data-tab="actas" role="tabpanel" aria-labelledby="tab-actas" hidden>
-            <div class="panel-heading">
-              <div>
-                <h2>Actas en el período</h2>
-                <p id="indicadores-actas-summary">Asociaciones reales de aprendices</p>
-              </div>
-            </div>
-            <div class="learners-table-wrap">
-              <table class="learners-data">
-                <thead><tr><th>Número</th><th>Fecha</th><th>Tipo</th><th>Certificados</th></tr></thead>
-                <tbody id="indicadores-actas-table"></tbody>
-              </table>
-            </div>
-          </section>
-        </div>
-      </div>
-
-
-      </section>
-    </div>
-  </main>
-    <div id="import-modal" class="modal-root" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="import-modal-title">
-    <div class="modal-backdrop" data-close-modal></div>
-    <div class="modal-dialog" tabindex="-1">
-      <button id="modal-close-button" class="modal-close" type="button" aria-label="Cerrar revisión de importación">×</button>
-      <div id="import-modal-body"></div>
-      <div class="modal-progress" id="modal-progress" hidden>
-        <div class="modal-progress-track"><div class="modal-progress-bar"></div></div>
-        <p class="modal-progress-label" id="modal-progress-label">Confirmando importación…</p>
-      </div>
-      <div class="modal-actions">
-        <button id="modal-cancel-button" class="cancel-button" type="button">Cancelar</button>
-        <button id="modal-confirm-button" class="primary-button" type="button">✓ &nbsp; Confirmar importación</button>
-      </div>
-    </div>
-  </div>
-  <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="/static/app.js?v=20261030-v6"></script>
-  <script src="/static/ui-enhancements.js?v=20261030-v6"></script>
-</body>
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SENA Certificación</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="/static/styles.css?v=20261031-v11" rel="stylesheet">
+</head>
+
+<body>
+  <div id="global-progress" class="global-progress" role="progressbar" aria-label="Procesando archivo" aria-valuetext="Procesando" hidden>
+    <div class="global-progress-bar"></div>
+  </div>
+  <main class="shell">
+    <div class="app-layout">
+            <nav class="sidebar" id="app-sidebar" aria-label="Navegación principal">
+        <div class="sidebar-nav">
+          <a class="sidebar-link active" href="#carga" data-view="carga" title="Cargar información" aria-current="page">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M5 20h14"/></svg>
+            </span>
+            <span class="nav-label">Cargar</span>
+          </a>
+          <a class="sidebar-link" href="#aprendices" data-view="aprendices" title="Aprendices">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </span>
+            <span class="nav-label">Aprendices</span>
+          </a>
+          <a class="sidebar-link" href="#actas" data-view="actas" title="Actas">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M8 11h8"/><path d="M8 16h6"/></svg>
+            </span>
+            <span class="nav-label">Actas</span>
+          </a>
+          <a class="sidebar-link" href="#indicadores" data-view="indicadores" title="Indicadores">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16v-5"/><path d="M12 16V8"/><path d="M17 16v-2"/></svg>
+            </span>
+            <span class="nav-label">Indicadores</span>
+          </a>
+          <a class="sidebar-link" href="#historial" data-view="historial" title="Historial de importaciones">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>
+            </span>
+            <span class="nav-label">Historial</span>
+          </a>
+        </div>
+      </nav>
+
+      <section class="page-content">
+      <div id="carga-view" class="app-view">
+
+    <header class="topbar" id="carga">
+      <div class="brand-mark" aria-hidden="true">SC</div>
+      <div><p class="eyebrow">SENA Certificación</p><h1>Cargar información</h1><p class="subtitle">Importa archivos oficiales, bases DF14A o matrices de seguimiento para la certificación.</p></div>
+      <span class="prototype-note">◈ Prototipo - reglas por confirmar</span>
+    </header>
+
+    <nav class="steps" aria-label="Progreso de carga"><span class="step active"><b>1</b> Seleccionar</span><i></i><span class="step"><b>2</b> Validar</span><i></i><span class="step"><b>3</b> Confirmar</span></nav>
+    <div id="feedback" class="feedback" role="status" aria-live="polite"></div>
+    <div class="workspace-grid">
+      <section class="main-column">
+        <article class="panel type-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Tipo de información</h2>
+              <p>Selecciona una de las tres fuentes principales</p>
+            </div>
+          </div>
+          <div class="category-options" id="category-options">
+            <button class="category-option selected" data-category="actas_oficiales" data-type="acta" type="button">
+              <span class="category-icon">📋</span>
+              <strong>Actas oficiales</strong>
+              <small>Documento del acta y los aprendices que cumplen los requisitos</small>
+              <span class="option-format">Formatos: PDF, DOCX</span>
+              <span class="check">✓</span>
+            </button>
+            <button class="category-option" data-category="df14a" data-type="df14a" type="button">
+              <span class="category-icon">▦</span>
+              <strong>DF14A</strong>
+              <small>Archivo institucional con la información de los aprendices</small>
+              <span class="option-format">Formatos: XML, XLSX, XLS, CSV</span>
+              <span class="check">✓</span>
+            </button>
+            <button class="category-option" data-category="actas_2026" data-type="actas_completo" type="button">
+              <span class="category-icon">📊</span>
+              <strong>ACTAS 2026 / seguimiento</strong>
+              <small>Excel con las hojas de seguimiento y los datos de los indicadores</small>
+              <span class="option-format">Formatos: XLSX, XLS</span>
+              <span class="check">✓</span>
+            </button>
+          </div>
+
+          <div class="subtype-section" id="secondary-section">
+            <div class="subtype-heading">
+              <h3>Cargas secundarias</h3>
+              <p>Opciones adicionales fuera de las tres fuentes principales</p>
+            </div>
+            <div class="type-options" id="secondary-options">
+              <button class="type-option" data-category="requisitos_aprendices" data-type="requisitos" type="button">
+                <span class="option-icon">☷</span>
+                <strong>Requisitos de aprendices</strong>
+                <small>Matriz de seguimiento de requisitos por aprendiz</small>
+                <span class="option-format">Formatos: XLSX, XLS, CSV</span>
+                <span class="check">✓</span>
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel upload-panel"><div class="panel-heading"><div><h2>Archivo</h2><p>Tamaño máximo recomendado: 20 MB</p></div></div><div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="Seleccionar archivo">
+          <div class="upload-icon">↑</div><h3>Arrastra el archivo aquí</h3><p>o selecciona un archivo desde tu equipo</p><button id="select-button" class="select-button" type="button">▣ &nbsp; Seleccionar archivo</button><small>Formatos admitidos: XLSX, XLS, CSV, PDF y DOCX</small><div class="upload-progress" id="upload-progress" aria-live="polite">
+            <div class="upload-progress-track"><div class="upload-progress-bar"></div></div>
+            <p class="upload-progress-label" id="upload-progress-label">Validando archivo…</p>
+          </div>
+          <input id="file-input" type="file" hidden accept=".xlsx,.xls,.csv,.pdf,.docx">
+        </div></article>
+
+        <article class="panel file-panel" id="file-panel" hidden><div class="file-badge">▦</div><div class="file-meta"><strong id="file-name"></strong><small id="file-details"></small></div><span class="file-status" id="file-status">LISTO PARA VALIDAR</span><button id="remove-file" class="remove-button" type="button" aria-label="Quitar archivo">×</button></article>
+        <article class="panel validation-panel" id="validation-panel" tabindex="-1" hidden><div class="panel-heading"><div><h2>Resultado de validación</h2><p id="validation-message">La validación es preliminar.</p></div><span class="result-badge" id="validation-status"></span></div><div class="validation-checks" id="validation-checks"></div></article>
+        <article class="panel confirmation-panel" id="confirmation-panel" hidden>
+          <div class="confirm-summary" id="confirm-summary" tabindex="-1">
+            <h2 id="import-modal-title" class="eyebrow" style="font-size:0.8rem;margin:0 0 6px">Revisión de importación</h2>
+            <div class="panel-heading"><div><h2>Revisar antes de importar</h2><p>Confirma que deseas guardar estos registros. Aún no se ha guardado nada.</p></div></div>
+            <div class="confirmation-grid">
+              <div class="confirm-metric confirm-metric-file"><small>Archivo</small><strong id="confirm-file"></strong></div>
+              <div class="confirm-metric confirm-metric-total"><small>Registros importables</small><strong id="confirm-importable"></strong></div>
+              <div class="confirm-metric confirm-metric-new"><small>Registros nuevos</small><strong id="confirm-new"></strong></div>
+              <div class="confirm-metric confirm-metric-updated"><small>Registros a actualizar</small><strong id="confirm-updated"></strong></div>
+              <div class="confirm-metric confirm-metric-rejected"><small>Registros rechazados</small><strong id="confirm-rejected"></strong></div>
+            </div>
+          </div>
+          <section class="confirm-section" aria-labelledby="confirm-breakdown-title">
+            <div class="confirm-section-heading">
+              <div><h3 id="confirm-breakdown-title">Desglose por tipo</h3><p>Qué se importará y cuántos registros aporta cada fuente.</p></div>
+            </div>
+            <div class="breakdown-grid" id="confirm-breakdown"></div>
+          </section>
+          <section class="confirm-section" aria-labelledby="confirm-warnings-title">
+            <div class="confirm-section-heading">
+              <div><h3 id="confirm-warnings-title">Advertencias</h3><p>Revisa estos puntos antes de confirmar; no impiden guardar por sí solos.</p></div>
+            </div>
+            <div class="confirm-warning-list" id="confirm-warnings"></div>
+          </section>
+          <section class="coherence-conflicts" id="coherence-conflicts" hidden>
+            <h3 id="coherence-conflicts-title">Conflictos de coherencia</h3>
+            <p>Estos aprendices figuran en CERTIFICADOS y PENDIENTES. Elija el estado final antes de importar.</p>
+            <div class="coherence-conflict-list" id="coherence-conflict-list"></div>
+            <p class="coherence-help" id="coherence-help" role="status"></p>
+          </section>
+          <section class="coherence-conflicts" id="missing-complementaria" hidden>
+            <h3>Hoja COMPLEMENTARIA ausente</h3>
+            <p>No se detectó la hoja COMPLEMENTARIA. Esta importación no actualizará formación complementaria.</p>
+            <label><input type="checkbox" id="accept-missing-complementaria"> Continuar sin hoja COMPLEMENTARIA</label>
+            <p class="coherence-help" id="missing-complementaria-help" role="status"></p>
+          </section>
+        </article>
+        <div class="actions"><button id="cancel-button" class="cancel-button" type="button">Cancelar</button><button id="validate-button" class="primary-button" type="button" disabled>→ &nbsp; Validar información</button><button id="confirm-button" class="primary-button" type="button" hidden>✓ &nbsp; Confirmar importación</button></div>
+      </section>
+
+      <aside class="side-column"><article class="panel guidance-panel"><div class="panel-heading"><div><h2>Antes de cargar</h2><p>Verifica el archivo antes de continuar</p></div></div><ul><li>Los documentos deben ser ficticios en este prototipo.</li><li>La primera fila debe contener encabezados.</li><li>No se conecta con SOFIA Plus ni con sistemas externos.</li><li>La importación podrá cancelarse antes de confirmar.</li></ul></article><article class="panel history-panel" id="historial"><div class="panel-heading"><div><h2>Últimas importaciones</h2><p>Se muestran las últimas 5 confirmadas en este equipo</p></div></div><div id="history-list" class="history-list"><small>Aún no hay importaciones.</small></div></article></aside>
+    </div>
+      </div>
+      <div id="aprendices-view" class="app-view" hidden>
+        <header class="topbar">
+          <div class="brand-mark" aria-hidden="true">♙</div>
+          <div><p class="eyebrow">SENA Certificación</p><h1>Listado de aprendices</h1><p class="subtitle">Consulta los aprendices almacenados en la base de datos SQLite.</p></div>
+          <button id="refresh-learners" class="primary-button refresh-button" type="button">↻ Actualizar</button>
+        </header>
+
+        <section class="panel learners-frame">
+                    <div class="learner-toolbar">
+            <label class="search-field" for="learner-search">Buscar aprendiz
+              <input id="learner-search" type="search" placeholder="Nombre, documento, programa, ficha o estado">
+            </label>
+
+            <label class="status-field" for="learner-status">Filtrar por estado
+              <select id="learner-status"><option value="">Todos los estados</option></select>
+            </label>
+
+            <div class="requirement-field">
+              <span>Requisito faltante (varios)</span>
+              <details class="requirement-multiselect" id="learner-missing-requirement">
+                <summary aria-haspopup="listbox"><span id="learner-missing-requirement-summary">Cualquiera</span></summary>
+                <div class="requirement-options" id="learner-missing-requirement-options" role="listbox" aria-multiselectable="true">
+                  <button type="button" class="requirement-option is-selected" data-value="" role="option" aria-selected="true">Cualquiera</button>
+                </div>
+              </details>
+            </div>
+
+            <button id="clear-learner-search" class="cancel-button" type="button">Limpiar</button>
+
+            <small class="requirement-hint">Haz clic para elegir varios. Sin selección muestra todos.</small>
+          </div>
+
+          <div class="learner-status-chips" id="learner-status-chips" aria-label="Conteo de aprendices por estado"></div>
+
+          <div class="panel-heading"><div><h2>Aprendices registrados</h2><p id="learners-summary">Consultando SQLite...</p><small class="detail-hint">Usa <strong>Ver detalles</strong> para consultar y gestionar los requisitos del aprendiz.</small></div></div>
+          <div class="learners-table-wrap">
+            <table class="learners-data">
+              <thead><tr><th>Nombre</th><th>Documento</th><th>Programa</th><th>Ficha</th><th>Estado</th><th>Origen</th><th>Requisitos pendientes</th><th>Detalles</th></tr></thead>
+              <tbody id="learners-list"><tr><td colspan="8">Aun no hay aprendices cargados.</td></tr></tbody>
+            </table>
+          </div>
+
+          <div class="pagination" aria-label="Paginacion de aprendices">
+            <button id="learners-prev" class="cancel-button" type="button">← Anterior</button>
+            <span id="learners-page">Pagina 1 de 1</span>
+            <button id="learners-next" class="cancel-button" type="button">Siguiente →</button>
+          </div>
+          
+        </section>
+        <section class="panel learner-detail-frame" id="learner-detail" hidden>
+          <div class="detail-heading learner-detail-heading">
+            <div class="detail-heading-text">
+              <p class="eyebrow detail-breadcrumb">Listado de aprendices → ficha del aprendiz</p>
+              <h2 id="learner-detail-title">Detalle</h2>
+            </div>
+            <div class="detail-actions">
+              <button id="back-to-learners" class="cancel-button" type="button">← Volver</button>
+              <button id="refresh-learner-detail" class="primary-button" type="button">↻ Actualizar</button>
+            </div>
+          </div>
+          <p id="learner-detail-feedback" class="detail-feedback" role="status"></p>
+          <div id="learner-detail-content" hidden>
+            <div class="learner-detail-layout">
+              <article class="detail-section learner-card-id">
+                <div class="panel-heading"><div><h3>Identificación</h3></div></div>
+                <dl id="learner-basic-info" class="detail-grid"></dl>
+              </article>
+              <article class="detail-section learner-card-tracking" id="learner-tracking-section" hidden>
+                <div class="panel-heading"><div><h3>Seguimiento de certificación</h3></div></div>
+                <dl id="learner-tracking" class="detail-grid"></dl>
+              </article>
+              <article class="detail-section learner-card-sources" id="learner-sources-section" hidden>
+                <div class="panel-heading"><div><h3>Origen de los datos</h3></div></div>
+                <dl id="learner-sources" class="detail-grid"></dl>
+              </article>
+              <article class="detail-section learner-card-requirements">
+                <div class="panel-heading"><div><h3>Requisitos y evidencias</h3><p>Solo se muestran los requisitos registrados para el aprendiz.</p></div></div>
+                <div class="requirements-head" aria-hidden="true"><span>Requisito</span><span>Estado</span><span>Observación</span><span></span></div>
+                <div id="learner-requirements" class="requirements-editor"></div>
+              </article>
+              <article class="detail-section learner-card-history">
+                <div class="panel-heading"><div><h3>Historial de requisitos</h3><p>Cambios de estado registrados por importación o edición manual.</p></div></div>
+                <div id="learner-requirement-history" class="requirement-history"></div>
+              </article>
+            </div>
+            <details class="chart-details" id="learner-more-data" hidden>
+              <summary>Más datos</summary>
+              <dl id="learner-extra" class="detail-grid"></dl>
+            </details>
+          </div>
+        </section>
+      </div>
+      <div id="actas-view" class="app-view" hidden>
+        <header class="topbar"><div class="brand-mark" aria-hidden="true">📋</div><div><p class="eyebrow">SENA Certificación</p><h1>Actas de certificación</h1><p class="subtitle">Registra y consulta actas y sus aprendices asociados.</p></div></header>
+        <section class="panel"><div class="panel-heading"><div><h2>Registrar acta</h2><p>Los datos se guardan en SQLite.</p></div></div>
+          <form id="act-form" class="act-form"><label>Número<input name="number" required></label><label>Fecha<input name="act_date" type="date" required></label><label>Tipo<input name="act_type"></label><label>Archivo original<input name="original_file" value="Registro manual" required></label><label>Estado<select name="review_status"><option value="pending">Pendiente</option><option value="reviewed">Revisada</option><option value="rejected">Rechazada</option></select></label><label class="act-wide">Observaciones<textarea name="observations" rows="2"></textarea></label><button class="primary-button" type="submit">Guardar acta</button><p id="act-form-feedback" class="detail-feedback" role="status"></p></form>
+        </section>
+        <section class="panel"><div class="learner-toolbar"><label class="search-field">Buscar acta<input id="act-search" type="search" placeholder="Número, tipo o archivo"></label><label class="search-field">Número<input id="act-number-filter" type="search" placeholder="Ej. 41"></label><label class="search-field">Desde<input id="act-date-from" type="date"></label><label class="search-field">Hasta<input id="act-date-to" type="date"></label><label class="search-field">Estado de revisión<select id="act-status-filter"><option value="">Todos los estados</option><option value="pending">Pendiente</option><option value="reviewed">Revisada</option><option value="rejected">Rechazada</option></select></label><button id="refresh-acts" class="cancel-button" type="button">Actualizar</button></div><div class="panel-heading"><div><h2>Actas registradas</h2><p id="acts-summary"></p></div></div><div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Número</th><th>Fecha</th><th>Tipo</th><th>Estado</th><th>Aprendices</th><th>Detalle</th></tr></thead><tbody id="acts-list"></tbody></table></div></section>
+        <section class="panel learner-detail-frame" id="act-detail" hidden><div class="detail-heading"><button id="back-to-acts" class="cancel-button" type="button">Volver</button><div><p class="eyebrow">Acta</p><h2 id="act-detail-title"></h2></div></div><p id="act-detail-feedback" class="detail-feedback" role="status"></p><div id="act-detail-content" hidden><dl id="act-basic-info" class="detail-grid"></dl><article class="detail-section"><div class="panel-heading"><div><h3>Aprendices asociados</h3></div></div><div id="act-learners" class="detail-list"></div><form id="act-learner-form" class="act-inline-form"><label>ID del aprendiz<input name="learner_id" type="number" required></label><label>Observaciones<input name="observations"></label><button class="primary-button" type="submit">Asociar</button></form></article></div></section>
+      </div>
+            <div id="indicadores-view" class="app-view" hidden>
+        <header class="topbar">
+          <div class="topbar-text">
+            <p class="eyebrow">SENA Certificación</p>
+            <h1>Indicadores de certificación 2026</h1>
+            <p class="subtitle">Resumen, actividad y detalle por pestañas · Enero – Septiembre 2026</p>
+          </div>
+          <button id="refresh-indicadores" class="primary-button refresh-button" type="button">Actualizar</button>
+        </header>
+
+        <div class="metrics-grid metrics-grid-compact" id="indicadores-metrics">
+          <article class="metric-card">
+            <p class="metric-label">Total aprendices</p>
+            <p class="metric-value" id="ind-metric-learners">—</p>
+            <small>Registrados en la base de datos</small>
+          </article>
+          <article class="metric-card metric-card-warning">
+            <p class="metric-label">Por certificar / pendientes</p>
+            <p class="metric-value" id="ind-metric-por-certificar">—</p>
+            <small>Estado en aprendices o pendientes únicos</small>
+          </article>
+          <article class="metric-card metric-card-success">
+            <p class="metric-label">Certificados</p>
+            <p class="metric-value" id="ind-metric-certificados">—</p>
+            <small>En período / consolidado</small>
+          </article>
+          <article class="metric-card">
+            <p class="metric-label">Actas registradas</p>
+            <p class="metric-value" id="ind-metric-actas">—</p>
+            <small>Comités y actas en sistema</small>
+          </article>
+        </div>
+
+        <section class="panel heatmap-panel heatmap-panel-compact">
+          <div class="heatmap-header">
+            <div>
+              <h2 class="heatmap-title">Actividad de certificación</h2>
+              <p class="heatmap-sub">Cambios de estado e importaciones por día</p>
+            </div>
+            <label class="search-field heatmap-year-field" for="heatmap-year">Año
+              <select id="heatmap-year">
+                <option value="2026" selected>2026</option>
+                <option value="2025">2025</option>
+              </select>
+            </label>
+          </div>
+          <div class="gh-heatmap-wrap">
+            <div class="gh-heatmap-months" id="heatmap-months" aria-hidden="true"></div>
+            <div class="gh-heatmap-body">
+              <div class="gh-heatmap-days" aria-hidden="true">
+                <span>Lun</span><span></span><span>Mié</span><span></span><span>Vie</span><span></span><span></span>
+              </div>
+              <div id="indicadores-heatmap" class="github-heatmap" role="img" aria-label="Mapa de actividad de certificación estilo GitHub"></div>
+            </div>
+            <div class="heatmap-legend" aria-hidden="true">
+              Menos
+              <i class="lv0"></i><i class="lv1"></i><i class="lv2"></i><i class="lv3"></i><i class="lv4"></i>
+              Más
+            </div>
+          </div>
+          <p class="heatmap-hint">Pasa el cursor o haz clic en un día con actividad para ver aprendices e importaciones.</p>
+          <p id="heatmap-empty" class="chart-note" hidden>No hay actividad registrada en el período seleccionado.</p>
+        </section>
+
+        <div class="pill-tabs indicadores-tabs" id="indicadores-pill-tabs">
+          <div class="pill-tab-list" role="tablist" aria-label="Secciones de indicadores">
+            <button class="pill-tab is-active" type="button" role="tab" id="tab-resumen" data-pill="resumen" aria-controls="panel-resumen" aria-selected="true">Resumen</button>
+            <button class="pill-tab tab-button" type="button" role="tab" id="tab-causas" data-pill="causas" data-tab="causas" aria-controls="panel-causas" aria-selected="false">Causas<span class="tab-count" id="indicadores-causas-count"></span></button>
+            <button class="pill-tab tab-button" type="button" role="tab" id="tab-actas" data-pill="actas" data-tab="actas" aria-controls="panel-actas" aria-selected="false">Actas del período<span class="tab-count" id="indicadores-actas-count"></span></button>
+          </div>
+
+          <section class="pill-panel is-active" id="panel-resumen" data-pill="resumen" role="tabpanel" aria-labelledby="tab-resumen">
+            <div id="indicadores-kpis" class="indicadores-kpis-grid"></div>
+            <div id="indicadores-avisos" class="indicadores-avisos"></div>
+            <div class="indicadores-main indicadores-main-split">
+              <section class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <h2>Ejecución por nivel y tipo</h2>
+                    <p>Consolidado sin duplicidad de aprendices</p>
+                  </div>
+                </div>
+                <div class="learners-table-wrap">
+                  <table class="learners-data">
+                    <thead>
+                      <tr>
+                        <th>Categoría</th><th>Meta</th><th>Certificados</th><th>Pendientes</th>
+                        <th>% Avance</th><th>Brecha</th><th>Efectividad</th>
+                      </tr>
+                    </thead>
+                    <tbody id="indicadores-table"></tbody>
+                  </table>
+                </div>
+              </section>
+              <section class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <h2>% de avance</h2>
+                    <p>Certificados sobre la meta de cada categoría</p>
+                  </div>
+                </div>
+                <div class="chart-canvas-wrap chart-canvas-compact">
+                  <canvas id="indicadores-avance-chart" role="img" aria-label="Gráfico de avance por categoría"></canvas>
+                  <p class="chart-empty" id="indicadores-avance-empty" hidden>Sin datos cargados</p>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section class="pill-panel panel tab-panel" id="panel-causas" data-pill="causas" data-tab="causas" role="tabpanel" aria-labelledby="tab-causas" hidden>
+            <div class="panel-heading">
+              <div>
+                <h2>Causas de no certificación</h2>
+                <p id="indicadores-causas-summary">Distribución de incidencias vs. aprendices únicos</p>
+              </div>
+            </div>
+            <div class="chart-canvas-wrap">
+              <canvas id="indicadores-causas-chart" role="img" aria-label="Gráfico de causas de no certificación"></canvas>
+              <p class="chart-empty" id="indicadores-causas-empty" hidden>Aún no hay causas registradas</p>
+            </div>
+            <details class="chart-details">
+              <summary>Ver tabla detallada de causas</summary>
+              <div class="learners-table-wrap">
+                <table class="learners-data">
+                  <thead><tr><th>Causa / Requisito</th><th>Incidencias</th><th>%</th></tr></thead>
+                  <tbody id="indicadores-causas-table"></tbody>
+                </table>
+              </div>
+            </details>
+            <p id="indicadores-causas-note" class="chart-note"></p>
+          </section>
+
+          <section class="pill-panel panel tab-panel" id="panel-actas" data-pill="actas" data-tab="actas" role="tabpanel" aria-labelledby="tab-actas" hidden>
+            <div class="panel-heading">
+              <div>
+                <h2>Actas en el período</h2>
+                <p id="indicadores-actas-summary">Asociaciones reales de aprendices</p>
+              </div>
+            </div>
+            <div class="learners-table-wrap">
+              <table class="learners-data">
+                <thead><tr><th>Número</th><th>Fecha</th><th>Tipo</th><th>Certificados</th></tr></thead>
+                <tbody id="indicadores-actas-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+
+
+      </section>
+    </div>
+  </main>
+    <div id="import-modal" class="modal-root" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="import-modal-title">
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-dialog" tabindex="-1">
+      <button id="modal-close-button" class="modal-close" type="button" aria-label="Cerrar revisión de importación">×</button>
+      <div id="import-modal-body"></div>
+      <div class="modal-progress" id="modal-progress" hidden>
+        <div class="modal-progress-track"><div class="modal-progress-bar"></div></div>
+        <p class="modal-progress-label" id="modal-progress-label">Confirmando importación…</p>
+      </div>
+      <div class="modal-actions">
+        <button id="modal-cancel-button" class="cancel-button" type="button">Cancelar</button>
+        <button id="modal-confirm-button" class="primary-button" type="button">✓ &nbsp; Confirmar importación</button>
+      </div>
+    </div>
+  </div>
+  <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="/static/app.js?v=20261031-v8"></script>
+  <script src="/static/ui-enhancements.js?v=20261030-v7"></script>
+</body>
 </html>
