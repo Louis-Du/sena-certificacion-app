@@ -411,9 +411,17 @@ async def indicadores_endpoint(session: Session = Depends(get_db)) -> dict:
     from app.services.indicadores import compute_indicadores_2026
     return compute_indicadores_2026(session)
 
+# ---------------------------------------------------------------------------
+# Parche de actividad para el heatmap de la UI v2
+# ---------------------------------------------------------------------------
+# ``build_activity_heatmap`` agrega actividad real desde
+# ``RequirementStatusHistory`` (cambios de requisitos) e ``ImportHistory``
+# (importaciones confirmadas). ``learners_for_activity_date`` devuelve el
+# detalle de aprendices e importaciones de una celda concreta.
+# El frontend lo consume desde ``app/static/ui-enhancements.js``.
 @app.get("/api/activity/heatmap")
 async def activity_heatmap(
-    year: int = 2026,
+    year: int = Query(default=2026, ge=2000, le=2100),
     session: Session = Depends(get_db),
 ) -> dict:
     return build_activity_heatmap(session, year=year)

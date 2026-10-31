@@ -2,7 +2,7 @@
 
 **Proyecto:** SENA Certificación App  
 **Fecha:** Octubre 2026  
-**Versión de diseño:** `20261030-final`
+**Versión de diseño:** `20261030-v5`
 
 ---
 
@@ -31,25 +31,22 @@ Se completó la modernización visual integral de la aplicación web local de se
 - Módulo `app/static/ui-enhancements.js` con función universal `showToast(message, type, duration)`.
 - `MutationObserver` integrado sobre `#feedback` y formularios secundarios para proyectar mensajes relevantes como toasts sin ruido visual fijo.
 
-### Fase 4 — Panel de Control Ejecutivo / Dashboard (Commit actual)
-- Nueva vista `#dashboard-view` accesible desde el enlace lateral `data-view="dashboard"`.
-- 4 tarjetas de métricas ejecutivas con animación de entrada (`cardEntrance`):
-  1. **Total Aprendices**: Aprendices en base de datos.
-  2. **Por Certificar**: Aprendices con requisitos pendientes.
-  3. **Certificados**: Aprendices que cumplieron el 100% de requisitos.
-  4. **Actas Registradas**: Comités y actas en el sistema.
-- Mapa de calor de actividad anual estilo **GitHub Heatmap** distribuido en 52 semanas del año 2026 con 5 niveles de intensidad (`lvl-0` a `lvl-4`).
-- Accesos directos a flujos clave (Cargar información, Listado de aprendices, Indicadores).
+### Fase 4 — Indicadores unificados, sin Dashboard aparte
+- Se eliminó la vista `#dashboard-view`: las 4 métricas ejecutivas y el heatmap viven al inicio de **Indicadores**.
+- Tarjetas superiores: Total aprendices, Por certificar/pendientes, Certificados y Actas registradas.
+- Heatmap anual estilo **GitHub** con datos reales de `RequirementStatusHistory` e `ImportHistory`.
+- Pestañas pill **Resumen / Causas / Actas del período** para reducir el desplazamiento vertical sin ocultar información.
 
-### Fase 5 — Consistencia en el Resto de Vistas (Commit actual)
-- Topbars unificadas en `#aprendices-view`, `#actas-view` e `#indicadores-view` con marca institucional, títulos y botón de recarga rápida.
-- Fila de KPIs de indicadores mejorada con elevación sutil y estilo uniforme.
-- Diseño responsivo adaptativo para resoluciones móviles y pantallas intermedias (`@media (max-width: 1100px)`, `@media (max-width: 980px)` y `@media (max-width: 640px)`).
+### Fase 5 — Rail, modal y retroalimentación
+- Sidebar tipo rail con iconos SVG, tooltip, indicador rosa animado y un único ítem activo.
+- Confirmación de importación y conflictos de coherencia en modal flotante, con cierre por botón, backdrop o `Escape`, foco contenido y cierre automático al terminar.
+- Barras de progreso global y dentro del modal durante validación, vista previa y confirmación.
+- Toasts diferenciados para información, advertencia, error y éxito.
 
-### Fase 6 — Cierre y Optimización de Entrega (Commit actual)
-- Exposición global de `window.SenaUI = { showToast, loadDashboardData }` para interoperabilidad segura.
-- Actualización de parámetros de cache busting en `index.html`: `?v=20261030-final`.
-- Validación completa de la suite de pruebas unitarias y de integración (`pytest`).
+### Fase 6 — Cierre y verificación
+- Endpoints `GET /api/activity/heatmap?year=2026` y `GET /api/activity/day/YYYY-MM-DD` documentados en `app/main.py`.
+- Cache busting actualizado a `?v=20261030-v5`.
+- Verificación con navegador real (Playwright/Firefox) y suite `pytest` sin E2E.
 
 ---
 
@@ -61,8 +58,9 @@ Se completó la modernización visual integral de la aplicación web local de se
 | **Métrica "Por Certificar"** | **Real** | Calculado en tiempo real desde `/api/indicadores` (`total_pendientes`). |
 | **Métrica "Certificados"** | **Real** | Calculado en tiempo real desde `/api/indicadores` (`total_certificados`). |
 | **Métrica "Actas Registradas"** | **Real** | Conteo exacto desde `/api/acts` (`items.length`). |
-| **Fechas con actas en el Heatmap** | **Real** | Las fechas que contienen actas registradas en SQLite iluminan el día exacto en el calendario. |
-| **Matriz diaria continua del Heatmap** | **Demostrativo / Proyectado** | La base de datos no registra marcas de tiempo continuas por día para cada cambio de estado histórico. Los días sin actas registradas se calculan mediante un modelo determinístico congruente con los cierres de comités trimestrales (finales de marzo, junio, septiembre y diciembre de 2026). Cuenta con aviso visible en la leyenda: `◈ Matriz proyectada/demostrativa`. |
+| **Fechas con actividad en el Heatmap** | **Real** | Cada celda cuenta cambios de requisitos (`RequirementStatusHistory.recorded_at`) e importaciones confirmadas (`ImportHistory.imported_at`). |
+| **Detalle de un día del Heatmap** | **Real** | `GET /api/activity/day/YYYY-MM-DD` devuelve aprendices e importaciones de esa fecha. |
+| **Matriz diaria del Heatmap** | **Real** | El backend genera los 365 días del año consultado; los días sin eventos quedan en nivel 0. |
 | **Carga y Validación de Archivos** | **Real** | Endpoint `/api/files/validate` y `/api/imports/{id}/confirm`. |
 | **Listado y Filtros de Aprendices** | **Real** | Endpoint `/api/learners` con paginación, filtros de estado y búsqueda. |
 | **Detalle de Aprendiz** | **Real** | Endpoint `/api/learners/{id}` con requisitos y trazabilidad. |
@@ -73,7 +71,9 @@ Se completó la modernización visual integral de la aplicación web local de se
 
 ## 4. Archivos Modificados en el Cierre
 
-- `app/static/index.html`: Inclusión de `#dashboard-view`, enlace en sidebar, consistencia de topbars y versionado de assets.
-- `app/static/styles.css`: Estilos para métricas, cuadrícula de dashboard, heatmap, quick action cards y mejoras responsivas.
-- `app/static/ui-enhancements.js`: Lógica de carga de métricas (`loadDashboardData`), renderizado del heatmap de 52 semanas, enrutamiento del dashboard y exposición de `window.SenaUI`.
-- `docs/CHANGELOG_UI.md`: Documentación formal de la arquitectura visual y matriz de datos.
+- `app/static/index.html`: rail con iconos SVG, indicadores unificados, modal de revisión, barra de progreso global y cache busting `v5`.
+- `app/static/styles.css`: sistema visual, chips, rail, modal, heatmap, pestañas pill, KPIs y ajustes responsivos.
+- `app/static/ui-enhancements.js`: toasts, modal, progreso, heatmap real con tooltip, pestañas, navegación y ajuste de gráficos.
+- `app/services/activity.py`: agregación del heatmap y detalle diario.
+- `app/main.py`: documentación y validación del parámetro `year` en los endpoints de actividad.
+- `docs/CHANGELOG_UI.md`: documentación formal de la arquitectura visual y matriz de datos.
