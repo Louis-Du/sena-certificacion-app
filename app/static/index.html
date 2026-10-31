@@ -7,10 +7,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link href="/static/styles.css?v=20261030-v2" rel="stylesheet">
+  <link href="/static/styles.css?v=20261030-v5" rel="stylesheet">
 </head>
 
 <body>
+  <div id="global-progress" class="global-progress" role="progressbar" aria-label="Procesando archivo" aria-valuetext="Procesando" hidden>
+    <div class="global-progress-bar"></div>
+  </div>
   <main class="shell">
     <div class="app-layout">
             <nav class="sidebar" id="app-sidebar" aria-label="Navegación principal">
@@ -19,24 +22,34 @@
           <strong>SENA Certificación</strong>
         </div>
         <div class="sidebar-nav">
-          <a class="sidebar-link active" href="#carga" data-view="carga" title="Cargar información">
-            <span class="nav-icon" aria-hidden="true">↑</span>
+          <a class="sidebar-link active" href="#carga" data-view="carga" title="Cargar información" aria-current="page">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M5 20h14"/></svg>
+            </span>
             <span>Cargar</span>
           </a>
           <a class="sidebar-link" href="#aprendices" data-view="aprendices" title="Aprendices">
-            <span class="nav-icon" aria-hidden="true">♟</span>
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </span>
             <span>Aprendices</span>
           </a>
           <a class="sidebar-link" href="#actas" data-view="actas" title="Actas">
-            <span class="nav-icon" aria-hidden="true">☰</span>
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M8 11h8"/><path d="M8 16h6"/></svg>
+            </span>
             <span>Actas</span>
           </a>
           <a class="sidebar-link" href="#indicadores" data-view="indicadores" title="Indicadores">
-            <span class="nav-icon" aria-hidden="true">◐</span>
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16v-5"/><path d="M12 16V8"/><path d="M17 16v-2"/></svg>
+            </span>
             <span>Indicadores</span>
           </a>
-          <a class="sidebar-link" href="#historial" data-view="carga" title="Historial">
-            <span class="nav-icon" aria-hidden="true">▤</span>
+          <a class="sidebar-link" href="#historial" data-view="historial" title="Historial de importaciones">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>
+            </span>
             <span>Historial</span>
           </a>
         </div>
@@ -44,8 +57,6 @@
       </nav>
 
       <section class="page-content">
-      <!-- dashboard fusionado en indicadores -->
-      <div id="dashboard-view" class="app-view" hidden></div>
       <div id="carga-view" class="app-view">
 
     <header class="topbar" id="carga">
@@ -238,19 +249,28 @@
         <section class="panel"><div class="learner-toolbar"><label class="search-field">Buscar acta<input id="act-search" type="search" placeholder="Número, tipo o archivo"></label><label class="search-field">Número<input id="act-number-filter" type="search" placeholder="Ej. 41"></label><label class="search-field">Desde<input id="act-date-from" type="date"></label><label class="search-field">Hasta<input id="act-date-to" type="date"></label><label class="search-field">Estado de revisión<select id="act-status-filter"><option value="">Todos los estados</option><option value="pending">Pendiente</option><option value="reviewed">Revisada</option><option value="rejected">Rechazada</option></select></label><button id="refresh-acts" class="cancel-button" type="button">Actualizar</button></div><div class="panel-heading"><div><h2>Actas registradas</h2><p id="acts-summary"></p></div></div><div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Número</th><th>Fecha</th><th>Tipo</th><th>Estado</th><th>Aprendices</th><th>Detalle</th></tr></thead><tbody id="acts-list"></tbody></table></div></section>
         <section class="panel learner-detail-frame" id="act-detail" hidden><div class="detail-heading"><button id="back-to-acts" class="cancel-button" type="button">Volver</button><div><p class="eyebrow">Acta</p><h2 id="act-detail-title"></h2></div></div><p id="act-detail-feedback" class="detail-feedback" role="status"></p><div id="act-detail-content" hidden><dl id="act-basic-info" class="detail-grid"></dl><article class="detail-section"><div class="panel-heading"><div><h3>Aprendices asociados</h3></div></div><div id="act-learners" class="detail-list"></div><form id="act-learner-form" class="act-inline-form"><label>ID del aprendiz<input name="learner_id" type="number" required></label><label>Observaciones<input name="observations"></label><button class="primary-button" type="submit">Asociar</button></form></article></div></section>
       </div>
-      <div id="indicadores-view" class="app-view" hidden>
-        <div class="metrics-grid" id="indicadores-metrics">
+            <div id="indicadores-view" class="app-view" hidden>
+        <header class="topbar">
+          <div class="topbar-text">
+            <p class="eyebrow">SENA Certificación</p>
+            <h1>Indicadores de certificación 2026</h1>
+            <p class="subtitle">Resumen, actividad y detalle por pestañas · Enero – Septiembre 2026</p>
+          </div>
+          <button id="refresh-indicadores" class="primary-button refresh-button" type="button">Actualizar</button>
+        </header>
+
+        <div class="metrics-grid metrics-grid-compact" id="indicadores-metrics">
           <article class="metric-card">
             <p class="metric-label">Total aprendices</p>
             <p class="metric-value" id="ind-metric-learners">—</p>
             <small>Registrados en la base de datos</small>
           </article>
-          <article class="metric-card">
-            <p class="metric-label">Por certificar</p>
+          <article class="metric-card metric-card-warning">
+            <p class="metric-label">Por certificar / pendientes</p>
             <p class="metric-value" id="ind-metric-por-certificar">—</p>
-            <small>Con requisitos pendientes</small>
+            <small>Estado en aprendices o pendientes únicos</small>
           </article>
-          <article class="metric-card">
+          <article class="metric-card metric-card-success">
             <p class="metric-label">Certificados</p>
             <p class="metric-value" id="ind-metric-certificados">—</p>
             <small>En período / consolidado</small>
@@ -262,77 +282,135 @@
           </article>
         </div>
 
-        <section class="panel heatmap-panel">
+        <section class="panel heatmap-panel heatmap-panel-compact">
           <div class="heatmap-header">
             <div>
-              <h2 style="margin:0 0 4px;font-size:1.2rem;font-weight:750">Actividad de certificación y cambios de estado</h2>
-              <p style="margin:0;color:var(--muted);font-size:0.95rem">Trazabilidad por días (datos reales de historial e importaciones)</p>
+              <h2 class="heatmap-title">Actividad de certificación</h2>
+              <p class="heatmap-sub">Cambios de estado e importaciones por día</p>
             </div>
-            <label class="search-field" for="heatmap-year">Año
-              <select id="heatmap-year"><option value="2026" selected>2026</option><option value="2025">2025</option></select>
+            <label class="search-field heatmap-year-field" for="heatmap-year">Año
+              <select id="heatmap-year">
+                <option value="2026" selected>2026</option>
+                <option value="2025">2025</option>
+              </select>
             </label>
           </div>
-          <div id="indicadores-heatmap" class="github-heatmap" role="img" aria-label="Mapa de actividad de certificación"></div>
-          <div class="heatmap-legend" aria-hidden="true">
-            Menos actividad
-            <i style="background:#e2e8f0"></i>
-            <i style="background:#99f6e4"></i>
-            <i style="background:#5eead4"></i>
-            <i style="background:#14b8a6"></i>
-            <i style="background:#0f766e"></i>
-            Más actividad
+          <div class="gh-heatmap-wrap">
+            <div class="gh-heatmap-months" id="heatmap-months" aria-hidden="true"></div>
+            <div class="gh-heatmap-body">
+              <div class="gh-heatmap-days" aria-hidden="true">
+                <span>Lun</span><span></span><span>Mié</span><span></span><span>Vie</span><span></span><span></span>
+              </div>
+              <div id="indicadores-heatmap" class="github-heatmap" role="img" aria-label="Mapa de actividad de certificación estilo GitHub"></div>
+            </div>
+            <div class="heatmap-legend" aria-hidden="true">
+              Menos
+              <i class="lv0"></i><i class="lv1"></i><i class="lv2"></i><i class="lv3"></i><i class="lv4"></i>
+              Más
+            </div>
           </div>
-          <p id="heatmap-empty" class="chart-note" hidden style="color:var(--muted);font-size:0.9rem;margin-top:10px">No hay actividad registrada en el período seleccionado.</p>
+          <p class="heatmap-hint">Pasa el cursor o haz clic en un día con actividad para ver aprendices e importaciones.</p>
+          <p id="heatmap-empty" class="chart-note" hidden>No hay actividad registrada en el período seleccionado.</p>
         </section>
 
-        <header class="topbar"><div class="brand-mark" aria-hidden="true">◐</div><div><p class="eyebrow">Sena Certificación</p><h1>Indicadores de Certificación 2026</h1><p class="subtitle">Seguimiento de metas, ejecución y pendientes (Enero - Septiembre 2026).</p></div><button id="refresh-indicadores" class="primary-button refresh-button" type="button">↻ Actualizar</button></header>
-        <div id="indicadores-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;"></div>
-        <div id="indicadores-avisos" style="margin-bottom:16px;"></div>
-        <div class="indicadores-main">
-          <section class="panel"><div class="panel-heading"><div><h2>Ejecución por Nivel y Tipo de Formación</h2><p>Consolidado acumulado sin duplicidad de aprendices (base de datos)</p></div></div><div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Categoría</th><th>Meta</th><th>Certificados</th><th>Pendientes</th><th>% Avance</th><th>Brecha</th><th>Efectividad</th></tr></thead><tbody id="indicadores-table"></tbody></table></div></section>
-
-          <section class="panel">
-            <div class="panel-heading"><div><h2>Porcentaje de Avance por Nivel y Tipo de Formación</h2><p>Certificados sobre la meta de cada categoría</p></div></div>
-            <div class="chart-canvas-wrap">
-              <canvas id="indicadores-avance-chart" role="img" aria-label="Gráfico de barras con el porcentaje de avance de cada categoría frente a su meta"></canvas>
-              <p class="chart-empty" id="indicadores-avance-empty" hidden>Sin datos cargados</p>
-            </div>
-            <p class="chart-note">En lugar de valores absolutos se grafica el % de avance, para que una meta muy alta no aplaste al resto de categorías. Pase el cursor sobre cada barra para ver meta, certificados y pendientes.</p>
-          </section>
-        </div>
-
-        <div class="indicadores-tabs">
-          <div class="tab-list" role="tablist" aria-label="Detalle complementario de indicadores">
-            <button class="tab-button is-active" type="button" role="tab" id="tab-causas" data-tab="causas" aria-controls="panel-causas" aria-selected="true">Causas de No Certificación<span class="tab-count" id="indicadores-causas-count"></span></button>
-            <button class="tab-button" type="button" role="tab" id="tab-actas" data-tab="actas" aria-controls="panel-actas" aria-selected="false">Actas en el Período<span class="tab-count" id="indicadores-actas-count"></span></button>
+        <div class="pill-tabs indicadores-tabs" id="indicadores-pill-tabs">
+          <div class="pill-tab-list" role="tablist" aria-label="Secciones de indicadores">
+            <button class="pill-tab is-active" type="button" role="tab" id="tab-resumen" data-pill="resumen" aria-controls="panel-resumen" aria-selected="true">Resumen</button>
+            <button class="pill-tab tab-button" type="button" role="tab" id="tab-causas" data-pill="causas" data-tab="causas" aria-controls="panel-causas" aria-selected="false">Causas<span class="tab-count" id="indicadores-causas-count"></span></button>
+            <button class="pill-tab tab-button" type="button" role="tab" id="tab-actas" data-pill="actas" data-tab="actas" aria-controls="panel-actas" aria-selected="false">Actas del período<span class="tab-count" id="indicadores-actas-count"></span></button>
           </div>
 
-          <section class="panel tab-panel" id="panel-causas" data-tab="causas" role="tabpanel" aria-labelledby="tab-causas">
-            <div class="panel-heading"><div><h2>Causas de No Certificación</h2><p id="indicadores-causas-summary">Distribución de incidencias vs. aprendices únicos</p></div></div>
+          <section class="pill-panel is-active" id="panel-resumen" data-pill="resumen" role="tabpanel" aria-labelledby="tab-resumen">
+            <div id="indicadores-kpis" class="indicadores-kpis-grid"></div>
+            <div id="indicadores-avisos" class="indicadores-avisos"></div>
+            <div class="indicadores-main indicadores-main-split">
+              <section class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <h2>Ejecución por nivel y tipo</h2>
+                    <p>Consolidado sin duplicidad de aprendices</p>
+                  </div>
+                </div>
+                <div class="learners-table-wrap">
+                  <table class="learners-data">
+                    <thead>
+                      <tr>
+                        <th>Categoría</th><th>Meta</th><th>Certificados</th><th>Pendientes</th>
+                        <th>% Avance</th><th>Brecha</th><th>Efectividad</th>
+                      </tr>
+                    </thead>
+                    <tbody id="indicadores-table"></tbody>
+                  </table>
+                </div>
+              </section>
+              <section class="panel">
+                <div class="panel-heading">
+                  <div>
+                    <h2>% de avance</h2>
+                    <p>Certificados sobre la meta de cada categoría</p>
+                  </div>
+                </div>
+                <div class="chart-canvas-wrap chart-canvas-compact">
+                  <canvas id="indicadores-avance-chart" role="img" aria-label="Gráfico de avance por categoría"></canvas>
+                  <p class="chart-empty" id="indicadores-avance-empty" hidden>Sin datos cargados</p>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <section class="pill-panel panel tab-panel" id="panel-causas" data-pill="causas" data-tab="causas" role="tabpanel" aria-labelledby="tab-causas" hidden>
+            <div class="panel-heading">
+              <div>
+                <h2>Causas de no certificación</h2>
+                <p id="indicadores-causas-summary">Distribución de incidencias vs. aprendices únicos</p>
+              </div>
+            </div>
             <div class="chart-canvas-wrap">
-              <canvas id="indicadores-causas-chart" role="img" aria-label="Gráfico de barras horizontales con la distribución de causas de no certificación"></canvas>
+              <canvas id="indicadores-causas-chart" role="img" aria-label="Gráfico de causas de no certificación"></canvas>
               <p class="chart-empty" id="indicadores-causas-empty" hidden>Aún no hay causas registradas</p>
             </div>
             <details class="chart-details">
               <summary>Ver tabla detallada de causas</summary>
-              <div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Causa / Requisito</th><th>Incidencias</th><th>%</th></tr></thead><tbody id="indicadores-causas-table"></tbody></table></div>
+              <div class="learners-table-wrap">
+                <table class="learners-data">
+                  <thead><tr><th>Causa / Requisito</th><th>Incidencias</th><th>%</th></tr></thead>
+                  <tbody id="indicadores-causas-table"></tbody>
+                </table>
+              </div>
             </details>
             <p id="indicadores-causas-note" class="chart-note"></p>
           </section>
 
-          <section class="panel tab-panel" id="panel-actas" data-tab="actas" role="tabpanel" aria-labelledby="tab-actas" hidden>
-            <div class="panel-heading"><div><h2>Actas en Período (Ene - Sep 2026)</h2><p id="indicadores-actas-summary">Asociaciones reales de aprendices</p></div></div>
-            <div class="learners-table-wrap"><table class="learners-data"><thead><tr><th>Número</th><th>Fecha</th><th>Tipo</th><th>Certificados</th></tr></thead><tbody id="indicadores-actas-table"></tbody></table></div>
+          <section class="pill-panel panel tab-panel" id="panel-actas" data-pill="actas" data-tab="actas" role="tabpanel" aria-labelledby="tab-actas" hidden>
+            <div class="panel-heading">
+              <div>
+                <h2>Actas en el período</h2>
+                <p id="indicadores-actas-summary">Asociaciones reales de aprendices</p>
+              </div>
+            </div>
+            <div class="learners-table-wrap">
+              <table class="learners-data">
+                <thead><tr><th>Número</th><th>Fecha</th><th>Tipo</th><th>Certificados</th></tr></thead>
+                <tbody id="indicadores-actas-table"></tbody>
+              </table>
+            </div>
           </section>
         </div>
       </div>
+
+
       </section>
     </div>
   </main>
     <div id="import-modal" class="modal-root" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="import-modal-title">
     <div class="modal-backdrop" data-close-modal></div>
-    <div class="modal-dialog">
+    <div class="modal-dialog" tabindex="-1">
+      <button id="modal-close-button" class="modal-close" type="button" aria-label="Cerrar revisión de importación">×</button>
       <div id="import-modal-body"></div>
+      <div class="modal-progress" id="modal-progress" hidden>
+        <div class="modal-progress-track"><div class="modal-progress-bar"></div></div>
+        <p class="modal-progress-label" id="modal-progress-label">Confirmando importación…</p>
+      </div>
       <div class="modal-actions">
         <button id="modal-cancel-button" class="cancel-button" type="button">Cancelar</button>
         <button id="modal-confirm-button" class="primary-button" type="button">✓ &nbsp; Confirmar importación</button>
@@ -341,7 +419,7 @@
   </div>
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="/static/app.js?v=20261030-v2"></script>
-  <script src="/static/ui-enhancements.js?v=20261030-v2"></script>
+  <script src="/static/app.js?v=20261030-v5"></script>
+  <script src="/static/ui-enhancements.js?v=20261030-v5"></script>
 </body>
 </html>

@@ -10,10 +10,10 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import ImportHistory, Learner, RequirementStatusHistory
+from app.models import ImportHistory, RequirementStatusHistory
 
 
 def _as_utc_date(value: datetime | date | None) -> date | None:
@@ -36,6 +36,9 @@ def build_activity_heatmap(session: Session, year: int = 2026) -> dict[str, Any]
 
     counts: dict[str, int] = defaultdict(int)
     by_source: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    total_status_changes = 0
+    total_imports = 0
+    total_import_records = 0
 
     # Cambios de requisitos / estado
     history_rows = session.scalars(
@@ -51,6 +54,7 @@ def build_activity_heatmap(session: Session, year: int = 2026) -> dict[str, Any]
         key = day.isoformat()
         counts[key] += 1
         by_source[key]["status_changes"] += 1
+        total_status_changes += 1
 
     # Importaciones confirmadas
     imports = session.scalars(
@@ -64,15 +68,15 @@ def build_activity_heatmap(session: Session, year: int = 2026) -> dict[str, Any]
         if not day:
             continue
         key = day.isoformat()
-        # Peso por volumen de registros tocados
-        weight = max(1, int((item.new_records or 0) + (item.updated_records or 0)))
-        # Limitar peso para no saturar la escala visual
-        weight = min(weight, 40)
+        record_count = int((item.new_records or 0) + (item.updated_records or 0))
+        # Peso por volumen de registros tocados, limitado para no saturar la
+        # escala visual del heatmap.
+        weight = min(max(1, record_count), 40)
         counts[key] += weight
         by_source[key]["imports"] += 1
-        by_source[key]["import_records"] += int(
-            (item.new_records or 0) + (item.updated_records or 0)
-        )
+        by_source[key]["import_records"] += record_count
+        total_imports += 1
+        total_import_records += record_count
 
     if counts:
         max_count = max(counts.values())
@@ -110,6 +114,9 @@ def build_activity_heatmap(session: Session, year: int = 2026) -> dict[str, Any]
         "year": year,
         "max_count": max_count,
         "total_events": int(sum(counts.values())),
+        "total_status_changes": total_status_changes,
+        "total_imports": total_imports,
+        "total_import_records": total_import_records,
         "days": days,
         "source": "requirement_status_history+import_history",
     }
