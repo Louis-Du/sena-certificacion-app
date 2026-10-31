@@ -265,10 +265,14 @@ def normalize_program_name(value: Any) -> str | None:
     text = str(value)
     if text.strip().lower() in {"nan", "nat", "none"}:
         return None
+    # Unir guiones de corte de palabra propios del PDF ("COMERCIALI-\\nZACION"
+    # o "COMERCIALI- ZACION") antes de colapsar el espaciado.
+    text = re.sub(r"-\s*\n\s*", "", text)
+    text = re.sub(r"([A-Za-zÁÉÍÓÚÜÑáéíóúüñ])- +([A-Za-zÁÉÍÓÚÜÑáéíóúüñ])", r"\1\2", text)
     # Colapsar espacios y sanar fragmentos
-    clean = " ".join(text.split()).strip(" .")
+    clean = " ".join(text.split()).strip(" .,:;-")
     res = heal_fragmented_text(clean, is_name=False)
-    return res.strip(" .") if res else None
+    return res.strip(" .,:;-") if res else None
 
 
 def normalize_learner_name(value: Any) -> str | None:
