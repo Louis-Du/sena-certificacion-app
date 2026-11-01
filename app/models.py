@@ -66,6 +66,10 @@ class Learner(Base):
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     termination_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Fecha de recibido del expediente en administracion educativa (columna
+    # FECHA DE RECIBIDO EN ADMON EDUCATIVA de ACTAS 2026). Es un dato de
+    # seguimiento, no un requisito de la matriz ni un evento de historial.
+    administrative_receipt_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     tracking_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Procedencia de los datos del aprendiz: lista JSON de las fuentes que lo
     # alimentaron (por ejemplo ["ACTAS 2026 · PENDIENTES", "DF14A"]). Se acumula

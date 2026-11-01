@@ -101,6 +101,13 @@ def _upgrade_sqlite_schema(bind: Engine | None = None) -> None:
             "ALTER TABLE learners ADD COLUMN phone VARCHAR(50)",
             learner_columns,
         ),
+        # Fecha de recibido del expediente en administracion educativa (dato de
+        # seguimiento, no requisito de la matriz).
+        "administrative_receipt_date": (
+            "administrative_receipt_date",
+            "ALTER TABLE learners ADD COLUMN administrative_receipt_date DATE",
+            learner_columns,
+        ),
         # Procedencia de los datos del aprendiz (lista JSON de fuentes).
         "data_sources": (
             "data_sources",
