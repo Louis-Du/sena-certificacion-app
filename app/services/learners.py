@@ -213,6 +213,14 @@ def learner_result(
     learner: Learner, summary: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     summary = summary or {"pending": [], "fulfilled_count": 0, "na_count": 0}
+    pending_count = len(summary.get("pending", []))
+    # Total real de requisitos registrados. Permite distinguir "sin matriz
+    # cargada" (0) de "matriz completa sin pendientes" (> 0 y pending 0).
+    requirements_total = (
+        pending_count
+        + int(summary.get("fulfilled_count", 0) or 0)
+        + int(summary.get("na_count", 0) or 0)
+    )
     return {
         "id": learner.id,
         "identification": learner.identification,
@@ -239,7 +247,9 @@ def learner_result(
         # Procedencia: archivo(s)/hoja(s) que alimentaron al aprendiz.
         "data_sources": parse_sources(learner.data_sources),
         # Conteo real de requisitos en Pendiente (0 si no tiene ninguno).
-        "pending_count": len(summary.get("pending", [])),
+        "pending_count": pending_count,
+        # Total de requisitos registrados (pendientes + cumplidos + no aplica).
+        "requirements_total": requirements_total,
         "requirements_summary": summary,
     }
 

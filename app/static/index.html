@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link href="/static/styles.css?v=20261101-v13" rel="stylesheet">
+  <link href="/static/styles.css?v=20261101-v14" rel="stylesheet">
 </head>
 
 <body>
@@ -197,19 +197,19 @@
             <small class="requirement-hint">Haz clic para elegir varios. Sin selección muestra todos.</small>
           </div>
 
-          <div class="learner-status-chips" id="learner-status-chips" aria-label="Conteo de aprendices por estado"></div>
+          <div class="learner-status-chips" id="learner-status-chips" role="group" aria-label="Filtrar aprendices por estado"></div>
 
-          <div class="panel-heading"><div><h2>Aprendices registrados</h2><p id="learners-summary">Consultando SQLite...</p><small class="detail-hint">Usa <strong>Ver detalles</strong> para consultar y gestionar los requisitos del aprendiz.</small></div></div>
+          <div class="panel-heading"><div><h2>Aprendices registrados</h2><p id="learners-summary" aria-live="polite" aria-atomic="true">Consultando SQLite...</p><small class="detail-hint">Usa <strong>Ver detalles</strong> para consultar y gestionar los requisitos del aprendiz.</small></div></div>
           <div class="learners-table-wrap">
-            <table class="learners-data">
-              <thead><tr><th>Nombre</th><th>Documento</th><th>Programa</th><th>Ficha</th><th>Estado</th><th>Origen</th><th>Requisitos pendientes</th><th>Detalles</th></tr></thead>
-              <tbody id="learners-list"><tr><td colspan="8">Aun no hay aprendices cargados.</td></tr></tbody>
+            <table class="learners-data learners-list-table">
+              <thead><tr><th scope="col">Nombre</th><th scope="col">Documento</th><th scope="col">Programa</th><th scope="col">Ficha</th><th scope="col">Estado</th><th scope="col">Origen</th><th scope="col">Requisitos pendientes</th><th scope="col">Detalles</th></tr></thead>
+              <tbody id="learners-list"><tr><td colspan="8">Aún no hay aprendices cargados.</td></tr></tbody>
             </table>
           </div>
 
-          <div class="pagination" aria-label="Paginacion de aprendices">
+          <div class="pagination" aria-label="Paginación de aprendices">
             <button id="learners-prev" class="cancel-button" type="button">← Anterior</button>
-            <span id="learners-page">Pagina 1 de 1</span>
+            <span id="learners-page">Página 1 de 1</span>
             <button id="learners-next" class="cancel-button" type="button">Siguiente →</button>
           </div>
           
@@ -430,7 +430,7 @@
   </div>
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="/static/app.js?v=20261101-v10"></script>
+  <script src="/static/app.js?v=20261101-v11"></script>
   <script src="/static/ui-enhancements.js?v=20261030-v7"></script>
 </body>
 </html>

@@ -1207,6 +1207,8 @@ a {
 
 .learners-table-wrap {
   overflow: auto;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
   border: 1px solid var(--line);
   border-radius: 14px;
 }
@@ -1215,6 +1217,55 @@ a {
   width: 100%;
   border-collapse: collapse;
   font-size: var(--text-sm);
+}
+
+/* Solo el listado de aprendices necesita este ancho minimo: la tabla de actas
+   comparte .learners-data y no debe forzar scroll horizontal innecesario. */
+.learners-list-table {
+  min-width: 1120px;
+}
+
+/* Anchos minimos para que el scroll horizontal sea consciente y no se
+   compriman "Requisitos pendientes" ni el label "Ver detalles". */
+.learners-list-table th:nth-child(1),
+.learners-list-table td:nth-child(1) {
+  min-width: 150px;
+}
+
+.learners-list-table th:nth-child(2),
+.learners-list-table td:nth-child(2) {
+  min-width: 105px;
+}
+
+.learners-list-table th:nth-child(3),
+.learners-list-table td:nth-child(3) {
+  min-width: 150px;
+}
+
+.learners-list-table th:nth-child(4),
+.learners-list-table td:nth-child(4) {
+  min-width: 90px;
+}
+
+.learners-list-table th:nth-child(5),
+.learners-list-table td:nth-child(5) {
+  min-width: 115px;
+}
+
+.learners-list-table th:nth-child(6),
+.learners-list-table td:nth-child(6) {
+  min-width: 150px;
+}
+
+.learners-list-table th:nth-child(7),
+.learners-list-table td:nth-child(7) {
+  min-width: 220px;
+}
+
+.learners-list-table th:nth-child(8),
+.learners-list-table td:nth-child(8) {
+  min-width: 124px;
+  white-space: nowrap;
 }
 
 .learners-data th {
@@ -2157,31 +2208,80 @@ a {
 
 /* Pendientes en el listado: numero visible + nombres para no abrir la ficha. */
 .pending-requirements-cell {
-  min-width: 180px;
+  min-width: 220px;
   vertical-align: top;
+}
+
+/* La fila con faltantes se distingue de "Ninguno" / "Sin requisitos". */
+.learners-data tbody tr.has-pending td:first-child {
+  box-shadow: inset 3px 0 0 #d97706;
+}
+
+.pending-requirements-cell.has-pending {
+  background: #fffbeb;
 }
 
 .pending-count-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 24px;
-  height: 24px;
-  padding: 0 7px;
+  min-width: 28px;
+  height: 26px;
+  padding: 0 8px;
   border-radius: 999px;
   background: var(--warning-soft);
   color: #92400e;
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   font-weight: 800;
 }
 
 .pending-requirement-names {
   display: block;
   margin-top: 4px;
-  color: var(--muted);
+  color: var(--ink-soft);
   font-size: var(--text-xs);
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.pending-none {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.pending-none.is-missing {
+  font-style: italic;
+}
+
+.pending-toggle {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.pending-toggle:hover {
+  color: var(--accent-strong, var(--accent));
+}
+
+.pending-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--ink-soft);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.pending-list li + li {
+  margin-top: 2px;
 }
 
 .info-button,
@@ -2207,6 +2307,36 @@ a {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+}
+
+.detail-cell {
+  white-space: nowrap;
+}
+
+.detail-button {
+  min-width: 104px;
+  text-align: center;
+}
+
+.learners-empty-cell {
+  padding: 28px 18px;
+  text-align: center;
+}
+
+.learners-empty-message {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.learners-empty-hint {
+  margin: 4px 0 12px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.learners-empty-cell .cancel-button {
+  margin: 0 auto;
 }
 
 .learner-summary-row td {
@@ -2576,6 +2706,8 @@ a {
 
 .pill-tab:focus-visible,
 .requirement-option:focus-visible,
+.status-chip-button:focus-visible,
+.pending-toggle:focus-visible,
 .info-button:focus-visible,
 .detail-button:focus-visible,
 .heatmap-cell:focus-visible {

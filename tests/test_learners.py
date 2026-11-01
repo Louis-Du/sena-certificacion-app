@@ -470,11 +470,37 @@ def test_list_learners_exposes_sources_and_requirements_summary(client: TestClie
     # Un aprendiz sin importacion no inventa origen.
     assert item["data_sources"] == []
     assert item["pending_count"] == 1
+    assert item["requirements_total"] == 2
     assert item["requirements_summary"] == {
         "pending": ["Destrucción de carnet"],
         "fulfilled_count": 1,
         "na_count": 0,
     }
+
+
+def test_list_learners_distinguishes_no_requirements_from_zero_pending(
+    client: TestClient,
+):
+    """Sin matriz (total 0) no es lo mismo que matriz completa (total > 0)."""
+    seed_learners(client, count=2)
+    learners = client.get("/api/learners").json()["items"]
+    learner_with_requirements = learners[0]
+    learner_without_requirements = learners[1]
+    client.post(
+        f"/api/learners/{learner_with_requirements['id']}/requirements",
+        json={"requirement_type": "biblioteca", "status": "Cumplido"},
+    )
+
+    items = client.get("/api/learners").json()["items"]
+    by_id = {item["id"]: item for item in items}
+
+    complete = by_id[learner_with_requirements["id"]]
+    assert complete["pending_count"] == 0
+    assert complete["requirements_total"] == 1
+
+    empty = by_id[learner_without_requirements["id"]]
+    assert empty["pending_count"] == 0
+    assert empty["requirements_total"] == 0
 
 
 def test_list_learners_filters_by_missing_requirement(client: TestClient):
