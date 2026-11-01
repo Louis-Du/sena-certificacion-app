@@ -2155,6 +2155,35 @@ a {
   font-size: var(--text-xs);
 }
 
+/* Pendientes en el listado: numero visible + nombres para no abrir la ficha. */
+.pending-requirements-cell {
+  min-width: 180px;
+  vertical-align: top;
+}
+
+.pending-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--warning-soft);
+  color: #92400e;
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
+.pending-requirement-names {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .info-button,
 .detail-button {
   border: 1px solid var(--line-strong);
@@ -2992,6 +3021,57 @@ a {
   overflow-wrap: anywhere;
 }
 
+.requirement-name {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.requirement-state-badge {
+  align-self: flex-start;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+.requirement-state-badge.is-pending {
+  background: var(--warning-soft);
+  color: #92400e;
+}
+
+.requirement-state-badge.is-fulfilled {
+  background: var(--success-soft);
+  color: #065f46;
+}
+
+.requirement-state-badge.is-na {
+  background: var(--line);
+  color: var(--muted);
+}
+
+.requirement-state-badge.is-other {
+  background: var(--info-soft);
+  color: #1e40af;
+}
+
+/* Lo pendiente pesa mas que lo cumplido; "No aplica" queda en segundo plano. */
+.requirements-editor .requirement-editor.is-pending {
+  border-color: #f0c36d;
+  background: #fffbeb;
+  box-shadow: inset 3px 0 0 #d97706;
+}
+
+.requirements-editor .requirement-editor.is-fulfilled {
+  background: #fff;
+}
+
+.requirements-editor .requirement-editor.is-na {
+  opacity: 0.78;
+}
+
 /* select, textbox y botón comparten altura */
 .requirements-editor .requirement-editor select,
 .requirements-editor .requirement-editor input[type="text"] {
@@ -3018,7 +3098,7 @@ a {
     grid-template-columns: 118px minmax(0, 1fr) auto;
   }
 
-  .requirements-editor .requirement-editor strong {
+  .requirements-editor .requirement-editor .requirement-name {
     grid-column: 1 / -1;
   }
 }
