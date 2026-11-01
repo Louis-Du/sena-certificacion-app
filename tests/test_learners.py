@@ -77,6 +77,7 @@ def test_prepare_learner_row_supports_real_df14a_columns():
         "act_number": None,
         "email": None,
         "phone": None,
+        "administrative_receipt_date": None,
         "tracking_notes": None,
     }
 

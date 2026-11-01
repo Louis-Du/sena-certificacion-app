@@ -25,8 +25,9 @@ Librerias utilizadas y su proposito:
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, datetime
 from io import BytesIO
+from numbers import Real
 from pathlib import Path
 from typing import Any
 from unicodedata import normalize
@@ -640,6 +641,102 @@ def extract_corte_referencia(content: bytes) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Fechas de las hojas operativas
+# ---------------------------------------------------------------------------
+
+
+def _excel_serial_to_iso(value: Any) -> str | None:
+    """Convierte un serial de Excel (por ejemplo ``45719``) a ``YYYY-MM-DD``.
+
+    Solo se aceptan seriales del rango moderno de fechas para no confundir un
+    año suelto (``2025``) con una fecha. El origen ``1899-12-30`` es el que usa
+    Excel para las fechas posteriores a su correccion del año bisiesto 1900.
+    """
+    try:
+        serial = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not 10_000 <= serial <= 100_000:
+        return None
+    try:
+        stamp = pd.Timestamp("1899-12-30") + pd.to_timedelta(serial, unit="D")
+    except (ValueError, OverflowError):
+        return None
+    if pd.isna(stamp):
+        return None
+    return stamp.date().isoformat()
+
+
+def parse_date_value(value: Any) -> str | None:
+    """Convierte una fecha de Excel/CSV a ``YYYY-MM-DD``.
+
+    Acepta celdas de fecha reales (``datetime``/``date``), seriales de Excel
+    (``45719``), textos ``DD/MM/YYYY``, ``D/M/YYYY``, ISO y variantes con hora.
+    Devuelve ``None`` cuando no hay una fecha interpretable: las fechas
+    invalidas se tratan como "sin fecha" y nunca se inventa un valor.
+    """
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+
+    # datetime antes que date: datetime tambien es una instancia de date.
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, Real):
+        return _excel_serial_to_iso(value)
+
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "nat", "none"}:
+        return None
+
+    # Formatos explicitos habituales en los archivos del SENA. strptime admite
+    # dia y mes sin cero inicial ("3/3/2025").
+    formatos = (
+        "%d/%m/%Y",
+        "%d-%m-%Y",
+        "%d.%m.%Y",
+        "%d/%m/%y",
+        "%d-%m-%y",
+        "%Y-%m-%d",
+        "%Y/%m/%d",
+        "%Y%m%d",
+        "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S%z",
+    )
+    for formato in formatos:
+        try:
+            return datetime.strptime(text, formato).date().isoformat()
+        except ValueError:
+            continue
+
+    # Serial de Excel que llego como texto (por ejemplo desde un CSV).
+    if re.fullmatch(r"\d{5}", text):
+        return _excel_serial_to_iso(int(text))
+
+    # Ultimo recurso: fechas ISO con zona horaria o nombres de mes. Se exige
+    # que el texto parezca una fecha para no interpretar numeros sueltos.
+    if re.search(r"[/\-.:]", text) and re.search(r"\d", text):
+        try:
+            marca = pd.to_datetime(text, errors="coerce", dayfirst=True)
+            if marca is not None and not pd.isna(marca):
+                return marca.date().isoformat()
+        except (TypeError, ValueError, OverflowError):
+            return None
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Lectura de las hojas operativas de ACTAS 2026.xlsx
 # ---------------------------------------------------------------------------
 
@@ -671,6 +768,40 @@ _CAMPOS_ACTAS: dict[str, tuple[str, ...]] = {
     "biblioteca": ("biblioteca",),
     "bienestar": ("bienestar del aprendiz",),
     "almacen": ("almacen",),
+    # Fechas reales de recibido de cada paz y salvo. Se leen aparte del estado
+    # (X / N.A. / vacio) para que el historial use la fecha del documento y no
+    # la fecha en que se importo el consolidado.
+    "fecha_recibido_biblioteca": (
+        "fecha de recibido (paz y salvo biblioteca)",
+        "fecha de recibido paz y salvo biblioteca",
+        "fecha recibido (paz y salvo biblioteca)",
+        "fecha recibido paz y salvo biblioteca",
+        "fecha de recibido biblioteca",
+    ),
+    "fecha_recibido_bienestar": (
+        "fecha de recibido (bienestar del aprendiz)",
+        "fecha de recibido bienestar del aprendiz",
+        "fecha de recibido (paz y salvo bienestar)",
+        "fecha de recibido paz y salvo bienestar",
+        "fecha recibido (bienestar del aprendiz)",
+        "fecha recibido bienestar del aprendiz",
+        "fecha de recibido bienestar",
+    ),
+    "fecha_recibido_almacen": (
+        "fecha de recibido (paz y salvo almacen)",
+        "fecha de recibido paz y salvo almacen",
+        "fecha recibido (paz y salvo almacen)",
+        "fecha recibido paz y salvo almacen",
+        "fecha de recibido almacen",
+    ),
+    # Fecha administrativa del expediente: NO es un requisito de la matriz. Se
+    # conserva en el registro del aprendiz, nunca como historial de biblioteca,
+    # bienestar o almacen.
+    "fecha_recibido_admon_educativa": (
+        "fecha de recibido en admon educativa",
+        "fecha de recibido admon educativa",
+        "fecha de recibido en administracion educativa",
+    ),
     "etapa_productiva": (
         "formato de evaluacion de la etapa productiva:",
         "formato de evaluacion de la etapa productiva",
@@ -689,6 +820,16 @@ _CAMPOS_ACTAS: dict[str, tuple[str, ...]] = {
         "comprobante de destruccion de carnet",
     ),
     "certificado_empresa": ("certificado de la empresa",),
+}
+
+
+# Campos que representan fechas. Se normalizan a ISO al leer la hoja para que
+# el importador no dependa de si Excel entrego un datetime o un serial.
+_DATE_FIELDS = {
+    "fecha_recibido_biblioteca",
+    "fecha_recibido_bienestar",
+    "fecha_recibido_almacen",
+    "fecha_recibido_admon_educativa",
 }
 
 
@@ -723,6 +864,8 @@ def _actas_records(frame: pd.DataFrame) -> list[dict[str, Any]]:
                 registro[campo] = clean_identification(valor)
             elif campo == "ficha":
                 registro[campo] = clean_identification(valor)
+            elif campo in _DATE_FIELDS:
+                registro[campo] = parse_date_value(valor)
             else:
                 registro[campo] = None if _es_vacio(valor) else str(valor).strip()
         if any(valor is not None for valor in registro.values()):
@@ -863,25 +1006,12 @@ def _to_iso_date(value: Any) -> str | None:
     """
     Convierte una fecha de Excel a ``YYYY-MM-DD``.
 
-    En la hoja COMPLEMENTARIA conviven fechas reales (``datetime``) y textos como
-    ``"26/02/2026"``. Se interpretan con formato dia/mes/anio, que es el usado en
-    Colombia. Si no se puede interpretar, se devuelve ``None`` en lugar de
-    asumir una fecha.
+    En la hoja COMPLEMENTARIA conviven fechas reales (``datetime``), seriales de
+    Excel y textos como ``"26/02/2026"``. Se interpretan con formato
+    dia/mes/anio, que es el usado en Colombia. Si no se puede interpretar, se
+    devuelve ``None`` en lugar de asumir una fecha.
     """
-    if value is None or _es_vacio(value):
-        return None
-    texto = str(value).strip()
-    for formato in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
-        try:
-            from datetime import datetime
-
-            return datetime.strptime(texto, formato).date().isoformat()
-        except ValueError:
-            continue
-    marca = pd.to_datetime(value, errors="coerce", dayfirst=True)
-    if marca is None or pd.isna(marca):
-        return None
-    return marca.date().isoformat()
+    return parse_date_value(value)
 
 
 # ---------------------------------------------------------------------------

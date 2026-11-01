@@ -5,6 +5,8 @@ import json
 import hashlib
 # Se importa re para comparar nombres de programa ignorando el espaciado.
 import re
+# Se importa date para persistir la fecha administrativa del expediente.
+from datetime import date
 # Se importa unicodedata para normalizar cadenas de texto, eliminando acentos y caracteres especiales, lo que facilita la comparación y búsqueda de datos.
 from unicodedata import normalize
 # Se importa Any del módulo typing para indicar que una variable puede ser de cualquier tipo, lo que es útil para funciones que devuelven datos heterogéneos.
@@ -14,7 +16,11 @@ from sqlalchemy import func, inspect, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import Act, ActLearner, ImportedRecord, Learner, Requirement
-from app.services.parsers import normalize_learner_name, normalize_program_name
+from app.services.parsers import (
+    normalize_learner_name,
+    normalize_program_name,
+    parse_date_value,
+)
 from app.services.requirements import (
     REQUIREMENT_TYPES,
     editor_requirements,
@@ -223,6 +229,13 @@ def learner_result(
         "act_number": learner.act_number,
         "email": learner.email,
         "phone": learner.phone,
+        # Fecha de recibido del expediente en administracion educativa. Es un
+        # dato de seguimiento; no se expone como requisito ni como historial.
+        "administrative_receipt_date": (
+            learner.administrative_receipt_date.isoformat()
+            if learner.administrative_receipt_date
+            else None
+        ),
         # Procedencia: archivo(s)/hoja(s) que alimentaron al aprendiz.
         "data_sources": parse_sources(learner.data_sources),
         # Conteo real de requisitos en Pendiente (0 si no tiene ninguno).
@@ -533,6 +546,7 @@ def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
     certification_month = _first_value(normalized, "mes de certificacion")
     instructor = _first_value(normalized, "instructor de seguimiento", "instructor")
     phone = _first_value(normalized, "telefono", "celular")
+    administrative_receipt_date = _parse_administrative_receipt_date(normalized)
     notes_parts = [p for p in (email, f"Acta: {act_number}" if act_number else None) if p]
     tracking_notes = "; ".join(notes_parts) if notes_parts else _first_value(
         normalized, "observaciones", "novedades", "seguimiento"
@@ -554,8 +568,29 @@ def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
         "act_number": act_number,
         "email": email,
         "phone": phone,
+        "administrative_receipt_date": administrative_receipt_date,
         "tracking_notes": tracking_notes,
     }
+
+
+def _parse_administrative_receipt_date(normalized: dict[str, Any]) -> date | None:
+    """Lee la fecha administrativa del expediente sin tratarla como requisito."""
+    raw = _first_value(
+        normalized,
+        "fecha_recibido_admon_educativa",
+        "fecha de recibido en admon educativa",
+        "fecha de recibido admon educativa",
+        "fecha de recibido en administracion educativa",
+    )
+    if not raw:
+        return None
+    iso_date = parse_date_value(raw)
+    if not iso_date:
+        return None
+    try:
+        return date.fromisoformat(iso_date)
+    except ValueError:
+        return None
 
 
 def _first_value(normalized: dict[str, Any], *candidates: str) -> str | None:

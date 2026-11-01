@@ -394,15 +394,18 @@ function renderPreviewBreakdown(preview) {
     const details = [`Acta ${acta.number || "sin número"}`];
     if (acta.act_date) details.push(acta.act_date);
     details.push(acta.exists ? "ya registrada" : "nueva");
-    details.push(`${acta.learners_to_link ?? 0} aprendices por vincular`);
-    if (acta.learners_por_certificar) {
-      details.push(`${acta.learners_por_certificar} quedarán Por Certificar`);
+    // El backend puede enviar un conteo o la lista de documentos; el resumen
+    // siempre muestra el conteo (antes se imprimía la lista completa, sin espacios).
+    const countOf = (value) => (Array.isArray(value) ? value.length : Number(value) || 0);
+    details.push(`${countOf(acta.learners_to_link)} aprendices por vincular`);
+    if (countOf(acta.learners_por_certificar)) {
+      details.push(`${countOf(acta.learners_por_certificar)} quedarán Por Certificar`);
     }
-    if (acta.learners_already_linked) {
-      details.push(`${acta.learners_already_linked} ya vinculados`);
+    if (countOf(acta.learners_already_linked)) {
+      details.push(`${countOf(acta.learners_already_linked)} ya vinculados`);
     }
-    if (acta.learners_not_registered) {
-      details.push(`${acta.learners_not_registered} sin registrar`);
+    if (countOf(acta.learners_not_registered)) {
+      details.push(`${countOf(acta.learners_not_registered)} sin registrar`);
     }
     cards.push(createBreakdownCard({
       count: acta.number ? `Acta ${acta.number}` : "Acta",
@@ -650,6 +653,7 @@ function renderHistoryItem(item) {
   const fileName = document.createElement("strong");
   fileName.className = "history-file-name";
   fileName.textContent = item.file_name || "Archivo sin nombre";
+  fileName.title = fileName.textContent; // nombre completo al pasar el cursor
   file.append(icon, fileName);
   const status = historyStatusMeta(item);
   const statusBadge = document.createElement("span");
@@ -688,6 +692,7 @@ function renderHistoryItem(item) {
   const message = document.createElement("p");
   message.className = "history-message";
   message.textContent = item.message || "Importación exitosa";
+  message.title = message.textContent; // mensaje completo al pasar el cursor
 
   card.append(top, meta, metrics, message);
   return card;
@@ -1185,6 +1190,7 @@ async function loadLearnerDetail(learnerId) {
       ["Correo", info.email],
       ["Teléfono", info.phone],
       ["Mes de certificación", info.certification_month],
+      ["Recibido en admon. educativa", info.administrative_receipt_date],
     ].filter(([, value]) => value);
     learnerTrackingSection.hidden = trackingEntries.length === 0;
     if (trackingEntries.length) {

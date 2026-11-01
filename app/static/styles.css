@@ -2865,14 +2865,20 @@ a {
   [ Origen (span 2)                ] [                         ]
   [ Historial (span 3)                                         ]
 */
+/* Fila 3 (1fr) es un "relleno": absorbe la altura sobrante de la tarjeta de
+   requisitos (que abarca 3 filas) para que Origen quede pegado a Identificación
+   y Seguimiento. El espacio vertical lo da el margin-bottom de cada tarjeta. */
 .learner-detail-layout {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(240px, 1fr) minmax(340px, 1.35fr);
+  grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr) minmax(380px, 1.7fr);
+  grid-template-rows: auto auto 1fr auto;
   grid-template-areas:
     "id      tracking  requirements"
     "sources sources   requirements"
+    ".       .         requirements"
     "history history   history";
-  gap: 16px;
+  column-gap: 16px;
+  row-gap: 0;
   align-items: start;
 }
 
@@ -2887,6 +2893,7 @@ a {
   grid-template-areas:
     "id      id        requirements"
     "sources sources   requirements"
+    ".       .         requirements"
     "history history   history";
 }
 
@@ -2895,9 +2902,19 @@ a {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
-  padding: 18px 20px;
-  margin-bottom: 0;
+  padding: 16px 18px;
+  margin-bottom: 16px;
   min-width: 0; /* evita desborde en grid */
+}
+
+/* Identificación y Seguimiento comparten altura; el historial cierra la página */
+.learner-card-id,
+.learner-card-tracking {
+  align-self: stretch;
+}
+
+.learner-detail-layout .learner-card-history {
+  margin-bottom: 0;
 }
 
 .learner-detail-layout .detail-section .panel-heading {
@@ -2921,7 +2938,7 @@ a {
 .learner-card-id .detail-grid,
 .learner-card-tracking .detail-grid,
 .learner-card-sources .detail-grid {
-  grid-template-columns: minmax(110px, 42%) 1fr;
+  grid-template-columns: minmax(96px, 38%) minmax(0, 1fr);
   gap: 8px 12px;
   font-size: var(--text-sm);
 }
@@ -2945,26 +2962,25 @@ a {
   line-height: 1.35;
 }
 
-/* Requisitos: filas densas tipo tabla del mockup */
+/* Requisitos: filas compactas. Una sola línea cuando la tarjeta es ancha;
+   si no, el nombre pasa arriba y los controles quedan en la línea siguiente. */
 .learner-card-requirements {
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
+  container: reqcard / inline-size;
 }
 
 .requirements-editor {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .requirements-editor .requirement-editor {
   display: grid;
-  grid-template-columns: minmax(110px, 1.1fr) minmax(108px, 0.75fr) minmax(0, 1.15fr) auto;
-  gap: 8px 10px;
+  grid-template-columns: minmax(110px, 1.2fr) 118px minmax(110px, 1.3fr) auto;
+  gap: 6px 8px;
   align-items: center;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: #f8fafc;
 }
 
@@ -2973,13 +2989,16 @@ a {
   font-weight: 650;
   color: var(--ink);
   line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 
+/* select, textbox y botón comparten altura */
 .requirements-editor .requirement-editor select,
 .requirements-editor .requirement-editor input[type="text"] {
   width: 100%;
   min-width: 0;
-  padding: 8px 10px;
+  height: 34px;
+  padding: 0 10px;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: #fff;
@@ -2987,8 +3006,31 @@ a {
 }
 
 .requirements-editor .requirement-editor button {
+  height: 34px;
+  padding: 0 14px;
+  font-size: var(--text-sm);
   white-space: nowrap;
-  padding: 8px 14px;
+  box-shadow: none;
+}
+
+@container reqcard (max-width: 480px) {
+  .requirements-editor .requirement-editor {
+    grid-template-columns: 118px minmax(0, 1fr) auto;
+  }
+
+  .requirements-editor .requirement-editor strong {
+    grid-column: 1 / -1;
+  }
+}
+
+@container reqcard (max-width: 340px) {
+  .requirements-editor .requirement-editor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .requirements-editor .requirement-editor button {
+    justify-self: start;
+  }
 }
 
 .requirements-editor .requirement-feedback {
@@ -3015,7 +3057,7 @@ a {
 .requirement-history-header,
 .requirement-history-row {
   display: grid;
-  grid-template-columns: 140px minmax(160px, 1.3fr) minmax(160px, 1fr) auto;
+  grid-template-columns: 140px minmax(140px, 1.3fr) minmax(140px, 1fr) 120px;
   gap: 10px;
   align-items: center;
   padding: 10px 14px;
@@ -3064,33 +3106,44 @@ a {
   font-size: var(--text-xs);
 }
 
-/* Tablet: id + seg arriba, requisitos debajo, origen, historial */
+/* Tablet: id + seguimiento + origen a la izquierda, requisitos a la derecha, historial debajo */
 @media (max-width: 1100px) {
   .learner-detail-layout,
   .learner-detail-layout:has(#learner-tracking-section[hidden]) {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    grid-template-rows: auto auto 1fr auto;
     grid-template-areas:
-      "id requirements"
-      "tracking requirements"
-      "sources sources"
-      "history history";
+      "id        requirements"
+      "tracking  requirements"
+      "sources   requirements"
+      "history   history";
+  }
+
+  .learner-detail-layout:has(#learner-tracking-section[hidden]) {
+    grid-template-rows: auto 1fr auto;
+    grid-template-areas:
+      "id       requirements"
+      "sources  requirements"
+      "history  history";
+  }
+
+  .learner-card-id,
+  .learner-card-tracking {
+    align-self: start;
   }
 }
 
 @media (max-width: 900px) {
   .learner-detail-layout,
   .learner-detail-layout:has(#learner-tracking-section[hidden]) {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
     grid-template-areas:
       "id"
       "tracking"
       "sources"
       "requirements"
       "history";
-  }
-
-  .requirements-editor .requirement-editor {
-    grid-template-columns: 1fr;
   }
 
   .requirement-history-header {
@@ -3102,4 +3155,92 @@ a {
     grid-template-columns: 1fr;
     gap: 4px;
   }
+}
+
+/* ---------- Correcciones de desborde: historial de importaciones y modal ---------- */
+/* El texto debe ajustarse dentro de su tarjeta; nunca recortarse ni forzar scroll horizontal. */
+.side-column {
+  min-width: 0;
+}
+
+.history-list {
+  overflow-x: hidden;
+}
+
+.history-item {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.history-item-top {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.history-file {
+  flex: 1 1 140px;
+}
+
+.history-file-name {
+  min-width: 0;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.history-status {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.history-meta,
+.history-metrics {
+  min-width: 0;
+}
+
+/* Píldoras de métricas más compactas para que quepan 2 por línea en la columna lateral */
+.history-metrics {
+  gap: 6px;
+}
+
+.history-metric {
+  gap: 3px;
+  padding: 3px 8px;
+}
+
+.history-item {
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.history-list {
+  max-height: 460px;
+}
+
+.history-type-badge {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.modal-dialog {
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+}
+
+#import-modal-body {
+  min-width: 0;
+}
+
+.breakdown-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+}
+
+.breakdown-card {
+  min-width: 0;
+}
+
+.breakdown-headline,
+.breakdown-meta {
+  overflow-wrap: anywhere;
 }
