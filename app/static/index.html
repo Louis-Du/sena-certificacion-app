@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link href="/static/styles.css?v=20261101-v11" rel="stylesheet">
+  <link href="/static/styles.css?v=20261101-v13" rel="stylesheet">
 </head>
 
 <body>
@@ -218,7 +218,7 @@
           <header class="learner-detail-header detail-heading" id="learner-detail-header">
             <button id="back-to-learners" class="cancel-button" type="button">← Volver</button>
             <div class="learner-detail-header-text">
-              <h2 id="learner-detail-title">Detalle</h2>
+              <h2 id="learner-detail-title" tabindex="-1">Detalle</h2>
             </div>
           </header>
           <p id="learner-detail-feedback" class="detail-feedback" role="status"></p>
@@ -237,7 +237,7 @@
                 <dl id="learner-sources" class="detail-grid"></dl>
               </article>
               <article class="detail-section learner-card-requirements">
-                <div class="panel-heading"><div><h3>Requisitos y evidencias</h3><p>Solo se muestran los requisitos registrados para el aprendiz.</p></div></div>
+                <div class="panel-heading"><div><h3>Requisitos y evidencias</h3><p id="learner-requirements-subtitle">Solo se muestran los requisitos registrados para el aprendiz.</p></div></div>
                 <div id="learner-requirements" class="requirements-editor"></div>
               </article>
               <article class="detail-section learner-card-history">
@@ -430,7 +430,7 @@
   </div>
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="/static/app.js?v=20261101-v8"></script>
+  <script src="/static/app.js?v=20261101-v10"></script>
   <script src="/static/ui-enhancements.js?v=20261030-v7"></script>
 </body>
 </html>

@@ -62,6 +62,7 @@ const learnerTracking = document.querySelector("#learner-tracking");
 const learnerSourcesSection = document.querySelector("#learner-sources-section");
 const learnerSources = document.querySelector("#learner-sources");
 const learnerRequirements = document.querySelector("#learner-requirements");
+const learnerRequirementsSubtitle = document.querySelector("#learner-requirements-subtitle");
 const learnerRequirementHistory = document.querySelector("#learner-requirement-history");
 const learnerMoreData = document.querySelector("#learner-more-data");
 const learnerExtra = document.querySelector("#learner-extra");
@@ -802,13 +803,81 @@ function learnerSummaryLabel(result) {
   return `${total} ${label} en la consulta actual · Página ${result.page} de ${Math.max(result.pages, 1)}`;
 }
 
-// Texto compacto de procedencia: motivo + requisitos pendientes + origen. Se usa
-// como "title" para una vista rapida al pasar el cursor, sin abrir el detalle.
+// Orden operativo de los requisitos: primero lo que falta, luego lo cumplido y
+// al final lo que no aplica. "No aplica" no cuenta como falta documental.
+function requirementStatusRank(status) {
+  const normalized = normalizeStatusText(status);
+  if (normalized === "pendiente") return 0;
+  if (normalized === "cumplido") return 1;
+  if (normalized === "no aplica") return 2;
+  return 3;
+}
+
+function requirementStatusClass(status) {
+  const normalized = normalizeStatusText(status);
+  if (normalized === "pendiente") return "is-pending";
+  if (normalized === "cumplido") return "is-fulfilled";
+  if (normalized === "no aplica") return "is-na";
+  return "is-other";
+}
+
+function summarizeRequirementItems(items) {
+  const list = items || [];
+  const pending = [];
+  let fulfilled = 0;
+  let na = 0;
+  list.forEach((item) => {
+    const normalized = normalizeStatusText(item.status);
+    if (normalized === "pendiente") {
+      pending.push(item.label || item.requirement_type || "Requisito");
+    } else if (normalized === "cumplido") {
+      fulfilled += 1;
+    } else if (normalized === "no aplica") {
+      na += 1;
+    }
+  });
+  return {
+    total: list.length,
+    pending,
+    fulfilled,
+    na,
+    applicable: list.length - na,
+    complete: list.length > 0 && pending.length === 0,
+  };
+}
+
+function formatRequirementNameList(labels, limit = 3) {
+  const visible = labels.slice(0, limit);
+  const remaining = labels.length - visible.length;
+  return `${visible.join(", ")}${remaining > 0 ? ` y ${remaining} más` : ""}`;
+}
+
+function requirementCountsText(summary) {
+  const pending = summary.pending.length;
+  return [
+    `${pending} pendiente${pending === 1 ? "" : "s"}`,
+    `${summary.fulfilled} cumplido${summary.fulfilled === 1 ? "" : "s"}`,
+    `${summary.na} no aplica`,
+  ].join(" · ");
+}
+
+function documentationLabelFromSummary(summary) {
+  const pending = summary.pending || [];
+  const total = pending.length + (summary.fulfilled_count || 0) + (summary.na_count || 0);
+  if (!total) return "Sin requisitos registrados";
+  return pending.length
+    ? `Documentación incompleta (${pending.length} pendiente${pending.length === 1 ? "" : "s"})`
+    : "Documentación completa";
+}
+
+// Texto compacto de procedencia: documentación, requisitos pendientes y origen.
+// Se usa como "title" para una vista rapida al pasar el cursor, sin abrir el detalle.
 function learnerSummaryText(item) {
   const sources = item.data_sources || [];
   const summary = item.requirements_summary || {};
   const pending = summary.pending || [];
   return [
+    `Documentación: ${documentationLabelFromSummary(summary)}`,
     `Origen: ${sources.length ? sources.join(" · ") : "Desconocido"}`,
     `Motivo: ${item.non_certification_reason || "Sin motivo"}`,
     pending.length
@@ -826,16 +895,19 @@ function renderLearnerSummaryBlock(item) {
   const wrapper = document.createElement("div");
   wrapper.className = "learner-summary";
   const rows = [
-    ["Origen", sources.length ? sources.join(" · ") : "Desconocido"],
-    ["Motivo de no certificación", item.non_certification_reason || "Sin motivo"],
+    ["Documentación", documentationLabelFromSummary(summary)],
     [
       "Requisitos pendientes",
-      pending.length ? pending.join(", ") : "Ninguno",
+      pending.length
+        ? `${pending.length}: ${formatRequirementNameList(pending, 5)}`
+        : "Ninguno",
     ],
     [
       "Cumplidos / No aplica",
       `${summary.fulfilled_count || 0} / ${summary.na_count || 0}`,
     ],
+    ["Origen", sources.length ? sources.join(" · ") : "Desconocido"],
+    ["Motivo de no certificación", item.non_certification_reason || "Sin motivo"],
   ];
   rows.forEach(([label, value]) => {
     const term = document.createElement("dt");
@@ -845,6 +917,13 @@ function renderLearnerSummaryBlock(item) {
     wrapper.append(term, description);
   });
   return wrapper;
+}
+
+function updateRequirementsPanelSubtitle(summary) {
+  if (!learnerRequirementsSubtitle) return;
+  learnerRequirementsSubtitle.textContent = summary.total
+    ? requirementCountsText(summary)
+    : "Sin requisitos registrados.";
 }
 
 function renderOriginCell(item, row) {
@@ -894,6 +973,35 @@ function toggleLearnerSummary(row, item, button) {
   button.setAttribute("aria-expanded", "true");
 }
 
+// El listado debe responder "cuántos y cuáles faltan" sin abrir la ficha.
+function renderPendingRequirementsCell(item) {
+  const cell = document.createElement("td");
+  cell.className = "pending-requirements-cell";
+  const pending = (item.requirements_summary || {}).pending || [];
+  if (!pending.length) {
+    cell.textContent = "—";
+    cell.title = "Sin requisitos pendientes";
+    return cell;
+  }
+
+  const count = document.createElement("span");
+  count.className = "pending-count-badge";
+  count.textContent = pending.length;
+  count.setAttribute(
+    "aria-label",
+    `${pending.length} requisito${pending.length === 1 ? "" : "s"} pendiente${pending.length === 1 ? "" : "s"}`,
+  );
+
+  const names = document.createElement("span");
+  names.className = "pending-requirement-names";
+  names.textContent = formatRequirementNameList(pending, 2);
+  names.title = pending.join(", ");
+
+  cell.append(count, names);
+  cell.title = `Requisitos pendientes: ${pending.join(", ")}`;
+  return cell;
+}
+
 function renderLearnerRow(item) {
   const row = document.createElement("tr");
   row.title = learnerSummaryText(item);
@@ -908,11 +1016,7 @@ function renderLearnerRow(item) {
     });
   row.appendChild(renderStatusCell(item.certification_status));
   row.appendChild(renderOriginCell(item, row));
-  const pendingCell = document.createElement("td");
-  // Conteo real de requisitos en Pendiente; sin requisitos se muestra "—" en
-  // lugar de inventar un numero.
-  pendingCell.textContent = item.pending_count ? item.pending_count : "—";
-  row.appendChild(pendingCell);
+  row.appendChild(renderPendingRequirementsCell(item));
   const detailCell = document.createElement("td");
   const button = document.createElement("button");
   button.type = "button";
@@ -1014,24 +1118,72 @@ function setLearnerStatus(status) {
   learnerStatus.value = status;
 }
 
+function applyRequirementEditorStatus(form, status) {
+  const statusClass = requirementStatusClass(status);
+  form.className = `requirement-editor ${statusClass}`;
+  form.dataset.status = normalizeStatusText(status);
+  const badge = form.querySelector(".requirement-state-badge");
+  if (badge) {
+    badge.className = `requirement-state-badge ${statusClass}`;
+    badge.textContent = status;
+  }
+}
+
+// Mantiene el orden "pendientes primero" despues de guardar, sin reemplazar los
+// formularios (asi no se pierde el foco ni el mensaje de confirmacion).
+function sortRequirementEditors() {
+  const forms = [...learnerRequirements.querySelectorAll(".requirement-editor")];
+  forms.sort(
+    (a, b) =>
+      requirementStatusRank(a.dataset.status) - requirementStatusRank(b.dataset.status),
+  );
+  const active = document.activeElement;
+  forms.forEach((form) => learnerRequirements.appendChild(form));
+  // Mover un formulario en el DOM puede perder el foco; si el usuario estaba
+  // dentro de una fila, se restaura para no interrumpir teclado ni lectores.
+  if (active && active.isConnected && learnerRequirements.contains(active)) {
+    active.focus({ preventScroll: true });
+  }
+}
+
 function renderRequirementEditor(items) {
   learnerRequirements.replaceChildren();
   if (!items.length) {
-    learnerRequirements.innerHTML = "<p class=\"empty-detail\">No hay requisitos registrados.</p>";
+    learnerRequirements.innerHTML = "<p class=\"empty-detail\">Sin requisitos registrados.</p>";
+    updateRequirementsPanelSubtitle(summarizeRequirementItems(items));
     return;
   }
-  items.forEach((item) => {
+
+  const ordered = [...items].sort(
+    (a, b) => requirementStatusRank(a.status) - requirementStatusRank(b.status),
+  );
+  ordered.forEach((item) => {
+    const label = item.label || item.requirement_type || "Requisito";
+    const status = item.status || "Pendiente";
     const form = document.createElement("form");
     form.className = "requirement-editor";
-    form.innerHTML = `<strong>${item.label || item.requirement_type}</strong>
-      <select name="status" aria-label="Estado">
+    form.dataset.status = normalizeStatusText(status);
+    form.innerHTML = `<div class="requirement-name"><strong></strong><span class="requirement-state-badge" aria-hidden="true"></span></div>
+      <select name="status">
         <option>Pendiente</option><option>Cumplido</option><option>No aplica</option>
       </select>
-      <input type="text" name="observations" placeholder="Observación" aria-label="Observación">
+      <input type="text" name="observations" placeholder="Observación">
       <button class="primary-button" type="submit">Guardar</button>
       <span class="requirement-feedback" role="status"></span>`;
-    form.elements.status.value = item.status || "Pendiente";
-    form.elements.observations.value = item.observations || "";
+
+    form.querySelector(".requirement-name strong").textContent = label;
+    const select = form.elements.status;
+    select.setAttribute("aria-label", `Estado de ${label}`);
+    const observations = form.elements.observations;
+    observations.setAttribute("aria-label", `Observación de ${label}`);
+    form
+      .querySelector("button[type='submit']")
+      .setAttribute("aria-label", `Guardar requisito ${label}`);
+
+    applyRequirementEditorStatus(form, status);
+    select.value = status;
+    observations.value = item.observations || "";
+
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const feedback = form.querySelector(".requirement-feedback");
@@ -1055,10 +1207,13 @@ function renderRequirementEditor(items) {
         item.id = result.id;
         item.status = result.status;
         item.observations = result.observations;
+        applyRequirementEditorStatus(form, result.status);
+        sortRequirementEditors();
         const detail = await readResponse(
           await fetch(`/api/learners/${window.currentLearnerId}`),
         );
         renderRequirementHistory(detail.requirement_history);
+        updateRequirementsPanelSubtitle(summarizeRequirementItems(detail.requirements));
         feedback.textContent = "Guardado.";
       } catch (error) {
         feedback.textContent = error.message;
@@ -1066,6 +1221,7 @@ function renderRequirementEditor(items) {
     });
     learnerRequirements.appendChild(form);
   });
+  updateRequirementsPanelSubtitle(summarizeRequirementItems(ordered));
 }
 
 function requirementSourceLabel(source) {
@@ -1216,6 +1372,13 @@ async function loadLearnerDetail(learnerId) {
     }
     learnerDetailFeedback.textContent = "";
     learnerDetailContent.hidden = false;
+    // Al abrir la ficha, el foco queda en el nombre para que el lector de
+    // pantalla anuncie el contexto sin obligar a recorrer toda la pagina.
+    try {
+      learnerDetailTitle.focus({ preventScroll: true });
+    } catch (_) {
+      learnerDetailTitle.focus();
+    }
   } catch (error) {
     learnerDetailFeedback.textContent = error.message;
   }
