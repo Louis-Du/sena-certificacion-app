@@ -716,6 +716,7 @@ async function loadHistory() {
 }
 
 let learnerPageNumber = 1;
+let learnerRequestId = 0;
 const learnerPageSize = 25;
 const selectedRequirementValues = new Set();
 const requirementLabelsByValue = new Map();
@@ -779,9 +780,18 @@ function renderStatusChips(statusCounts) {
     ...items.map((item) => {
       const chip = document.createElement("button");
       chip.type = "button";
+      const countLabel = `${item.count.toLocaleString("es-CO")} ${
+        item.count === 1 ? "aprendiz" : "aprendices"
+      }`;
       chip.className = `status-chip status-chip-button ${item.variant}`;
       chip.classList.toggle("is-active", statusIsActive(item.status));
       chip.setAttribute("aria-pressed", statusIsActive(item.status) ? "true" : "false");
+      chip.setAttribute(
+        "aria-label",
+        item.status
+          ? `Filtrar por estado ${item.label}, ${countLabel}`
+          : `Mostrar todos los estados, ${countLabel}`,
+      );
       chip.textContent = `${item.label} ${item.count.toLocaleString("es-CO")}`;
       chip.addEventListener("click", () => {
         const nextStatus = statusIsActive(item.status) ? "" : item.status;
@@ -861,9 +871,14 @@ function requirementCountsText(summary) {
   ].join(" · ");
 }
 
+function requirementSummaryTotal(summary) {
+  const pending = (summary.pending || []).length;
+  return pending + (summary.fulfilled_count || 0) + (summary.na_count || 0);
+}
+
 function documentationLabelFromSummary(summary) {
   const pending = summary.pending || [];
-  const total = pending.length + (summary.fulfilled_count || 0) + (summary.na_count || 0);
+  const total = requirementSummaryTotal(summary);
   if (!total) return "Sin requisitos registrados";
   return pending.length
     ? `Documentación incompleta (${pending.length} pendiente${pending.length === 1 ? "" : "s"})`
@@ -876,13 +891,16 @@ function learnerSummaryText(item) {
   const sources = item.data_sources || [];
   const summary = item.requirements_summary || {};
   const pending = summary.pending || [];
+  const total = item.requirements_total ?? requirementSummaryTotal(summary);
   return [
     `Documentación: ${documentationLabelFromSummary(summary)}`,
     `Origen: ${sources.length ? sources.join(" · ") : "Desconocido"}`,
     `Motivo: ${item.non_certification_reason || "Sin motivo"}`,
     pending.length
       ? `Requisitos pendientes: ${pending.join(", ")}`
-      : "Sin requisitos pendientes",
+      : total === 0
+        ? "Sin requisitos registrados"
+        : "Sin requisitos pendientes",
   ].join("\n");
 }
 
@@ -892,6 +910,7 @@ function renderLearnerSummaryBlock(item) {
   const sources = item.data_sources || [];
   const summary = item.requirements_summary || {};
   const pending = summary.pending || [];
+  const total = item.requirements_total ?? requirementSummaryTotal(summary);
   const wrapper = document.createElement("div");
   wrapper.className = "learner-summary";
   const rows = [
@@ -900,7 +919,9 @@ function renderLearnerSummaryBlock(item) {
       "Requisitos pendientes",
       pending.length
         ? `${pending.length}: ${formatRequirementNameList(pending, 5)}`
-        : "Ninguno",
+        : total === 0
+          ? "Sin requisitos registrados"
+          : "Ninguno",
     ],
     [
       "Cumplidos / No aplica",
@@ -936,9 +957,10 @@ function renderOriginCell(item, row) {
   const info = document.createElement("button");
   info.type = "button";
   info.className = "info-button";
-  info.textContent = "Info";
+  info.textContent = "Resumen";
+  info.title = "Ver documentación, origen y motivo del aprendiz";
   info.setAttribute("aria-expanded", "false");
-  info.setAttribute("aria-label", `Resumen del aprendiz ${item.name}`);
+  info.setAttribute("aria-label", `Ver resumen de ${item.name}`);
   info.addEventListener("click", (event) => {
     event.stopPropagation();
     toggleLearnerSummary(row, item, info);
@@ -977,13 +999,29 @@ function toggleLearnerSummary(row, item, button) {
 function renderPendingRequirementsCell(item) {
   const cell = document.createElement("td");
   cell.className = "pending-requirements-cell";
-  const pending = (item.requirements_summary || {}).pending || [];
+  const summary = item.requirements_summary || {};
+  const pending = summary.pending || [];
+  const total = item.requirements_total ?? requirementSummaryTotal(summary);
+
   if (!pending.length) {
-    cell.textContent = "—";
-    cell.title = "Sin requisitos pendientes";
+    const none = document.createElement("span");
+    none.className = "pending-none";
+    if (total === 0) {
+      // Sin matriz cargada: no es lo mismo que una matriz completa sin faltantes.
+      none.classList.add("is-missing");
+      none.textContent = "Sin requisitos registrados";
+      none.title = "Este aprendiz no tiene requisitos asociados en el sistema.";
+      cell.title = "Sin requisitos registrados";
+    } else {
+      none.textContent = "Ninguno";
+      none.title = "Sin requisitos pendientes";
+      cell.title = "Sin requisitos pendientes";
+    }
+    cell.appendChild(none);
     return cell;
   }
 
+  cell.classList.add("has-pending");
   const count = document.createElement("span");
   count.className = "pending-count-badge";
   count.textContent = pending.length;
@@ -995,17 +1033,56 @@ function renderPendingRequirementsCell(item) {
   const names = document.createElement("span");
   names.className = "pending-requirement-names";
   names.textContent = formatRequirementNameList(pending, 2);
-  names.title = pending.join(", ");
 
   cell.append(count, names);
   cell.title = `Requisitos pendientes: ${pending.join(", ")}`;
+
+  // El resumen corto no debe obligar a abrir la ficha para ver el resto. El
+  // botón es focusable y aria-expanded anuncia el estado del listado completo.
+  if (pending.length > 2) {
+    const panelId = `pending-details-${item.id}`;
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "pending-toggle";
+    toggle.textContent = "Ver pendientes";
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-controls", panelId);
+    toggle.setAttribute(
+      "aria-label",
+      `Ver los ${pending.length} requisitos pendientes`,
+    );
+
+    const panel = document.createElement("ul");
+    panel.className = "pending-list";
+    panel.id = panelId;
+    panel.hidden = true;
+    pending.forEach((label) => {
+      const itemLabel = document.createElement("li");
+      itemLabel.textContent = label;
+      panel.appendChild(itemLabel);
+    });
+
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const expanded = toggle.getAttribute("aria-expanded") === "true";
+      toggle.setAttribute("aria-expanded", expanded ? "false" : "true");
+      toggle.textContent = expanded ? "Ver pendientes" : "Ocultar pendientes";
+      panel.hidden = expanded;
+    });
+
+    cell.append(toggle, panel);
+  }
+
   return cell;
 }
 
 function renderLearnerRow(item) {
   const row = document.createElement("tr");
   row.title = learnerSummaryText(item);
+  const pending = (item.requirements_summary || {}).pending || [];
+  row.classList.toggle("has-pending", pending.length > 0);
   const nameCell = document.createElement("td");
+  nameCell.className = "learner-name-cell";
   nameCell.textContent = item.name;
   row.appendChild(nameCell);
   [item.identification, item.program || "Sin programa", item.group_code || "Sin ficha"]
@@ -1018,10 +1095,12 @@ function renderLearnerRow(item) {
   row.appendChild(renderOriginCell(item, row));
   row.appendChild(renderPendingRequirementsCell(item));
   const detailCell = document.createElement("td");
+  detailCell.className = "detail-cell";
   const button = document.createElement("button");
   button.type = "button";
   button.className = "detail-button";
   button.textContent = "Ver detalles";
+  button.setAttribute("aria-label", `Ver detalles de ${item.name}`);
   button.addEventListener("click", (event) => {
     event.stopPropagation();
     loadLearnerDetail(item.id);
@@ -1080,28 +1159,48 @@ function renderRequirementOptions(types) {
   updateRequirementFilterUI();
 }
 
-function renderLearnerEmptyState() {
-  const searchTerm = learnerSearch.value.trim();
-  const selectedStatus = learnerStatus.value;
-  const selectedRequirement = selectedMissingRequirements();
-  const requirementLabels = selectedRequirement.map(
-    (value) => requirementLabelsByValue.get(value) || value,
+function learnerFiltersActive() {
+  return Boolean(
+    learnerSearch.value.trim() ||
+      learnerStatus.value ||
+      selectedMissingRequirements().length
   );
-  let message = "Aun no hay aprendices cargados. Confirma una importacion DF14A para empezar.";
-  if (searchTerm && selectedStatus) {
-    message = `No se encontro ningun aprendiz que coincida con "${searchTerm}" y tenga el estado "${selectedStatus}".`;
-  } else if (searchTerm) {
-    message = `No se encontro ningun aprendiz que coincida con "${searchTerm}".`;
-  } else if (selectedStatus) {
-    message = `No se encontro ningun aprendiz con el estado "${selectedStatus}".`;
-  }
-  if (selectedRequirement.length) {
-    message += ` No hay aprendices con alguno de los requisitos "${requirementLabels.join(", ")}" en estado Pendiente.`;
-  }
+}
+
+function clearLearnerFilters() {
+  learnerSearch.value = "";
+  learnerStatus.value = "";
+  setSelectedMissingRequirements([]);
+  learnerPageNumber = 1;
+  loadLearners();
+}
+
+function renderLearnerEmptyState() {
   const row = document.createElement("tr");
   const cell = document.createElement("td");
   cell.colSpan = 8;
-  cell.textContent = message;
+  cell.className = "learners-empty-cell";
+
+  const message = document.createElement("p");
+  message.className = "learners-empty-message";
+
+  if (learnerFiltersActive()) {
+    message.textContent = "No hay aprendices con estos filtros.";
+    const hint = document.createElement("p");
+    hint.className = "learners-empty-hint";
+    hint.textContent = "Prueba con otros criterios o limpia los filtros.";
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "cancel-button";
+    clear.textContent = "Limpiar filtros";
+    clear.addEventListener("click", clearLearnerFilters);
+    cell.append(message, hint, clear);
+  } else {
+    message.textContent =
+      "Aún no hay aprendices cargados. Confirma una importación DF14A para empezar.";
+    cell.appendChild(message);
+  }
+
   row.appendChild(cell);
   learnersList.replaceChildren(row);
 }
@@ -1385,6 +1484,11 @@ async function loadLearnerDetail(learnerId) {
 }
 
 async function loadLearners() {
+  const requestId = ++learnerRequestId;
+  learnersSummary.textContent = "Consultando...";
+  learnersList.setAttribute("aria-busy", "true");
+  learnersPrev.disabled = true;
+  learnersNext.disabled = true;
   try {
     const params = new URLSearchParams({
       search: learnerSearch.value.trim(),
@@ -1396,6 +1500,7 @@ async function loadLearners() {
       params.append("missing_requirement", value);
     });
     const result = await readResponse(await fetch(`/api/learners?${params}`));
+    if (requestId !== learnerRequestId) return;
     const selectedStatus = learnerStatus.value;
     const statusOptions = [...result.statuses];
     if (
@@ -1410,21 +1515,38 @@ async function loadLearners() {
     // Opciones del filtro "Requisito faltante" segun los tipos del backend.
     renderRequirementOptions(result.requirement_types);
     renderStatusChips(result.status_counts);
-    learnersSummary.textContent = learnerSummaryLabel(result);
-    learnersPage.textContent = `Pagina ${result.page} de ${Math.max(result.pages, 1)}`;
-    learnersPrev.disabled = result.page <= 1;
-    learnersNext.disabled = result.page >= result.pages;
+
     if (!result.items.length) {
+      learnersSummary.textContent =
+        result.total === 0
+          ? "0 aprendices en la consulta actual · Sin resultados"
+          : learnerSummaryLabel(result);
+      learnersPage.textContent = "Sin resultados";
       renderLearnerEmptyState();
       return;
     }
 
+    learnersSummary.textContent = learnerSummaryLabel(result);
+    learnersPage.textContent = `Página ${result.page} de ${Math.max(result.pages, 1)}`;
+    learnersPrev.disabled = result.page <= 1;
+    learnersNext.disabled = result.page >= result.pages;
     learnersList.replaceChildren(...result.items.map(renderLearnerRow));
   } catch (error) {
+    if (requestId !== learnerRequestId) return;
     learnersSummary.textContent = "No fue posible consultar SQLite";
-    learnersList.textContent = "No fue posible cargar los aprendices.";
+    learnersPage.textContent = "Sin resultados";
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 8;
+    cell.className = "learners-empty-cell";
+    cell.textContent = "No fue posible cargar los aprendices.";
+    row.appendChild(cell);
+    learnersList.replaceChildren(row);
+  } finally {
+    if (requestId === learnerRequestId) {
+      learnersList.removeAttribute("aria-busy");
+    }
   }
-
 }
 
 backToLearners.addEventListener("click", () => {
@@ -1441,13 +1563,7 @@ learnerSearch.addEventListener("input", () => {
   learnerPageNumber = 1;
   loadLearners();
 });
-clearLearnerSearch.addEventListener("click", () => {
-  learnerSearch.value = "";
-  learnerStatus.value = "";
-  setSelectedMissingRequirements([]);
-  learnerPageNumber = 1;
-  loadLearners();
-});
+clearLearnerSearch.addEventListener("click", clearLearnerFilters);
 learnerStatus.addEventListener("change", () => {
   learnerPageNumber = 1;
   loadLearners();
