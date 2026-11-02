@@ -77,6 +77,7 @@ def test_prepare_learner_row_supports_real_df14a_columns():
         "act_number": None,
         "email": None,
         "phone": None,
+        "administrative_receipt_date": None,
         "tracking_notes": None,
     }
 
@@ -469,11 +470,37 @@ def test_list_learners_exposes_sources_and_requirements_summary(client: TestClie
     # Un aprendiz sin importacion no inventa origen.
     assert item["data_sources"] == []
     assert item["pending_count"] == 1
+    assert item["requirements_total"] == 2
     assert item["requirements_summary"] == {
         "pending": ["Destrucción de carnet"],
         "fulfilled_count": 1,
         "na_count": 0,
     }
+
+
+def test_list_learners_distinguishes_no_requirements_from_zero_pending(
+    client: TestClient,
+):
+    """Sin matriz (total 0) no es lo mismo que matriz completa (total > 0)."""
+    seed_learners(client, count=2)
+    learners = client.get("/api/learners").json()["items"]
+    learner_with_requirements = learners[0]
+    learner_without_requirements = learners[1]
+    client.post(
+        f"/api/learners/{learner_with_requirements['id']}/requirements",
+        json={"requirement_type": "biblioteca", "status": "Cumplido"},
+    )
+
+    items = client.get("/api/learners").json()["items"]
+    by_id = {item["id"]: item for item in items}
+
+    complete = by_id[learner_with_requirements["id"]]
+    assert complete["pending_count"] == 0
+    assert complete["requirements_total"] == 1
+
+    empty = by_id[learner_without_requirements["id"]]
+    assert empty["pending_count"] == 0
+    assert empty["requirements_total"] == 0
 
 
 def test_list_learners_filters_by_missing_requirement(client: TestClient):
@@ -536,4 +563,102 @@ def test_list_learners_filters_by_multiple_missing_requirements(client: TestClie
     assert [item["id"] for item in response.json()["items"]] == [
         learners[0]["id"],
         learners[1]["id"],
+    ]
+
+
+def test_list_learners_filters_by_non_certification_reason(client: TestClient):
+    """El drill-down por causa compara motivos sin tildes ni mayusculas.
+
+    La hoja PENDIENTES puede guardar varias causas en una sola celda
+    ("APE, No anexa T&T"); se filtra por contenido para no perder esos casos.
+    """
+    with client.session_factory() as session:
+        session.add_all(
+            [
+                Learner(
+                    identification="9001",
+                    name="UNO",
+                    certification_status="PENDIENTE",
+                    non_certification_reason="APE, No anexa T&T",
+                ),
+                Learner(
+                    identification="9002",
+                    name="DOS",
+                    certification_status="PENDIENTE",
+                    non_certification_reason="Documento Vencido",
+                ),
+                Learner(
+                    identification="9003",
+                    name="TRES",
+                    certification_status="CERTIFICADOS",
+                    non_certification_reason=None,
+                ),
+            ]
+        )
+        session.commit()
+
+    una = client.get("/api/learners", params={"reason": "no anexa t&t"})
+    assert una.status_code == 200
+    assert [item["identification"] for item in una.json()["items"]] == ["9001"]
+
+    # Varias causas se combinan con OR.
+    varias = client.get(
+        "/api/learners",
+        params=[("reason", "ape"), ("reason", "documento vencido")],
+    )
+    assert sorted(item["identification"] for item in varias.json()["items"]) == [
+        "9001",
+        "9002",
+    ]
+
+    # Sin tildes ni mayusculas: "Vencido" con otra capitalizacion encuentra igual.
+    normalizada = client.get(
+        "/api/learners", params={"reason": "DOCUMENTO VENCIDO"}
+    )
+    assert [item["identification"] for item in normalizada.json()["items"]] == ["9002"]
+
+    vacia = client.get("/api/learners", params={"reason": "causa inexistente"})
+    assert vacia.json()["items"] == []
+
+
+def test_list_learners_filters_by_act_number_tolerantly(client: TestClient):
+    """El drill-down por acta tolera ceros a la izquierda y busca en ``search``."""
+    with client.session_factory() as session:
+        session.add_all(
+            [
+                Learner(
+                    identification="9101",
+                    name="ACTA UNO",
+                    certification_status="CERTIFICADOS",
+                    act_number="362025",
+                ),
+                Learner(
+                    identification="9102",
+                    name="ACTA DOS",
+                    certification_status="PENDIENTE",
+                    act_number="041",
+                ),
+                Learner(
+                    identification="9103",
+                    name="SIN ACTA",
+                    certification_status="PENDIENTE",
+                    act_number=None,
+                ),
+            ]
+        )
+        session.commit()
+
+    exacta = client.get("/api/learners", params={"act_number": "362025"})
+    assert [item["identification"] for item in exacta.json()["items"]] == ["9101"]
+
+    # "41" encuentra el acta "041" y "ACTA 41" tambien.
+    con_ceros = client.get("/api/learners", params={"act_number": "41"})
+    assert [item["identification"] for item in con_ceros.json()["items"]] == ["9102"]
+    con_prefijo = client.get("/api/learners", params={"act_number": "ACTA 41"})
+    assert [item["identification"] for item in con_prefijo.json()["items"]] == ["9102"]
+
+    # La busqueda libre tambien incluye el numero de acta.
+    por_busqueda = client.get("/api/learners", params={"search": "362025"})
+    assert [item["identification"] for item in por_busqueda.json()["items"]] == [
+        "9101"
     ]

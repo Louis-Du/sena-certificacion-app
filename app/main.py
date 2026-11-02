@@ -26,6 +26,7 @@ from app.services.imports import (
     list_imports,
     stage_file,
 )
+from app.services.activity import build_activity_heatmap, learners_for_activity_date
 from app.services.acts import (
     REVIEW_STATUSES,
     act_options,
@@ -222,6 +223,8 @@ async def learners(
     search: str = Query(default="", max_length=100),
     status: str = Query(default="", max_length=100),
     missing_requirement: list[str] = Query(default=[]),
+    reason: list[str] = Query(default=[]),
+    act_number: str = Query(default="", max_length=100),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100),
     session: Session = Depends(get_db),
@@ -231,6 +234,8 @@ async def learners(
         search=search,
         status=status,
         missing_requirement=missing_requirement,
+        reason=reason,
+        act_number=act_number,
         page=page,
         page_size=page_size,
     )
@@ -409,3 +414,27 @@ async def unlink_act_learner(
 async def indicadores_endpoint(session: Session = Depends(get_db)) -> dict:
     from app.services.indicadores import compute_indicadores_2026
     return compute_indicadores_2026(session)
+
+# ---------------------------------------------------------------------------
+# Parche de actividad para el heatmap de la UI v2
+# ---------------------------------------------------------------------------
+# ``build_activity_heatmap`` agrega actividad real desde
+# ``RequirementStatusHistory`` (cambios de requisitos) e ``ImportHistory``
+# (importaciones confirmadas). ``learners_for_activity_date`` devuelve el
+# detalle de aprendices e importaciones de una celda concreta.
+# El frontend lo consume desde ``app/static/ui-enhancements.js``.
+@app.get("/api/activity/heatmap")
+async def activity_heatmap(
+    year: int = Query(default=2026, ge=2000, le=2100),
+    session: Session = Depends(get_db),
+) -> dict:
+    return build_activity_heatmap(session, year=year)
+
+
+@app.get("/api/activity/day/{day}")
+async def activity_day(
+    day: date,
+    session: Session = Depends(get_db),
+) -> dict:
+    return learners_for_activity_date(session, day)
+

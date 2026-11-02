@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from io import BytesIO
 
 import pandas as pd
@@ -17,21 +18,38 @@ HEADERS = [
     "ALMACEN",
 ]
 
+HEADERS_CON_FECHAS = [
+    "NÚMERO DE DOCUMENTO",
+    "NOMBRE",
+    "FICHA",
+    "PROGRAMA",
+    "ESTADO",
+    "BIBLIOTECA",
+    "FECHA DE RECIBIDO (PAZ Y SALVO BIBLIOTECA)",
+    "BIENESTAR DEL APRENDIZ",
+    "FECHA DE RECIBIDO (BIENESTAR DEL APRENDIZ)",
+    "ALMACEN",
+    "FECHA DE RECIBIDO (PAZ Y SALVO ALMACEN)",
+    "FECHA DE RECIBIDO EN ADMON EDUCATIVA",
+]
 
-def _actas_xlsx(rows: list[dict]) -> bytes:
+
+def _actas_xlsx(rows: list[dict], columns: list[str] | None = None) -> bytes:
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        pd.DataFrame(rows, columns=HEADERS).to_excel(
+        pd.DataFrame(rows, columns=columns or HEADERS).to_excel(
             writer, sheet_name="CERTIFICADOS", index=False
         )
     return buffer.getvalue()
 
 
-def _import_actas(client: TestClient, rows: list[dict]) -> None:
+def _import_actas(
+    client: TestClient, rows: list[dict], columns: list[str] | None = None
+) -> None:
     validated = client.post(
         "/api/files/validate",
         data={"information_type": "actas_completo"},
-        files={"file": ("ACTAS_2026.xlsx", _actas_xlsx(rows), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        files={"file": ("ACTAS_2026.xlsx", _actas_xlsx(rows, columns), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     )
     assert validated.status_code == 200, validated.text
     assert validated.json()["status"] in {"ready", "warning"}, validated.text
@@ -190,3 +208,147 @@ def test_requirement_history_change_via_import_and_manual_keeps_current_status(c
         )
         == 3
     )
+
+
+def _history_by_type(history: list[dict]) -> dict[str, dict]:
+    return {item["requirement_type"]: item for item in history}
+
+
+def test_actas_import_uses_received_dates_for_requirement_history(client: TestClient):
+    """Las fechas del consolidado alimentan el historial, no la fecha de carga."""
+    row = {
+        "NÚMERO DE DOCUMENTO": "79889414",
+        "NOMBRE": "JESUS ADRIAN",
+        "FICHA": "2374476",
+        "PROGRAMA": "ADSI",
+        "ESTADO": "PENDIENTE",
+        "BIBLIOTECA": "X",
+        "FECHA DE RECIBIDO (PAZ Y SALVO BIBLIOTECA)": "28/02/2025",
+        "BIENESTAR DEL APRENDIZ": "X",
+        # Fecha real de Excel (se guarda como fecha, no como texto).
+        "FECHA DE RECIBIDO (BIENESTAR DEL APRENDIZ)": pd.Timestamp("2025-03-03"),
+        "ALMACEN": "X",
+        "FECHA DE RECIBIDO (PAZ Y SALVO ALMACEN)": "2025-03-05",
+        # No es un requisito de la matriz: no debe aparecer en el historial.
+        "FECHA DE RECIBIDO EN ADMON EDUCATIVA": "26/02/2025",
+    }
+    _import_actas(client, [row], columns=HEADERS_CON_FECHAS)
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+
+    detail = client.get(f"/api/learners/{learner_id}").json()
+    history = detail["requirement_history"]
+    by_type = _history_by_type(history)
+
+    # La fecha administrativa se conserva en seguimiento, no como requisito.
+    assert detail["basic_info"]["administrative_receipt_date"] == "2025-02-26"
+    assert all(
+        item["requirement_type"] != "fecha_recibido_admon_educativa"
+        for item in detail["requirements"]
+    )
+
+    assert by_type["biblioteca"]["status"] == "Cumplido"
+    assert by_type["biblioteca"]["recorded_at"].startswith("2025-02-28T12:00:00")
+    assert by_type["biblioteca"]["source"] == "import:actas_completo"
+    assert by_type["biblioteca"]["note"] == "Fecha de recibido según consolidado"
+
+    assert by_type["bienestar"]["status"] == "Cumplido"
+    assert by_type["bienestar"]["recorded_at"].startswith("2025-03-03T12:00:00")
+
+    assert by_type["almacen"]["status"] == "Cumplido"
+    assert by_type["almacen"]["recorded_at"].startswith("2025-03-05T12:00:00")
+
+    # La fecha administrativa no se convierte en requisito ni en evento.
+    assert "fecha_recibido_admon_educativa" not in by_type
+    assert all(
+        "admon" not in (item["requirement_type"] or "")
+        for item in history
+    )
+
+
+def test_actas_import_without_received_date_does_not_invent_one(client: TestClient):
+    row = {
+        "NÚMERO DE DOCUMENTO": "79889415",
+        "NOMBRE": "SIN FECHA",
+        "FICHA": "2374476",
+        "PROGRAMA": "ADSI",
+        "ESTADO": "PENDIENTE",
+        "BIBLIOTECA": "X",
+        "FECHA DE RECIBIDO (PAZ Y SALVO BIBLIOTECA)": "",
+        "BIENESTAR DEL APRENDIZ": "",
+        "FECHA DE RECIBIDO (BIENESTAR DEL APRENDIZ)": "",
+        "ALMACEN": "",
+        "FECHA DE RECIBIDO (PAZ Y SALVO ALMACEN)": "",
+        "FECHA DE RECIBIDO EN ADMON EDUCATIVA": "26/02/2025",
+    }
+    _import_actas(client, [row], columns=HEADERS_CON_FECHAS)
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+
+    biblioteca = _history_by_type(_detailed_history(client, learner_id))["biblioteca"]
+    assert biblioteca["status"] == "Cumplido"
+    assert biblioteca["note"] is None
+    # Se conserva la marca de la importacion; no se fabrica una fecha recibida.
+    assert biblioteca["recorded_at"].startswith(
+        datetime.now(timezone.utc).date().isoformat()
+    )
+
+
+def test_actas_import_date_without_mark_does_not_mark_fulfilled(client: TestClient):
+    row = {
+        "NÚMERO DE DOCUMENTO": "79889416",
+        "NOMBRE": "FECHA SIN MARCA",
+        "FICHA": "2374476",
+        "PROGRAMA": "ADSI",
+        "ESTADO": "PENDIENTE",
+        "BIBLIOTECA": "",
+        "FECHA DE RECIBIDO (PAZ Y SALVO BIBLIOTECA)": "",
+        "BIENESTAR DEL APRENDIZ": "",
+        "FECHA DE RECIBIDO (BIENESTAR DEL APRENDIZ)": "",
+        "ALMACEN": "",
+        "FECHA DE RECIBIDO (PAZ Y SALVO ALMACEN)": "28/02/2025",
+        "FECHA DE RECIBIDO EN ADMON EDUCATIVA": "",
+    }
+    _import_actas(client, [row], columns=HEADERS_CON_FECHAS)
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+
+    detail = client.get(f"/api/learners/{learner_id}").json()
+    requirements = {
+        item["requirement_type"]: item["status"] for item in detail["requirements"]
+    }
+    assert requirements["almacen"] == "Pendiente"
+
+    almacen_events = [
+        item
+        for item in detail["requirement_history"]
+        if item["requirement_type"] == "almacen"
+    ]
+    assert [item["status"] for item in almacen_events] == ["Pendiente"]
+    assert not almacen_events[0]["recorded_at"].startswith("2025-02-28")
+    assert almacen_events[0]["note"] is None
+
+
+def test_reimport_with_received_dates_does_not_duplicate_history(client: TestClient):
+    row = {
+        "NÚMERO DE DOCUMENTO": "79889417",
+        "NOMBRE": "REIMPORTADO",
+        "FICHA": "2374476",
+        "PROGRAMA": "ADSI",
+        "ESTADO": "PENDIENTE",
+        "BIBLIOTECA": "X",
+        "FECHA DE RECIBIDO (PAZ Y SALVO BIBLIOTECA)": "28/02/2025",
+        "BIENESTAR DEL APRENDIZ": "",
+        "FECHA DE RECIBIDO (BIENESTAR DEL APRENDIZ)": "",
+        "ALMACEN": "",
+        "FECHA DE RECIBIDO (PAZ Y SALVO ALMACEN)": "",
+        "FECHA DE RECIBIDO EN ADMON EDUCATIVA": "",
+    }
+    _import_actas(client, [row], columns=HEADERS_CON_FECHAS)
+    _import_actas(client, [row], columns=HEADERS_CON_FECHAS)
+    learner_id = client.get("/api/learners").json()["items"][0]["id"]
+
+    biblioteca_events = [
+        item
+        for item in _detailed_history(client, learner_id)
+        if item["requirement_type"] == "biblioteca"
+    ]
+    assert len(biblioteca_events) == 1
+    assert biblioteca_events[0]["recorded_at"].startswith("2025-02-28T12:00:00")

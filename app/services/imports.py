@@ -4,7 +4,7 @@ import hashlib
 import json
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -602,6 +602,57 @@ _EVIDENCE_FIELDS = (
     "certificado_empresa",
 )
 
+# Fecha real de recibido asociada a cada paz y salvo del consolidado. Solo se
+# usa cuando la celda de evidencia marca el requisito como cumplido; una fecha
+# aislada no convierte un pendiente en cumplido.
+_EVIDENCE_DATE_FIELDS: dict[str, tuple[str, ...]] = {
+    "biblioteca": (
+        "fecha_recibido_biblioteca",
+        "fecha de recibido (paz y salvo biblioteca)",
+        "fecha de recibido paz y salvo biblioteca",
+        "fecha recibido (paz y salvo biblioteca)",
+    ),
+    "bienestar": (
+        "fecha_recibido_bienestar",
+        "fecha de recibido (bienestar del aprendiz)",
+        "fecha de recibido (paz y salvo bienestar)",
+        "fecha de recibido bienestar del aprendiz",
+    ),
+    "almacen": (
+        "fecha_recibido_almacen",
+        "fecha de recibido (paz y salvo almacen)",
+        "fecha de recibido paz y salvo almacen",
+        "fecha recibido (paz y salvo almacen)",
+    ),
+}
+
+# Nota estable para distinguir en el historial un evento fechado por el
+# documento de uno fechado por la importacion.
+_RECEIVED_DATE_NOTE = "Fecha de recibido según consolidado"
+
+
+def _received_date_for(record: dict[str, Any], field: str) -> date | None:
+    """Fecha de recibido valida de un requisito, o ``None`` si no la trae."""
+    raw = _first_value(record, *_EVIDENCE_DATE_FIELDS.get(field, ()))
+    if raw is None:
+        return None
+    iso_date = parsers.parse_date_value(raw)
+    if not iso_date:
+        return None
+    try:
+        return date.fromisoformat(iso_date)
+    except ValueError:
+        return None
+
+
+def _received_date_recorded_at(received_date: date) -> datetime:
+    """Momento UTC del evento de historial para una fecha de recibido.
+
+    Se usa el mediodia UTC para que al mostrarlo en es-CO (UTC-5) siga siendo
+    el mismo dia del documento y no se corra al dia anterior.
+    """
+    return datetime.combine(received_date, time(hour=12), tzinfo=timezone.utc)
+
 
 # Etiquetas de procedencia por tipo interno. Describen de que archivo/hoja salio
 # cada registro; se acumulan en el aprendiz y nunca reemplazan un origen previo.
@@ -657,6 +708,11 @@ def _sync_actas_requirements(
     aprendiz con el estado leido en la celda: ``X`` -> Cumplido, ``N.A`` -> No
     aplica, vacio u otro -> Pendiente. Solo se procesan las columnas que existen
     en la hoja; una columna ausente no genera un requisito inventado.
+
+    Para biblioteca, bienestar y almacen, si el requisito esta cumplido y la
+    hoja trae la fecha real de recibido, el evento de historial usa esa fecha
+    (al mediodia UTC para que no se corra de dia en es-CO). Una fecha sin marca
+    de cumplimiento no cambia el estado ni se usa para fabricar un evento.
     """
     from app.services.parsers import clean_identification
     from app.services.requirements import evidence_status, upsert_requirement_status
@@ -677,13 +733,27 @@ def _sync_actas_requirements(
             if field not in record:
                 continue
             status = evidence_status(record.get(field))
+            # Solo un requisito cumplido puede fecharse con la fecha de
+            # recibido del documento. Si la celda no tiene marca de
+            # cumplimiento, la fecha no se usa para inventar un "Cumplido".
+            received_date = (
+                _received_date_for(record, field) if status == "Cumplido" else None
+            )
+            event_at = (
+                _received_date_recorded_at(received_date)
+                if received_date is not None
+                else recorded_at
+            )
             upsert_requirement_status(
                 session,
                 learner_id=learner.id,
                 requirement_type=field,
                 status=status,
                 source=source,
-                recorded_at=recorded_at,
+                recorded_at=event_at,
+                note=_RECEIVED_DATE_NOTE if received_date is not None else None,
+                force_history=received_date is not None,
+                dedupe_history=True,
             )
             count += 1
     return count

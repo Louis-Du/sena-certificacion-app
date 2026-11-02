@@ -26,6 +26,7 @@ from app.services.parsers import (
     list_excel_sheets,
     normalize_nivel,
     parse_acta_docx,
+    parse_date_value,
     parse_df14a_xml,
     parse_informe_referencia,
     read_actas_csv_records,
@@ -718,4 +719,22 @@ def test_clean_identification_and_actas_records_ignore_nat_and_deleted_rows():
     assert len(records) == 1
     assert records[0]["numero de documento"] == "100000001"
     assert records[0]["ficha"] == "2999999"
+
+
+def test_parse_date_value_accepts_common_actas_formats_and_rejects_invalid():
+    # Texto con dia/mes/anio, con o sin ceros iniciales.
+    assert parse_date_value("28/02/2025") == "2025-02-28"
+    assert parse_date_value("3/3/2025") == "2025-03-03"
+    # Fecha real de Excel y serial de Excel.
+    assert parse_date_value(pd.Timestamp("2025-03-03")) == "2025-03-03"
+    assert parse_date_value(45719) == "2025-03-03"
+    assert parse_date_value("45719") == "2025-03-03"
+    # ISO con y sin hora.
+    assert parse_date_value("2025-03-03") == "2025-03-03"
+    assert parse_date_value("2025-03-03 00:00:00") == "2025-03-03"
+    # Una fecha invalida o un texto no parseable se tratan como "sin fecha".
+    assert parse_date_value("31/02/2025") is None
+    assert parse_date_value("sin fecha") is None
+    assert parse_date_value("2025") is None
+    assert parse_date_value("") is None
 

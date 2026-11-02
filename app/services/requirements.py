@@ -128,12 +128,20 @@ def upsert_requirement_status(
     source: str = "import",
     recorded_at: datetime | None = None,
     note: str | None = None,
+    force_history: bool = False,
+    dedupe_history: bool = False,
 ) -> Requirement:
-    """Crea o actualiza un requisito y registra historial solo si cambia.
+    """Crea o actualiza un requisito y registra historial cuando hay un hecho.
 
     No hace commit: el llamador controla la transaccion (import o guardado
     manual). La regla RF-19 es unica: alta o cambio de estado generan un evento;
     repetir el mismo estado no duplica historial.
+
+    ``force_history`` permite registrar un hecho nuevo aunque el estado no haya
+    cambiado (por ejemplo, una importacion que ahora trae la fecha real de
+    recibido de un requisito ya cumplido). ``dedupe_history`` evita repetir el
+    mismo evento (aprendiz + requisito + estado + origen + dia) en cada
+    reimportacion.
     """
     validate_requirement_type(requirement_type)
     validate_status(status)
@@ -159,6 +167,7 @@ def upsert_requirement_status(
             source=source,
             recorded_at=recorded_at,
             note=note,
+            dedupe=dedupe_history,
         )
         session.flush()
         return requirement
@@ -173,6 +182,18 @@ def upsert_requirement_status(
             source=source,
             recorded_at=recorded_at,
             note=note,
+            dedupe=dedupe_history,
+        )
+    elif force_history:
+        _record_requirement_status_change(
+            session,
+            learner_id=learner_id,
+            requirement_type=requirement_type,
+            status=status,
+            source=source,
+            recorded_at=recorded_at,
+            note=note,
+            dedupe=dedupe_history,
         )
     if observations is not None:
         requirement.observations = observations
@@ -188,9 +209,28 @@ def _record_requirement_status_change(
     source: str,
     recorded_at: datetime | None = None,
     note: str | None = None,
+    dedupe: bool = False,
 ) -> None:
     if recorded_at is None:
         recorded_at = datetime.now(timezone.utc)
+    if dedupe:
+        # Mismo aprendiz, requisito, estado, origen y dia: es el mismo hecho.
+        # La comparacion por dia permite que la reimportacion de un consolidado
+        # no agregue una fila identica cada vez que se carga el archivo.
+        event_day = recorded_at.date().isoformat()
+        duplicate = session.scalar(
+            select(RequirementStatusHistory.id)
+            .where(
+                RequirementStatusHistory.learner_id == learner_id,
+                RequirementStatusHistory.requirement_type == requirement_type,
+                RequirementStatusHistory.status == status,
+                RequirementStatusHistory.source == source,
+                func.date(RequirementStatusHistory.recorded_at) == event_day,
+            )
+            .limit(1)
+        )
+        if duplicate is not None:
+            return
     session.add(
         RequirementStatusHistory(
             learner_id=learner_id,
@@ -208,8 +248,9 @@ def list_requirement_history(
 ) -> list[dict[str, Any]] | None:
     """Historial RF-19 del aprendiz, ordenado del evento más reciente al más antiguo.
 
-    ``recorded_at`` es el momento de confirmación del import o del guardado
-    manual; no se inventan fechas de negocio que no vengan en la fuente.
+    ``recorded_at`` es la fecha real de recibido cuando el consolidado la trae
+    para un requisito cumplido; en los demás casos es el momento de confirmación
+    del import o del guardado manual. Nunca se inventa una fecha de recibido.
     """
     if session.get(Learner, learner_id) is None:
         return None
