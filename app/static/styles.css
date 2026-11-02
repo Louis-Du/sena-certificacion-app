@@ -3533,6 +3533,39 @@ a {
   gap: 6px;
 }
 
+.requirement-category {
+  display: grid;
+  gap: 7px;
+}
+
+.requirement-category + .requirement-category {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.requirement-category-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+  font-weight: 750;
+}
+
+.requirement-category-count {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.requirement-category-items {
+  display: grid;
+  gap: 6px;
+}
+
 .requirements-editor .requirement-editor {
   display: grid;
   grid-template-columns: minmax(110px, 1.2fr) 118px minmax(110px, 1.3fr) auto;

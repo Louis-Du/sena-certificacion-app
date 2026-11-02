@@ -946,6 +946,46 @@ function requirementStatusClass(status) {
   return "is-other";
 }
 
+const requirementCategoryOrder = ["Paz y salvos", "Documentación del aprendiz", "Otros"];
+const requirementCategoryAliases = {
+  biblioteca: "Paz y salvos",
+  "paz y salvo biblioteca": "Paz y salvos",
+  bienestar: "Paz y salvos",
+  almacen: "Paz y salvos",
+  "paz y salvo almacen": "Paz y salvos",
+  "documento de identidad": "Documentación del aprendiz",
+  identidad: "Documentación del aprendiz",
+  "saber tyt": "Documentación del aprendiz",
+  "t y t": "Documentación del aprendiz",
+  "t&t": "Documentación del aprendiz",
+  ape: "Documentación del aprendiz",
+  "inscripcion ape": "Documentación del aprendiz",
+  carnet: "Documentación del aprendiz",
+  "destruccion de carnet": "Documentación del aprendiz",
+  "etapa productiva": "Documentación del aprendiz",
+  "certificado de la empresa": "Documentación del aprendiz",
+};
+
+function requirementCategory(item) {
+  const values = [item.label, item.requirement_type].filter(Boolean);
+  for (const value of values) {
+    const normalized = normalizeStatusText(value).replace(/\s+/g, " ");
+    if (requirementCategoryAliases[normalized]) {
+      return requirementCategoryAliases[normalized];
+    }
+  }
+  return "Otros";
+}
+
+function requirementCategorySummary(items) {
+  const summary = summarizeRequirementItems(items);
+  return [
+    `${summary.pending.length} pendiente${summary.pending.length === 1 ? "" : "s"}`,
+    `${summary.fulfilled} cumplido${summary.fulfilled === 1 ? "" : "s"}`,
+    `${summary.na} no aplica`,
+  ].join(" · ");
+}
+
 function summarizeRequirementItems(items) {
   const list = items || [];
   const pending = [];
@@ -1082,7 +1122,7 @@ function renderRequirementSummary(items) {
 
   const sections = [
     {
-      label: "Pendientes",
+      label: "Qué falta",
       names: summary.pending,
       empty: "Ninguno pendiente",
       className: "is-pending",
@@ -1460,18 +1500,32 @@ function applyRequirementEditorStatus(form, status) {
 // Mantiene el orden "pendientes primero" despues de guardar, sin reemplazar los
 // formularios (asi no se pierde el foco ni el mensaje de confirmacion).
 function sortRequirementEditors() {
-  const forms = [...learnerRequirements.querySelectorAll(".requirement-editor")];
-  forms.sort(
-    (a, b) =>
-      requirementStatusRank(a.dataset.status) - requirementStatusRank(b.dataset.status),
-  );
   const active = document.activeElement;
-  forms.forEach((form) => learnerRequirements.appendChild(form));
+  learnerRequirements.querySelectorAll(".requirement-category-items").forEach((group) => {
+    const forms = [...group.querySelectorAll(".requirement-editor")];
+    forms
+      .sort(
+        (a, b) =>
+          requirementStatusRank(a.dataset.status) - requirementStatusRank(b.dataset.status),
+      )
+      .forEach((form) => group.appendChild(form));
+  });
   // Mover un formulario en el DOM puede perder el foco; si el usuario estaba
   // dentro de una fila, se restaura para no interrumpir teclado ni lectores.
   if (active && active.isConnected && learnerRequirements.contains(active)) {
     active.focus({ preventScroll: true });
   }
+}
+
+function updateRequirementCategoryCounts() {
+  learnerRequirements.querySelectorAll(".requirement-category").forEach((section) => {
+    const statuses = [...section.querySelectorAll(".requirement-editor")].map(
+      (form) => form.dataset.status,
+    );
+    const items = statuses.map((status) => ({status}));
+    const count = section.querySelector(".requirement-category-count");
+    if (count) count.textContent = requirementCategorySummary(items);
+  });
 }
 
 function renderRequirementEditor(items) {
@@ -1481,15 +1535,36 @@ function renderRequirementEditor(items) {
     return;
   }
 
-  const ordered = [...items].sort(
-    (a, b) => requirementStatusRank(a.status) - requirementStatusRank(b.status),
+  const grouped = new Map(
+    requirementCategoryOrder.map((category) => [category, []]),
   );
-  ordered.forEach((item) => {
+  items.forEach((item) => grouped.get(requirementCategory(item)).push(item));
+  grouped.forEach((categoryItems, category) => {
+    if (!categoryItems.length) return;
+    categoryItems.sort(
+      (a, b) => requirementStatusRank(a.status) - requirementStatusRank(b.status),
+    );
+    const section = document.createElement("section");
+    section.className = "requirement-category";
+    const heading = document.createElement("h4");
+    heading.className = "requirement-category-title";
+    heading.textContent = category;
+    const count = document.createElement("span");
+    count.className = "requirement-category-count";
+    count.textContent = requirementCategorySummary(categoryItems);
+    heading.appendChild(count);
+    const group = document.createElement("div");
+    group.className = "requirement-category-items";
+    section.append(heading, group);
+    learnerRequirements.appendChild(section);
+
+    categoryItems.forEach((item) => {
     const label = item.label || item.requirement_type || "Requisito";
     const status = item.status || "Pendiente";
     const form = document.createElement("form");
     form.className = "requirement-editor";
     form.dataset.status = normalizeStatusText(status);
+    form.dataset.category = category;
     form.innerHTML = `<div class="requirement-name"><strong></strong><span class="requirement-state-badge" aria-hidden="true"></span></div>
       <select name="status">
         <option>Pendiente</option><option>Cumplido</option><option>No aplica</option>
@@ -1536,6 +1611,7 @@ function renderRequirementEditor(items) {
         item.observations = result.observations;
         applyRequirementEditorStatus(form, result.status);
         sortRequirementEditors();
+        updateRequirementCategoryCounts();
         const detail = await readResponse(
           await fetch(`/api/learners/${window.currentLearnerId}`),
         );
@@ -1547,7 +1623,8 @@ function renderRequirementEditor(items) {
         feedback.textContent = error.message;
       }
     });
-    learnerRequirements.appendChild(form);
+      group.appendChild(form);
+    });
   });
 }
 
