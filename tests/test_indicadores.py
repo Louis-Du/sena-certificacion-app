@@ -222,6 +222,57 @@ def test_personas_pendientes_vs_incidencias(session_factory):
 
 
 # ---------------------------------------------------------------------------
+# 4b. Actas del consolidado enriquecidas desde el modulo Actas
+# ---------------------------------------------------------------------------
+def test_actas_del_consolidado_se_enriquecen_con_modulo_actas(session_factory):
+    from datetime import date
+
+    from app.models import Act
+
+    with session_factory() as session:
+        _seed(
+            session,
+            "certificados",
+            [
+                _certificado("3001", "TÉCNICO", acta="36"),
+                _certificado("3002", "TÉCNICO", acta="041"),
+                _certificado("3003", "TÉCNICO", acta="99"),
+            ],
+        )
+        session.add_all(
+            [
+                Act(
+                    number="36",
+                    act_date=date(2026, 6, 15),
+                    act_type="Certificación",
+                    original_file="acta36.pdf",
+                ),
+                Act(
+                    number="41",
+                    act_date=date(2026, 7, 20),
+                    act_type="Comité",
+                    original_file="acta41.pdf",
+                ),
+            ]
+        )
+        session.commit()
+        data = compute_indicadores_2026(session)
+
+    actas = {acta["number"]: acta for acta in data["ultimas_actas"]}
+    assert actas["36"]["act_date"] == "2026-06-15"
+    assert actas["36"]["act_type"] == "Certificación"
+    assert actas["36"]["act_id"] is not None
+    # El consolidado trae "041" y el modulo Actas "41": se cruzan igual.
+    assert actas["041"]["act_date"] == "2026-07-20"
+    assert actas["041"]["act_type"] == "Comité"
+    # Sin acta registrada no se inventan fecha ni tipo.
+    assert actas["99"]["act_date"] is None
+    assert actas["99"]["act_type"] is None
+    assert actas["99"]["act_id"] is None
+    assert data["actas_con_detalle"] == 2
+
+
+# ---------------------------------------------------------------------------
 # 5. Doble conteo entre categorias y totales
 # ---------------------------------------------------------------------------
 def test_no_doble_conteo_y_nota_de_articulacion(session_factory):

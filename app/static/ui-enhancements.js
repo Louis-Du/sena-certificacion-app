@@ -427,7 +427,7 @@
 
     const yearSel = document.getElementById("heatmap-year");
     const year = Number(yearSel?.value || 2026);
-    await loadHeatmap(year);
+    await loadActivity(year);
     scheduleChartPadding();
   }
 
@@ -538,7 +538,302 @@
     tooltip.innerHTML = html;
   }
 
-  async function loadHeatmap(year) {
+  /* ---------------- Actividad: heatmap + gráfico (misma fuente) ---------------- */
+  let activityData = null;
+  let activityYear = 2026;
+  let activityChart = null;
+  let activityView = "heatmap";
+  const ACTIVITY_VIEW_KEY = "indicadores-actividad-vista";
+
+  function readStoredActivityView() {
+    try {
+      return window.sessionStorage.getItem(ACTIVITY_VIEW_KEY) === "chart" ? "chart" : "heatmap";
+    } catch (_) {
+      return "heatmap";
+    }
+  }
+
+  function monthShort(isoDate) {
+    const dt = new Date(`${isoDate}T00:00:00Z`);
+    if (Number.isNaN(dt.getTime())) return "";
+    const name = dt
+      .toLocaleString("es-CO", { month: "short", timeZone: "UTC" })
+      .replace(".", "");
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  }
+
+  function setActivityView(view, { render = true } = {}) {
+    activityView = view === "chart" ? "chart" : "heatmap";
+    try {
+      window.sessionStorage.setItem(ACTIVITY_VIEW_KEY, activityView);
+    } catch (_) {
+      /* sessionStorage puede estar bloqueado; la vista sigue funcionando. */
+    }
+
+    document.querySelectorAll(".activity-view-btn").forEach((btn) => {
+      const on = btn.dataset.activityView === activityView;
+      btn.classList.toggle("is-active", on);
+      btn.setAttribute("aria-selected", on ? "true" : "false");
+      btn.tabIndex = on ? 0 : -1;
+    });
+
+    const heatmapPanel = document.getElementById("activity-heatmap-panel");
+    const chartPanel = document.getElementById("activity-chart-panel");
+    if (heatmapPanel) heatmapPanel.hidden = activityView !== "heatmap";
+    if (chartPanel) chartPanel.hidden = activityView !== "chart";
+
+    if (activityView === "chart" && render && !activityChart) {
+      renderActivityChart(activityData, activityYear);
+    }
+    if (activityView === "chart" && activityChart) {
+      // Chart.js mide el canvas al crearlo; si el panel estaba oculto hay que
+      // pedirle que recalcule al mostrarlo.
+      setTimeout(() => {
+        try {
+          activityChart.resize();
+        } catch (_) {}
+      }, 40);
+    }
+  }
+
+  function setupActivityToggle() {
+    const toggle = document.getElementById("activity-view-toggle");
+    const buttons = [...document.querySelectorAll(".activity-view-btn")];
+    if (!toggle || !buttons.length) return;
+
+    buttons.forEach((btn) => {
+      btn.addEventListener("click", (event) => {
+        event.preventDefault();
+        setActivityView(btn.dataset.activityView);
+      });
+    });
+
+    toggle.addEventListener("keydown", (event) => {
+      const index = buttons.indexOf(document.activeElement);
+      if (index < 0) return;
+      let next = null;
+      if (event.key === "ArrowRight") next = buttons[(index + 1) % buttons.length];
+      else if (event.key === "ArrowLeft") next = buttons[(index - 1 + buttons.length) % buttons.length];
+      else if (event.key === "Home") next = buttons[0];
+      else if (event.key === "End") next = buttons[buttons.length - 1];
+      if (!next) return;
+      event.preventDefault();
+      next.focus();
+      setActivityView(next.dataset.activityView);
+    });
+
+    setActivityView(readStoredActivityView(), { render: false });
+  }
+
+  function updateActivitySummary(data, year) {
+    const summary = document.getElementById("activity-chart-summary");
+    if (!summary) return;
+    const total = Number(data?.total_events) || 0;
+    const days = Array.isArray(data?.days) ? data.days : [];
+    const activeDays = days.filter((day) => Number(day.count) > 0).length;
+    if (!total) {
+      summary.textContent = `Sin eventos de actividad en ${year}.`;
+      return;
+    }
+    summary.textContent =
+      `${formatNum(total)} eventos en ${formatNum(activeDays)} días con actividad · ` +
+      `${formatNum(data.total_status_changes)} cambios de estado · ` +
+      `${formatNum(data.total_imports)} importaciones. ` +
+      "Serie semanal (suma de eventos por día); haz clic en una barra para ver el día con más actividad de esa semana.";
+  }
+
+  function formatDayShort(isoDate) {
+    const dt = new Date(`${isoDate}T00:00:00Z`);
+    if (Number.isNaN(dt.getTime())) return isoDate;
+    return dt.toLocaleDateString("es-CO", {
+      day: "numeric",
+      month: "short",
+      timeZone: "UTC",
+    });
+  }
+
+  // Agrupa los dias en semanas (lunes a domingo). El heatmap conserva el detalle
+  // diario; el grafico suma esos mismos dias para que 365 barras de 1px no se
+  // conviertan en una linea ilegible.
+  function buildActivityWeeks(days) {
+    const weeks = [];
+    let current = null;
+    days.forEach((day) => {
+      const dt = new Date(`${day.date}T00:00:00Z`);
+      if (Number.isNaN(dt.getTime())) return;
+      const dow = (dt.getUTCDay() + 6) % 7; // lunes = 0
+      const monday = new Date(dt);
+      monday.setUTCDate(dt.getUTCDate() - dow);
+      const key = monday.toISOString().slice(0, 10);
+      if (!current || current.key !== key) {
+        current = {
+          key,
+          start: key,
+          end: day.date,
+          count: 0,
+          status_changes: 0,
+          imports: 0,
+          import_records: 0,
+          best: null,
+        };
+        weeks.push(current);
+      }
+      current.end = day.date;
+      const count = Number(day.count) || 0;
+      const sources = day.sources || {};
+      current.count += count;
+      current.status_changes += Number(sources.status_changes) || 0;
+      current.imports += Number(sources.imports) || 0;
+      current.import_records += Number(sources.import_records) || 0;
+      if (!current.best || count > current.best.count) {
+        current.best = { date: day.date, count };
+      }
+    });
+    return weeks;
+  }
+
+  function renderActivityChart(data, year) {
+    const canvas = document.getElementById("indicadores-activity-chart");
+    const empty = document.getElementById("activity-chart-empty");
+    if (!canvas || !empty) return;
+
+    if (activityChart) {
+      activityChart.destroy();
+      activityChart = null;
+    }
+
+    if (typeof Chart === "undefined") {
+      canvas.hidden = true;
+      empty.hidden = false;
+      empty.textContent = "No se pudo cargar la librería de gráficos (Chart.js).";
+      return;
+    }
+
+    const days = Array.isArray(data?.days) ? data.days : [];
+    const total = Number(data?.total_events) || 0;
+    if (!days.length || total <= 0) {
+      canvas.hidden = true;
+      empty.hidden = false;
+      empty.textContent = `No hay actividad registrada en ${year}. Cambia el año o importa información para ver eventos.`;
+      canvas.setAttribute("aria-label", `Sin actividad registrada en ${year}`);
+      return;
+    }
+
+    canvas.hidden = false;
+    empty.hidden = true;
+
+    const weeks = buildActivityWeeks(days);
+    const activeDays = days.filter((day) => Number(day.count) > 0).length;
+    canvas.setAttribute(
+      "aria-label",
+      `Actividad de certificación ${year}: ${total} eventos en ${activeDays} días con actividad (serie semanal)`
+    );
+
+    activityChart = new Chart(canvas.getContext("2d"), {
+      type: "bar",
+      data: {
+        labels: weeks.map((week) => week.start),
+        datasets: [
+          {
+            label: "Eventos de actividad",
+            data: weeks.map((week) => week.count),
+            backgroundColor: "rgba(15, 118, 110, 0.6)",
+            hoverBackgroundColor: "#0f766e",
+            borderWidth: 0,
+            borderRadius: 3,
+            maxBarThickness: 26,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: {
+              autoSkip: false,
+              maxRotation: 0,
+              callback(value, index) {
+                const week = weeks[index];
+                if (!week) return "";
+                const dt = new Date(`${week.start}T00:00:00Z`);
+                if (Number.isNaN(dt.getTime())) return "";
+                const month = dt.getUTCMonth();
+                const previous = weeks[index - 1];
+                const previousMonth = previous
+                  ? new Date(`${previous.start}T00:00:00Z`).getUTCMonth()
+                  : null;
+                // Sin semana previa (la que empieza en diciembre del año
+                // anterior) no se rotula; luego solo al cambiar de mes.
+                if (previousMonth === null) return "";
+                if (month === previousMonth) return "";
+                // En pantallas estrechas se rotula mes por medio para que las
+                // etiquetas no se amontonen.
+                if (canvas.clientWidth < 560 && month % 2 !== 0) return "";
+                return monthShort(week.start);
+              },
+            },
+          },
+          y: {
+            beginAtZero: true,
+            ticks: { precision: 0 },
+            title: { display: true, text: "Eventos de actividad" },
+          },
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: (items) => {
+                const week = weeks[items[0].dataIndex];
+                if (!week) return "";
+                return `Semana del ${formatDayShort(week.start)} al ${formatDayShort(week.end)}`;
+              },
+              label: (ctx) => `${ctx.parsed.y} evento(s) en la semana`,
+              afterLabel: (ctx) => {
+                const week = weeks[ctx.dataIndex] || {};
+                const lines = [];
+                if (week.status_changes) lines.push(`Cambios de estado: ${week.status_changes}`);
+                if (week.imports) lines.push(`Importaciones: ${week.imports}`);
+                if (week.import_records) lines.push(`Registros importados: ${week.import_records}`);
+                if (week.best && week.best.count > 0) {
+                  lines.push(`Día con más actividad: ${formatDayShort(week.best.date)} (${week.best.count})`);
+                }
+                return lines;
+              },
+            },
+          },
+        },
+        onClick: (event, elements) => {
+          if (!elements.length) return;
+          const week = weeks[elements[0].index];
+          if (!week || !week.best || week.best.count <= 0) return;
+          const native = event?.native || event;
+          showDayDetails(week.best.date, native, canvas);
+        },
+      },
+    });
+  }
+
+  async function loadActivity(year) {
+    activityYear = Number(year) || 2026;
+    const data = await safeJson(
+      `/api/activity/heatmap?year=${encodeURIComponent(activityYear)}`
+    );
+    activityData = data;
+    renderHeatmap(data, activityYear);
+    if (activityChart) {
+      activityChart.destroy();
+      activityChart = null;
+    }
+    updateActivitySummary(data, activityYear);
+    setActivityView(activityView, { render: activityView === "chart" });
+    scheduleChartPadding();
+  }
+
+  function renderHeatmap(data, year) {
     const host = document.getElementById("indicadores-heatmap");
     const monthsEl = document.getElementById("heatmap-months");
     const empty = document.getElementById("heatmap-empty");
@@ -547,7 +842,6 @@
     if (monthsEl) monthsEl.replaceChildren();
     hideTooltip();
 
-    const data = await safeJson(`/api/activity/heatmap?year=${encodeURIComponent(year)}`);
     if (!data || !Array.isArray(data.days) || !data.days.length) {
       if (empty) {
         empty.hidden = false;
@@ -699,7 +993,7 @@
   }
 
   document.getElementById("heatmap-year")?.addEventListener("change", (e) => {
-    loadHeatmap(Number(e.target.value || 2026));
+    loadActivity(Number(e.target.value || 2026));
   });
 
   document.getElementById("refresh-indicadores")?.addEventListener("click", () => {
@@ -742,6 +1036,7 @@
     observeFeedback();
     observeImportCompletion();
     setupPillTabs();
+    setupActivityToggle();
 
     const hash = (location.hash || "").replace("#", "");
     if (hash === "dashboard") {
@@ -766,7 +1061,8 @@
     openImportModal,
     closeImportModal,
     loadIndicadoresExtras,
-    loadHeatmap,
+    loadActivity,
+    loadHeatmap: loadActivity,
     setProgress,
     activateSidebar,
     fixChartPadding,

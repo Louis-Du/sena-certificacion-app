@@ -1919,7 +1919,8 @@ function renderCausasChart(motivos) {
   const filas = motivos || [];
   if (!alternarPanelGrafico(canvas, vacio, filas.length ? "" : "Aún no hay causas registradas")) return;
 
-  canvas.parentElement.style.height = `${Math.max(260, filas.length * 34 + 40)}px`;
+  // Altura acotada: con Top 10 + "Otras" el grafico no crece sin limite.
+  canvas.parentElement.style.height = `${Math.max(240, Math.min(460, filas.length * 34 + 40))}px`;
 
   graficoCausas = new Chart(canvas.getContext("2d"), {
     type: "bar",
@@ -1991,6 +1992,179 @@ document.querySelectorAll(".indicadores-tabs .tab-button").forEach((boton) => {
   boton.addEventListener("click", () => activarTabIndicadores(boton.dataset.tab));
 });
 
+// ---------------------------------------------------------------------------
+// Causas: normalizacion y agrupacion para presentacion.
+// El backend conserva los motivos tal como vienen en la hoja PENDIENTES (para no
+// perder trazabilidad); aqui solo se agrupan variantes de escritura seguras y se
+// limita el grafico a las principales causas. La tabla muestra todas.
+// ---------------------------------------------------------------------------
+const MOTIVO_REGLAS = [
+  {
+    label: "No anexa TyT",
+    test: /(anexa|anexo|remite|remitido|falta|pendiente).*(t\s*&\s*t|t\s*y\s*t|\btyt\b)|(t\s*&\s*t|t\s*y\s*t|\btyt\b).*(anexa|anexo|remite|remitido|falta|pendiente)/,
+  },
+  {
+    label: "No anexa documentos",
+    test: /(no\s+(anexa|anexo|remite|ha remitido|envia|envía)|sin)\s+(el\s+|los\s+|las\s+)?documentos?/,
+  },
+  { label: "Documento vencido", test: /documentos?\s+vencid|vencid\w*\s+document/ },
+  { label: "APE", test: /^ape$|\bape\b/ },
+];
+
+function normalizarMotivo(motivo) {
+  const base = String(motivo || "").trim().replace(/\s+/g, " ").toLowerCase();
+  if (!base) return "Sin causa registrada";
+  const regla = MOTIVO_REGLAS.find((item) => item.test.test(base));
+  if (regla) return regla.label;
+  return base.charAt(0).toUpperCase() + base.slice(1);
+}
+
+// Devuelve las causas normalizadas y sumadas. Con ``limite`` agrega el resto en
+// una fila "Otras causas"; sin limite devuelve el listado completo.
+function agruparMotivos(motivos, limite = null) {
+  const mapa = new Map();
+  (motivos || []).forEach((item) => {
+    const cantidad = Number(item.cantidad) || 0;
+    if (cantidad <= 0) return;
+    const label = normalizarMotivo(item.motivo);
+    const actual = mapa.get(label) || { motivo: label, cantidad: 0, variantes: [] };
+    actual.cantidad += cantidad;
+    if (item.motivo && !actual.variantes.includes(item.motivo)) {
+      actual.variantes.push(item.motivo);
+    }
+    mapa.set(label, actual);
+  });
+
+  const total = [...mapa.values()].reduce((acumulado, item) => acumulado + item.cantidad, 0);
+  const filas = [...mapa.values()]
+    .sort((a, b) => b.cantidad - a.cantidad)
+    .map((item) => ({
+      ...item,
+      porcentaje: total ? Math.round((item.cantidad / total) * 1000) / 10 : null,
+    }));
+
+  if (!limite || filas.length <= limite) {
+    return { filas, resto: null, total, agrupadas: filas.filter((f) => f.variantes.length > 1).length };
+  }
+
+  const principales = filas.slice(0, limite);
+  const restoFilas = filas.slice(limite);
+  const restoCantidad = restoFilas.reduce((acumulado, item) => acumulado + item.cantidad, 0);
+  principales.push({
+    motivo: `Otras causas (${restoFilas.length})`,
+    cantidad: restoCantidad,
+    porcentaje: total ? Math.round((restoCantidad / total) * 1000) / 10 : null,
+    variantes: restoFilas.map((item) => item.motivo),
+    agrupada: true,
+  });
+  return {
+    filas: principales,
+    resto: { count: restoFilas.length, cantidad: restoCantidad },
+    total,
+    agrupadas: filas.filter((f) => f.variantes.length > 1).length,
+  };
+}
+
+function textoAuditoriaCausas(data) {
+  const incidencias = Number(data.total_incidencias_causas) || 0;
+  const pendientes = data.total_pendientes;
+  if (pendientes === null || pendientes === undefined) {
+    return `◈ <strong>Auditoría de consistencia:</strong> hay <strong>${formatNumeroIndicador(incidencias)}</strong> incidencias de causas registradas. Cargue la hoja PENDIENTES para compararlas con el total de aprendices únicos.`;
+  }
+  const personas = Number(pendientes);
+  const diferencia = incidencias - personas;
+  let explicacion;
+  if (diferencia > 0) {
+    explicacion = `Hay <strong>${formatNumeroIndicador(diferencia)}</strong> incidencias adicionales porque una misma persona puede tener varias causas sin superar; no significa que haya más aprendices pendientes.`;
+  } else if (diferencia === 0) {
+    explicacion = "Las incidencias coinciden con las personas: cada aprendiz registra una sola causa.";
+  } else {
+    const sinMotivo = Number(data.aprendices_pendientes_sin_motivo) || 0;
+    explicacion = `Las incidencias son <strong>${formatNumeroIndicador(Math.abs(diferencia))}</strong> menos que las personas porque hay aprendices sin causa registrada en la hoja PENDIENTES${sinMotivo ? ` (${formatNumeroIndicador(sinMotivo)} sin motivo)` : ""}.`;
+  }
+  const multiples = Number(data.aprendices_con_causas_multiples) || 0;
+  const detalleMultiples = multiples
+    ? ` ${formatNumeroIndicador(multiples)} aprendices registran más de una causa.`
+    : "";
+  return `◈ <strong>Auditoría de consistencia:</strong> <strong>${formatNumeroIndicador(personas)}</strong> aprendices únicos pendientes y <strong>${formatNumeroIndicador(incidencias)}</strong> incidencias de causas. ${explicacion}${detalleMultiples}`;
+}
+
+// ---------------------------------------------------------------------------
+// Actas del periodo: columnas condicionales.
+// La hoja CERTIFICADOS solo trae el numero de acta; si el modulo Actas tiene el
+// acta registrada se completan fecha/tipo y se ofrece enlace al detalle. Si no
+// hay dato para toda una columna, se oculta en lugar de mostrar "No disponible"
+// en todas las filas.
+// ---------------------------------------------------------------------------
+function renderActasIndicadores(data, tabla, resumen, nota) {
+  const actas = Array.isArray(data.ultimas_actas) ? data.ultimas_actas : [];
+  const thFecha = document.querySelector("#indicadores-actas-date-th");
+  const thTipo = document.querySelector("#indicadores-actas-type-th");
+  const thDetalle = document.querySelector("#indicadores-actas-link-th");
+  if (!tabla) return;
+
+  const hayFilas = actas.length > 0;
+  const conFecha = actas.some((acta) => Boolean(acta.act_date));
+  const conTipo = actas.some((acta) => Boolean(acta.act_type));
+  const conDetalle = actas.some((acta) => acta.act_id !== null && acta.act_id !== undefined);
+  const ocultarFecha = !hayFilas || !conFecha;
+  const ocultarTipo = !hayFilas || !conTipo;
+  const ocultarDetalle = !hayFilas || !conDetalle;
+
+  if (thFecha) thFecha.hidden = ocultarFecha;
+  if (thTipo) thTipo.hidden = ocultarTipo;
+  if (thDetalle) thDetalle.hidden = ocultarDetalle;
+
+  if (resumen) {
+    const totalAprendices = actas.reduce((acumulado, acta) => acumulado + (Number(acta.aprendices_count) || 0), 0);
+    resumen.textContent = hayFilas
+      ? `${actas.length} actas distintas en el consolidado · ${formatNumeroIndicador(totalAprendices)} certificados asociados`
+      : "Sin actas distintas en la hoja CERTIFICADOS para el período";
+  }
+
+  if (nota) {
+    const avisos = [];
+    if (ocultarFecha && ocultarTipo) {
+      avisos.push("El consolidado solo trae el número de acta: la fecha y el tipo no vienen en la hoja CERTIFICADOS, por eso se ocultan esas columnas.");
+    } else {
+      if (ocultarFecha) avisos.push("La fecha no viene en el consolidado; se oculta la columna.");
+      if (ocultarTipo) avisos.push("El tipo no viene en el consolidado; se oculta la columna.");
+    }
+    if (conDetalle) avisos.push("Las actas registradas en el módulo Actas incluyen enlace a su detalle.");
+    nota.innerHTML = avisos.join(" ");
+    nota.hidden = !avisos.length;
+  }
+
+  if (!hayFilas) {
+    tabla.innerHTML = `<tr><td colspan="2" style="color:var(--muted)">Sin actas adicionales en la base de datos en este período.</td></tr>`;
+    return;
+  }
+
+  tabla.innerHTML = actas.map((acta) => {
+    const celdas = [`<td><strong>${acta.number}</strong></td>`];
+    if (!ocultarFecha) celdas.push(`<td>${acta.act_date || "No disponible"}</td>`);
+    if (!ocultarTipo) celdas.push(`<td>${acta.act_type || "No disponible"}</td>`);
+    celdas.push(`<td style="color:var(--green-dark);font-weight:700">${formatNumeroIndicador(acta.aprendices_count)} asociados</td>`);
+    if (!ocultarDetalle) {
+      celdas.push(
+        acta.act_id !== null && acta.act_id !== undefined
+          ? `<td><button class="act-link-button" type="button" data-act-id="${acta.act_id}" aria-label="Ver detalle del acta ${acta.number}">Ver</button></td>`
+          : "<td>—</td>"
+      );
+    }
+    return `<tr>${celdas.join("")}</tr>`;
+  }).join("");
+
+  tabla.querySelectorAll("button[data-act-id]").forEach((boton) => {
+    boton.addEventListener("click", () => {
+      const id = Number(boton.dataset.actId);
+      if (!Number.isFinite(id)) return;
+      showView("actas");
+      if (typeof loadActDetail === "function") loadActDetail(id);
+    });
+  });
+}
+
 async function loadIndicadores() {
   const kpis = document.querySelector("#indicadores-kpis");
   const avisos = document.querySelector("#indicadores-avisos");
@@ -2007,11 +2181,11 @@ async function loadIndicadores() {
   try {
     const data = await readResponse(await fetch("/api/indicadores"));
     kpis.innerHTML = `
-      <div class="panel"><div><small>META ANUAL</small><h2>${formatNumeroIndicador(data.total_meta)}</h2><small>Aprendices proyectados</small></div></div>
-      <div class="panel" style="border-left:4px solid var(--green)"><div><small style="color:var(--green-dark)">CERTIFICADOS (ENE-SEP)</small><h2 style="color:var(--green-dark)">${formatNumeroIndicador(data.total_certificados)}</h2><small>Aprendices únicos</small></div></div>
-      <div class="panel" style="border-left:4px solid #b87d00"><div><small style="color:#b87d00">PENDIENTES</small><h2 style="color:#b87d00">${formatNumeroIndicador(data.total_pendientes)}</h2><small>Aprendices únicos</small></div></div>
-      <div class="panel" style="background:var(--green-soft)"><div><small style="color:var(--green-dark)">% AVANCE</small><h2 style="color:var(--green-dark)">${formatPorcentajeIndicador(data.avance_global)}</h2>${kpiBarraProgreso(data.avance_global)}<small>Acumulado</small></div></div>
-      <div class="panel"><div><small>EFECTIVIDAD</small><h2>${formatPorcentajeIndicador(data.efectividad_global)}</h2>${kpiBarraProgreso(data.efectividad_global)}<small>Tasa de cierre</small></div></div>
+      <div class="panel"><div><small>META ANUAL INSTITUCIONAL</small><h2>${formatNumeroIndicador(data.total_meta)}</h2><small>Aprendices proyectados por la meta</small></div></div>
+      <div class="panel" style="border-left:4px solid var(--green)"><div><small style="color:var(--green-dark)">CERTIFICADOS ÚNICOS (ENE–SEP)</small><h2 style="color:var(--green-dark)">${formatNumeroIndicador(data.total_certificados)}</h2><small>Personas certificadas en el período</small></div></div>
+      <div class="panel" style="border-left:4px solid #b87d00"><div><small style="color:#b87d00">PENDIENTES ÚNICOS</small><h2 style="color:#b87d00">${formatNumeroIndicador(data.total_pendientes)}</h2><small>Personas con requisitos sin superar</small></div></div>
+      <div class="panel" style="background:var(--green-soft)"><div><small style="color:var(--green-dark)">% AVANCE</small><h2 style="color:var(--green-dark)">${formatPorcentajeIndicador(data.avance_global)}</h2>${kpiBarraProgreso(data.avance_global)}<small class="kpi-formula" title="Certificados únicos ÷ meta anual × 100">Fórmula: certificados ÷ meta</small></div></div>
+      <div class="panel"><div><small>EFECTIVIDAD</small><h2>${formatPorcentajeIndicador(data.efectividad_global)}</h2>${kpiBarraProgreso(data.efectividad_global)}<small class="kpi-formula" title="Certificados únicos ÷ (certificados únicos + pendientes únicos) × 100">Fórmula: certificados ÷ (certificados + pendientes)</small></div></div>
     `;
 
     // Muestra por que algunos indicadores no se pudieron calcular (datos
@@ -2049,52 +2223,49 @@ async function loadIndicadores() {
       </tr>
     `).join("");
 
+    const causasCompletas = agruparMotivos(data.motivos);
+    const causasGrafico = agruparMotivos(data.motivos, 10);
     if (causasTable && data.motivos) {
       if (causasSummary) {
-        causasSummary.textContent = `${data.total_incidencias_causas} incidencias de requisitos (${formatNumeroIndicador(data.total_pendientes)} aprendices únicos)`;
+        causasSummary.textContent = `${formatNumeroIndicador(data.total_incidencias_causas)} incidencias de requisitos · ${formatNumeroIndicador(data.total_pendientes)} aprendices únicos pendientes`;
       }
       if (causasCount) causasCount.textContent = formatNumeroIndicador(data.total_incidencias_causas);
-      causasTable.innerHTML = data.motivos.map(mot => `
+      causasTable.innerHTML = causasCompletas.filas.map((mot) => `
         <tr>
-          <td>${mot.motivo}</td>
+          <td><strong>${mot.motivo}</strong>${mot.variantes.length > 1 ? `<br><small class="causa-variantes">Agrupa: ${mot.variantes.join(", ")}</small>` : ""}</td>
           <td><strong>${mot.cantidad.toLocaleString("es-CO")}</strong></td>
           <td><span class="result-badge pending">${formatPorcentajeIndicador(mot.porcentaje)}</span></td>
         </tr>
-      `).join("");
+      `).join("") || `<tr><td colspan="3" style="color:var(--muted)">Sin causas registradas en la hoja PENDIENTES.</td></tr>`;
       if (causasNote) {
-        // Solo se calcula la diferencia cuando el total de pendientes existe;
-        // si no se cargo la hoja PENDIENTES la comparacion no tiene sentido.
-        const diferencia = data.total_pendientes === null || data.total_pendientes === undefined
-          ? null
-          : data.total_incidencias_causas - data.total_pendientes;
-        causasNote.innerHTML = `◈ <strong>Auditoría de consistencia:</strong> Se registran <strong>${formatNumeroIndicador(data.total_pendientes)}</strong> aprendices únicos pendientes y <strong>${data.total_incidencias_causas}</strong> incidencias totales de causas.`
-          + (diferencia === null
-            ? " Cargue la hoja PENDIENTES para comparar aprendices únicos contra incidencias."
-            : ` La diferencia de <strong>${diferencia}</strong> corresponde a causas múltiples por aprendiz (concurrencia de requisitos simultáneos no superados).`);
+        causasNote.innerHTML = textoAuditoriaCausas(data);
+      }
+      const notaGrafico = document.querySelector("#indicadores-causas-chart-note");
+      if (notaGrafico) {
+        const partes = [];
+        if (causasGrafico.resto) {
+          partes.push(`Se muestran las 10 causas con más incidencias; «Otras causas» agrupa ${causasGrafico.resto.count} causas con ${formatNumeroIndicador(causasGrafico.resto.cantidad)} incidencias (detalle en la tabla completa).`);
+        }
+        if (causasGrafico.agrupadas) {
+          partes.push(`${causasGrafico.agrupadas} causas agrupan variantes de escritura del mismo motivo.`);
+        }
+        notaGrafico.textContent = partes.join(" ");
+        notaGrafico.hidden = !partes.length;
       }
     }
 
     if (actasTable && data.ultimas_actas) {
-      if (actasSummary) {
-        actasSummary.textContent = `${data.ultimas_actas.length} actas en el corte (Ene - Sep 2026)`;
-      }
       if (actasCount) actasCount.textContent = data.ultimas_actas.length;
-      if (data.ultimas_actas.length > 0) {
-        actasTable.innerHTML = data.ultimas_actas.map(act => `
-          <tr>
-            <td><strong>${act.number}</strong></td>
-            <td>${act.act_date || "No disponible"}</td>
-            <td>${act.act_type || "No disponible"}</td>
-            <td style="color:var(--green-dark);font-weight:700">${act.aprendices_count} asociados</td>
-          </tr>
-        `).join("");
-      } else {
-        actasTable.innerHTML = `<tr><td colspan="4" style="color:var(--muted)">Sin actas adicionales en la base de datos en este período.</td></tr>`;
-      }
+      renderActasIndicadores(
+        data,
+        actasTable,
+        actasSummary,
+        document.querySelector("#indicadores-actas-note")
+      );
     }
     // Graficos complementarios (usan los mismos datos de las tablas de arriba).
     renderAvanceChart(data.metricas);
-    renderCausasChart(data.motivos);
+    renderCausasChart(causasGrafico.filas);
   } catch (err) {
     kpis.innerHTML = `<p class="error">No fue posible calcular indicadores: ${err.message}</p>`;
     // Sin datos validos no se deben dejar graficos ni contadores desactualizados.
