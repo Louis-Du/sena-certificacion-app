@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link href="/static/styles.css?v=20261101-v15" rel="stylesheet">
+  <link href="/static/styles.css?v=20261101-v16" rel="stylesheet">
 </head>
 
 <body>
@@ -64,6 +64,18 @@
     <div id="feedback" class="feedback" role="status" aria-live="polite"></div>
     <div class="workspace-grid">
       <section class="main-column">
+        <section class="carga-success-banner" id="import-success-banner" role="region" aria-labelledby="import-success-title" aria-live="polite" aria-atomic="true" tabindex="-1" hidden>
+          <div class="carga-success-icon" aria-hidden="true">✓</div>
+          <div class="carga-success-content">
+            <h2 id="import-success-title">Importación completada</h2>
+            <p class="carga-success-meta" id="import-success-meta"></p>
+            <p class="carga-success-body">Los registros ya están guardados en la base de datos.</p>
+            <div class="carga-success-actions">
+              <button id="new-import-button" class="primary-button" type="button">Nueva importación</button>
+              <button id="view-imported-button" class="cancel-button" type="button" hidden>Ver actas</button>
+            </div>
+          </div>
+        </section>
         <article class="panel type-panel">
           <div class="panel-heading">
             <div>
@@ -430,7 +442,7 @@
   </div>
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="/static/app.js?v=20261101-v13"></script>
+  <script src="/static/app.js?v=20261101-v14"></script>
   <script src="/static/ui-enhancements.js?v=20261030-v7"></script>
 </body>
 </html>
