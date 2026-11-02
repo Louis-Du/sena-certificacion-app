@@ -1350,6 +1350,34 @@ a {
 .learners-list-table td:nth-child(8) {
   min-width: 124px;
   white-space: nowrap;
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--surface);
+  box-shadow: -8px 0 12px rgba(15, 23, 42, 0.06);
+}
+
+.learners-list-table th:nth-child(8) {
+  background: #f8fafc;
+  z-index: 2;
+}
+
+.learners-list-table tbody tr:hover td:nth-child(8) {
+  background: #f8fafc;
+}
+
+.learner-name-link {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.learner-name-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 3px;
 }
 
 .learners-data th {

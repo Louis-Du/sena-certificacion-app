@@ -1223,7 +1223,17 @@ function renderLearnerRow(item) {
   row.classList.toggle("has-pending", pending.length > 0);
   const nameCell = document.createElement("td");
   nameCell.className = "learner-name-cell";
-  nameCell.textContent = item.name;
+  const nameLink = document.createElement("a");
+  nameLink.className = "learner-name-link";
+  nameLink.href = "#aprendices";
+  nameLink.textContent = item.name;
+  nameLink.setAttribute("aria-label", `Ver detalles de ${item.name}`);
+  nameLink.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    loadLearnerDetail(item.id);
+  });
+  nameCell.appendChild(nameLink);
   row.appendChild(nameCell);
   [item.identification, item.program || "Sin programa", item.group_code || "Sin ficha"]
     .forEach((value) => {
