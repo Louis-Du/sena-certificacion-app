@@ -9,26 +9,17 @@ from sqlalchemy.orm import Session
 from app.models import Learner, Requirement, RequirementStatusHistory
 
 REQUIREMENT_TYPES = {
-    # Tipos genéricos: se conservan para la edición manual y las cargas
-    # históricas de requisitos (matriz "requisitos").
-    "learning_outcome": "Resultados de aprendizaje / RAP",
-    "documentation": "Documentación",
-    "productive_stage": "Etapa productiva",
-    "clearance": "Paz y salvo",
-    # Tipos del checklist de ACTAS 2026 (hojas CERTIFICADOS / PENDIENTES). Cada
-    # uno corresponde a una columna de evidencias del Excel; el importador crea
-    # el requisito con el estado leído en la celda (X / N.A. / vacío).
+    # Catálogo visible y gestionable de Requisitos y evidencias (ACTAS 2026).
     "biblioteca": "Paz y salvo biblioteca",
     "bienestar": "Bienestar del aprendiz",
     "almacen": "Paz y salvo almacén",
-    "etapa_productiva": "Etapa productiva",
-    "documento_identidad": "Documento de identidad",
+    "etapa_productiva": "Formato de evaluación de la etapa productiva",
+    "documento_identidad": "Documento de identidad vigente",
     "saber_tyt": "Saber TyT",
     "ape": "Inscripción APE",
-    "carnet": "Destrucción de carnet",
     "certificado_empresa": "Certificado de la empresa",
 }
-REQUIREMENT_STATUSES = {"Pendiente", "Cumplido", "No aplica"}
+REQUIREMENT_STATUSES = {"Pendiente", "Cumplido", "No aplica", "Sin información"}
 
 
 def list_requirements(session: Session, learner_id: int) -> list[dict[str, Any]] | None:
@@ -36,7 +27,10 @@ def list_requirements(session: Session, learner_id: int) -> list[dict[str, Any]]
         return None
     requirements = session.scalars(
         select(Requirement)
-        .where(Requirement.learner_id == learner_id)
+        .where(
+            Requirement.learner_id == learner_id,
+            Requirement.requirement_type.in_(REQUIREMENT_TYPES),
+        )
         .order_by(Requirement.id.asc())
     ).all()
     return [requirement_result(item) for item in requirements]
@@ -256,7 +250,10 @@ def list_requirement_history(
         return None
     events = session.scalars(
         select(RequirementStatusHistory)
-        .where(RequirementStatusHistory.learner_id == learner_id)
+        .where(
+            RequirementStatusHistory.learner_id == learner_id,
+            RequirementStatusHistory.requirement_type.in_(REQUIREMENT_TYPES),
+        )
         .order_by(
             RequirementStatusHistory.recorded_at.desc(),
             RequirementStatusHistory.id.desc(),
@@ -295,10 +292,8 @@ def validate_status(status: str) -> None:
 def evidence_status(value: Any) -> str:
     """Traduce el valor de una columna de evidencias de ACTAS 2026 a un estado.
 
-    Regla acordada con el archivo real: ``X``/``x`` -> "Cumplido",
-    ``N.A``/``N.A.``/``NA`` -> "No aplica", vacío u otro -> "Pendiente". Nunca se
-    marca "Cumplido" si la celda no trae una "X": el estado se lee tal cual
-    viene en el documento, no se deduce.
+    ``X``/``x`` -> "Cumplido", ``N.A``/``N.A.``/``NA`` -> "No aplica" y
+    celdas vacías -> "Sin información". Nunca se inventa un estado.
     """
     from app.services.parsers import normalize_text
 
@@ -307,4 +302,4 @@ def evidence_status(value: Any) -> str:
         return "Cumplido"
     if texto.replace(" ", "").replace(".", "") in {"na", "noaplica"}:
         return "No aplica"
-    return "Pendiente"
+    return "Sin información"

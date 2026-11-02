@@ -935,7 +935,8 @@ function requirementStatusRank(status) {
   if (normalized === "pendiente") return 0;
   if (normalized === "cumplido") return 1;
   if (normalized === "no aplica") return 2;
-  return 3;
+  if (normalized === "sin informacion") return 3;
+  return 4;
 }
 
 function requirementStatusClass(status) {
@@ -943,6 +944,7 @@ function requirementStatusClass(status) {
   if (normalized === "pendiente") return "is-pending";
   if (normalized === "cumplido") return "is-fulfilled";
   if (normalized === "no aplica") return "is-na";
+  if (normalized === "sin informacion") return "is-info";
   return "is-other";
 }
 
@@ -954,15 +956,15 @@ const requirementCategoryAliases = {
   almacen: "Paz y salvos",
   "paz y salvo almacen": "Paz y salvos",
   "documento de identidad": "Documentación del aprendiz",
+  "documento de identidad vigente": "Documentación del aprendiz",
   identidad: "Documentación del aprendiz",
   "saber tyt": "Documentación del aprendiz",
   "t y t": "Documentación del aprendiz",
   "t&t": "Documentación del aprendiz",
   ape: "Documentación del aprendiz",
   "inscripcion ape": "Documentación del aprendiz",
-  carnet: "Documentación del aprendiz",
-  "destruccion de carnet": "Documentación del aprendiz",
   "etapa productiva": "Documentación del aprendiz",
+  "formato de evaluacion de la etapa productiva": "Documentación del aprendiz",
   "certificado de la empresa": "Documentación del aprendiz",
 };
 
@@ -983,6 +985,7 @@ function requirementCategorySummary(items) {
     `${summary.pending.length} pendiente${summary.pending.length === 1 ? "" : "s"}`,
     `${summary.fulfilled} cumplido${summary.fulfilled === 1 ? "" : "s"}`,
     `${summary.na} no aplica`,
+    `${summary.info} sin información`,
   ].join(" · ");
 }
 
@@ -993,6 +996,7 @@ function summarizeRequirementItems(items) {
   const naNames = [];
   let fulfilled = 0;
   let na = 0;
+  let info = 0;
   list.forEach((item) => {
     const normalized = normalizeStatusText(item.status);
     if (normalized === "pendiente") {
@@ -1003,6 +1007,8 @@ function summarizeRequirementItems(items) {
     } else if (normalized === "no aplica") {
       na += 1;
       naNames.push(item.label || item.requirement_type || "Requisito");
+    } else if (normalized === "sin informacion") {
+      info += 1;
     }
   });
   return {
@@ -1012,6 +1018,7 @@ function summarizeRequirementItems(items) {
     fulfilledNames,
     na,
     naNames,
+    info,
     applicable: list.length - na,
     complete: list.length > 0 && pending.length === 0,
   };
@@ -1029,10 +1036,12 @@ function requirementCountsText(summary) {
     `${pending} pendiente${pending === 1 ? "" : "s"}`,
     `${summary.fulfilled} cumplido${summary.fulfilled === 1 ? "" : "s"}`,
     `${summary.na} no aplica`,
+    `${summary.info} sin información`,
   ].join(" · ");
 }
 
 function requirementSummaryTotal(summary) {
+  if (Number.isFinite(Number(summary.total))) return Number(summary.total);
   const pending = (summary.pending || []).length;
   return pending + (summary.fulfilled_count || 0) + (summary.na_count || 0);
 }
@@ -1138,6 +1147,12 @@ function renderRequirementSummary(items) {
       names: summary.naNames,
       empty: "Ninguno",
       className: "is-na",
+    },
+    {
+      label: "Sin información",
+      names: [],
+      empty: summary.info ? `${summary.info} sin información` : "Ninguno",
+      className: "is-info",
     },
   ];
   sections.forEach(({label, names, empty, className}) => {
@@ -1567,7 +1582,7 @@ function renderRequirementEditor(items) {
     form.dataset.category = category;
     form.innerHTML = `<div class="requirement-name"><strong></strong><span class="requirement-state-badge" aria-hidden="true"></span></div>
       <select name="status">
-        <option>Pendiente</option><option>Cumplido</option><option>No aplica</option>
+        <option>Pendiente</option><option>Cumplido</option><option>No aplica</option><option>Sin información</option>
       </select>
       <input type="text" name="observations" placeholder="Observación">
       <button class="primary-button" type="submit">Guardar</button>
