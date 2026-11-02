@@ -42,9 +42,11 @@ def test_list_and_detail_prioritize_pending_requirements(page, app_url, seed_df1
     # Error 2: el listado completo se abre con teclado, sin abrir la ficha.
     toggle = pending_cell.locator(".pending-toggle")
     assert toggle.get_attribute("aria-expanded") == "false"
+    assert learner["name"] in (toggle.get_attribute("aria-label") or "")
     toggle.focus()
     page.keyboard.press("Enter")
     assert toggle.get_attribute("aria-expanded") == "true"
+    assert learner["name"] in (toggle.get_attribute("aria-label") or "")
     panel = pending_cell.locator(".pending-list")
     assert not panel.is_hidden()
     panel_text = panel.text_content()
@@ -56,7 +58,17 @@ def test_list_and_detail_prioritize_pending_requirements(page, app_url, seed_df1
     ):
         assert label in panel_text
     assert page.locator("#learner-detail").is_hidden()
+
+    # Escape cierra y devuelve el foco al control.
+    page.keyboard.press("Escape")
+    assert toggle.get_attribute("aria-expanded") == "false"
+    assert panel.is_hidden()
+    assert page.evaluate("document.activeElement.classList.contains('pending-toggle')")
+
+    # Perder el foco tambien cierra el listado.
     page.keyboard.press("Enter")
+    assert toggle.get_attribute("aria-expanded") == "true"
+    page.locator("#learner-search").focus()
     assert toggle.get_attribute("aria-expanded") == "false"
     assert panel.is_hidden()
 
@@ -109,7 +121,7 @@ def test_list_and_detail_prioritize_pending_requirements(page, app_url, seed_df1
 def test_list_distinguishes_missing_matrix_and_exposes_filters(
     page, app_url, seed_df14a
 ):
-    seed_df14a(2)
+    seed_df14a(2, status_cycle=("PENDIENTE", "CERTIFICADOS"))
     learners = page.request.get(f"{app_url}/api/learners").json()["items"]
     empty_learner = learners[0]
     complete_learner = learners[1]
@@ -122,6 +134,7 @@ def test_list_distinguishes_missing_matrix_and_exposes_filters(
 
     # Error 1: "sin matriz" y "cero pendientes" no comparten el mismo token.
     empty_row = page.locator("#learners-list tr", has_text=empty_learner["name"]).first
+    assert "PENDIENTE" in empty_row.text_content()
     empty_cell = empty_row.locator(".pending-requirements-cell")
     assert "Sin requisitos registrados" in empty_cell.text_content()
     assert empty_cell.locator(".pending-count-badge").count() == 0
@@ -129,6 +142,7 @@ def test_list_distinguishes_missing_matrix_and_exposes_filters(
     complete_row = page.locator(
         "#learners-list tr", has_text=complete_learner["name"]
     ).first
+    assert "CERTIFICADOS" in complete_row.text_content()
     complete_cell = complete_row.locator(".pending-requirements-cell")
     assert "Ninguno" in complete_cell.text_content()
     assert "Sin requisitos registrados" not in complete_cell.text_content()
@@ -143,10 +157,22 @@ def test_list_distinguishes_missing_matrix_and_exposes_filters(
     )
     assert len(set(cell_heights)) == 1
 
-    # Error 8: el antiguo "Info" ahora dice qué muestra.
+    # Error 8: el antiguo "Info" ahora dice qué muestra y no repite solo Origen.
     resumen = complete_row.locator(".info-button")
     assert resumen.text_content().strip() == "Resumen"
-    assert "Ver resumen de" in (resumen.get_attribute("aria-label") or "")
+    resumen_label = resumen.get_attribute("aria-label") or ""
+    assert "Resumen de origen y requisitos de" in resumen_label
+    assert complete_learner["name"] in resumen_label
+    resumen.click()
+    page.wait_for_selector(".learner-summary-row")
+    assert resumen.get_attribute("aria-expanded") == "true"
+    summary_text = page.locator(".learner-summary-row").text_content()
+    assert "Requisitos pendientes" in summary_text
+    assert "Cumplidos / No aplica" in summary_text
+    assert "1 / 1" in summary_text
+    assert "Origen" in summary_text
+    resumen.click()
+    assert page.locator(".learner-summary-row").count() == 0
 
     # Error 5: los chips se anuncian como filtros, no como texto decorativo.
     todos_chip = page.locator(
