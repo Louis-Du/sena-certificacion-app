@@ -2313,21 +2313,9 @@ async function loadIndicadores() {
     const data = await readResponse(await fetch("/api/indicadores"));
     kpis.innerHTML = `
       <div class="panel"><div><small>META ANUAL INSTITUCIONAL</small><h2>${formatNumeroIndicador(data.total_meta)}</h2><small>Aprendices proyectados por la meta</small></div></div>
-      <div class="panel" style="border-left:4px solid var(--green)"><div><small style="color:var(--green-dark)">CERTIFICADOS ÚNICOS (ENE–SEP)</small><h2 style="color:var(--green-dark)">${formatNumeroIndicador(data.total_certificados)}</h2><small>Personas certificadas en el período</small></div></div>
-      <div class="panel" style="border-left:4px solid #b87d00"><div><small style="color:#b87d00">PENDIENTES ÚNICOS</small><h2 style="color:#b87d00"><button class="kpi-drilldown" type="button" data-drilldown-pendientes title="Ver aprendices pendientes en el padrón local">${formatNumeroIndicador(data.total_pendientes)}</button></h2><small>Personas con requisitos sin superar</small></div></div>
       <div class="panel" style="background:var(--green-soft)"><div><small style="color:var(--green-dark)">% AVANCE</small><h2 style="color:var(--green-dark)">${formatPorcentajeIndicador(data.avance_global)}</h2>${kpiBarraProgreso(data.avance_global)}<small class="kpi-formula" title="Certificados únicos ÷ meta anual × 100">Fórmula: certificados ÷ meta</small></div></div>
       <div class="panel"><div><small>EFECTIVIDAD</small><h2>${formatPorcentajeIndicador(data.efectividad_global)}</h2>${kpiBarraProgreso(data.efectividad_global)}<small class="kpi-formula" title="Certificados únicos ÷ (certificados únicos + pendientes únicos) × 100">Fórmula: certificados ÷ (certificados + pendientes)</small></div></div>
     `;
-
-    // Drill-down P0: pendientes del padron local. Los certificados del
-    // consolidado ENE-SEP no se enlazan porque el listado solo contiene el
-    // padron local (~2 mil), no las 51 mil filas del consolidado.
-    kpis.querySelector("[data-drilldown-pendientes]")?.addEventListener("click", () => {
-      abrirAprendicesDesdeIndicadores({
-        label: "Pendientes únicos",
-        status: "PENDIENTE",
-      });
-    });
 
     // Advertencias: solo se muestran las que calcula el backend. Si el array
     // viene vacio no se pinta ningun banner ni contador.
