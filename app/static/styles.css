@@ -3327,23 +3327,13 @@ a {
 }
 
 /* ---------- Ficha de detalle del aprendiz ---------- */
-/*
-  Desktop (mockup):
-  [ Identificación ] [ Seguimiento ] [ Requisitos (row-span 2) ]
-  [ Origen (span 2)                ] [                         ]
-  [ Historial (span 3)                                         ]
-*/
-/* Fila 3 (1fr) es un "relleno": absorbe la altura sobrante de la tarjeta de
-   requisitos (que abarca 3 filas) para que Origen quede pegado a Identificación
-   y Seguimiento. El espacio vertical lo da el margin-bottom de cada tarjeta. */
 .learner-detail-layout {
   display: grid;
   grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr) minmax(380px, 1.7fr);
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: auto auto auto;
   grid-template-areas:
     "id      tracking  requirements"
     "sources sources   requirements"
-    ".       .         requirements"
     "history history   history";
   column-gap: 16px;
   row-gap: 0;
@@ -3361,7 +3351,6 @@ a {
   grid-template-areas:
     "id      id        requirements"
     "sources sources   requirements"
-    ".       .         requirements"
     "history history   history";
 }
 
@@ -3563,6 +3552,12 @@ a {
   display: none;
 }
 
+.requirements-toggle {
+  justify-self: start;
+  margin-top: 4px;
+  box-shadow: none;
+}
+
 /* Historial tipo tabla */
 .requirement-history-list {
   display: grid;
@@ -3630,7 +3625,7 @@ a {
   .learner-detail-layout,
   .learner-detail-layout:has(#learner-tracking-section[hidden]) {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-    grid-template-rows: auto auto 1fr auto;
+    grid-template-rows: auto auto auto;
     grid-template-areas:
       "id        requirements"
       "tracking  requirements"
@@ -3639,7 +3634,7 @@ a {
   }
 
   .learner-detail-layout:has(#learner-tracking-section[hidden]) {
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto auto;
     grid-template-areas:
       "id       requirements"
       "sources  requirements"

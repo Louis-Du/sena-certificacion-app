@@ -76,6 +76,8 @@ const learnerExtra = document.querySelector("#learner-extra");
 const viewLinks = document.querySelectorAll("[data-view]");
 const views = document.querySelectorAll(".app-view");
 const maxFileSize = 20 * 1024 * 1024;
+const requirementsCollapsedLimit = 6;
+const requirementsPreferenceKey = "sena-certificacion-requirements-expanded";
 const actForm = document.querySelector("#act-form");
 const actList = document.querySelector("#acts-list");
 const actSearch = document.querySelector("#act-search");
@@ -1475,6 +1477,43 @@ function renderRequirementEditor(items) {
     });
     learnerRequirements.appendChild(form);
   });
+  if (ordered.length > requirementsCollapsedLimit) {
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "requirements-toggle cancel-button";
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.textContent = `Ver todos los requisitos (${ordered.length})`;
+    learnerRequirements.appendChild(toggle);
+
+    let expanded = false;
+    try {
+      expanded = window.sessionStorage.getItem(requirementsPreferenceKey) === "true";
+    } catch (error) {
+      expanded = false;
+    }
+    const updateCollapse = () => {
+      learnerRequirements
+        .querySelectorAll(".requirement-editor")
+        .forEach((form, index) => {
+          form.hidden = !expanded && index >= requirementsCollapsedLimit;
+        });
+      toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+      toggle.textContent = expanded
+        ? "Recoger requisitos"
+        : `Ver todos los requisitos (${ordered.length})`;
+    };
+    toggle.addEventListener("click", () => {
+      expanded = !expanded;
+      try {
+        window.sessionStorage.setItem(requirementsPreferenceKey, String(expanded));
+      } catch (error) {
+        // La preferencia es opcional; el control sigue funcionando aunque el
+        // navegador bloquee sessionStorage.
+      }
+      updateCollapse();
+    });
+    updateCollapse();
+  }
   updateRequirementsPanelSubtitle(summarizeRequirementItems(ordered));
 }
 
