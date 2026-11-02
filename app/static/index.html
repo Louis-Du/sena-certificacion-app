@@ -246,8 +246,14 @@
                 <dl id="learner-sources" class="detail-grid"></dl>
               </article>
               <article class="detail-section learner-card-requirements">
-                <div class="panel-heading"><div><h3>Requisitos y evidencias</h3><p id="learner-requirements-subtitle">Solo se muestran los requisitos registrados para el aprendiz.</p></div></div>
-                <div id="learner-requirements" class="requirements-editor"></div>
+                <header class="requirements-panel-header">
+                  <div><h3>Requisitos y evidencias</h3><p id="learner-requirements-subtitle">Sin requisitos registrados.</p></div>
+                  <button type="button" id="toggle-requirements" class="cancel-button" aria-expanded="false" hidden></button>
+                </header>
+                <div id="learner-requirements-compact" class="requirements-compact" data-mode="compact"></div>
+                <div id="learner-requirements-expanded" class="requirements-expanded" data-mode="expanded" hidden>
+                  <div id="learner-requirements" class="requirements-editor"></div>
+                </div>
               </article>
               <article class="detail-section learner-card-history">
                 <div class="panel-heading"><div><h3>Historial de requisitos</h3><p>Cambios de estado registrados por importación o edición manual.</p></div></div>
