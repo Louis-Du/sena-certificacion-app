@@ -2428,11 +2428,20 @@ viewLinks.forEach((link) => link.addEventListener("click", (event) => {
 }));
 refreshLearnersButton.addEventListener("click", loadLearners);
 
+function formatActReviewStatus(status) {
+  const labels = {
+    pending: "Pendiente",
+    reviewed: "Revisada",
+    rejected: "Rechazada",
+  };
+  return labels[String(status || "").toLowerCase()] || status || "Sin estado";
+}
+
 function renderActs(items) {
   actList.replaceChildren();
   items.forEach((item) => {
     const row = document.createElement("tr");
-    [item.number || "Sin número", item.act_date || "Sin fecha", item.act_type || "Sin tipo", item.review_status, item.learners_count].forEach((value) => {
+    [item.number || "Sin número", item.act_date || "Sin fecha", item.act_type || "Sin tipo", formatActReviewStatus(item.review_status), item.learners_count].forEach((value) => {
       const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell);
     });
     const cell = document.createElement("td"), button = document.createElement("button");
@@ -2460,7 +2469,7 @@ async function loadActDetail(id) {
   try {
     const item = await readResponse(await fetch(`/api/acts/${id}`));
     actDetailTitle.textContent = item.number || "Acta"; actBasicInfo.replaceChildren();
-    [["Número", item.number], ["Fecha", item.act_date], ["Tipo", item.act_type], ["Estado", item.review_status], ["Archivo", item.original_file], ["Observaciones", item.observations]].forEach(([label, value]) => {
+    [["Número", item.number], ["Fecha", item.act_date], ["Tipo", item.act_type], ["Estado", formatActReviewStatus(item.review_status)], ["Archivo", item.original_file], ["Observaciones", item.observations]].forEach(([label, value]) => {
       const term = document.createElement("dt"), description = document.createElement("dd"); term.textContent = label; description.textContent = value || "No disponible"; actBasicInfo.append(term, description);
     });
     renderActLearners(item.learners); actDetailContent.hidden = false; actDetailFeedback.textContent = "";
