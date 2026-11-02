@@ -105,7 +105,7 @@ def test_requisitos_file_cannot_be_confirmed_without_importable_records(
     validation_id = body["validation_id"]
 
     assert client.get(f"/api/imports/{validation_id}/preview").status_code == 400
-    assert client.post(f"/api/imports/{validation_id}/confirm").status_code == 400
+    assert client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True}).status_code == 400
     assert client.get("/api/imports/history").json()["items"] == []
 
 
@@ -134,7 +134,7 @@ def test_unreadable_pdf_and_docx_are_rejected_without_records(
     assert "Contenido legible" in labels
     validation_id = body["validation_id"]
     assert client.get(f"/api/imports/{validation_id}/preview").status_code == 400
-    assert client.post(f"/api/imports/{validation_id}/confirm").status_code == 400
+    assert client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True}).status_code == 400
     assert client.get("/api/imports/history").json()["items"] == []
 
 
@@ -151,7 +151,7 @@ def test_csv_without_required_columns_has_zero_valid_records(client: TestClient)
     assert "Falta NUMERO DE DOCUMENTO" in _labels(body)
     validation_id = body["validation_id"]
     assert client.get(f"/api/imports/{validation_id}/preview").status_code == 400
-    assert client.post(f"/api/imports/{validation_id}/confirm").status_code == 400
+    assert client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True}).status_code == 400
 
 
 def test_df14a_without_ficha_has_zero_importable_records(client: TestClient):
@@ -166,8 +166,9 @@ def test_df14a_without_ficha_has_zero_importable_records(client: TestClient):
     assert "FICHA" in body["missing_columns"]
     labels = _labels(body)
     assert "Falta FICHA" in labels
-    # El nivel sin clasificar se informa, pero no se inventa una equivalencia.
-    assert "OPERARIO" in labels
+    # OPERARIO ahora equivale a AUXILIAR; solo el nivel realmente desconocido se
+    # informa como sin clasificar.
+    assert "OPERARIO" not in labels
     assert "CURSO_NO_FORMAL" in labels
     # Hallazgo 3: con 0 registros importables, la advertencia de nivel no debe
     # afirmar que esas filas se van a importar.
@@ -176,7 +177,7 @@ def test_df14a_without_ficha_has_zero_importable_records(client: TestClient):
     assert "se importan" not in labels
     validation_id = body["validation_id"]
     assert client.get(f"/api/imports/{validation_id}/preview").status_code == 400
-    assert client.post(f"/api/imports/{validation_id}/confirm").status_code == 400
+    assert client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True}).status_code == 400
 
 
 def test_partial_import_saves_only_valid_unique_records(client: TestClient, tmp_path):
@@ -201,7 +202,7 @@ def test_partial_import_saves_only_valid_unique_records(client: TestClient, tmp_
     assert preview["new_records"] == 1
     assert preview["rejected_records"] == 1
 
-    confirmed = client.post(f"/api/imports/{body['validation_id']}/confirm").json()
+    confirmed = client.post(f"/api/imports/{body['validation_id']}/confirm", json={"accept_missing_complementaria": True}).json()
     assert confirmed["records_count"] == 1
     assert confirmed["new_records"] == 1
     with client.session_factory() as session:
@@ -245,8 +246,11 @@ def test_incorrect_actas_counters_match_preview_and_saved_records(client: TestCl
     assert body["breakdown"]["meta"]["valid_records"] == 1
     labels = _labels(body)
     assert "figuran simultáneamente en CERTIFICADOS y PENDIENTES" in labels
-    assert "No se resuelve automaticamente" in labels
+    assert "Elija el estado final" in labels
     assert "fuera del período" in labels
+    conflicts = body["coherence_conflicts"]
+    assert conflicts
+    assert all(item["in_certificados"] and item["in_pendientes"] for item in conflicts)
 
     validation_id = body["validation_id"]
     preview = client.get(f"/api/imports/{validation_id}/preview")
@@ -257,8 +261,23 @@ def test_incorrect_actas_counters_match_preview_and_saved_records(client: TestCl
     assert preview_body["new_records"] == 10
     assert preview_body["updated_records"] == 0
     assert preview_body["rejected_records"] == 0
+    assert preview_body["coherence_conflicts"] == conflicts
 
-    confirmed = client.post(f"/api/imports/{validation_id}/confirm")
+    blocked = client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True})
+    assert blocked.status_code == 400
+    assert "resolucion" in blocked.json()["detail"].lower()
+
+    resolutions = [
+        {"identification": item["identification"], "status": "CERTIFICADOS"}
+        for item in conflicts
+    ]
+    confirmed = client.post(
+        f"/api/imports/{validation_id}/confirm",
+        json={
+            "conflict_resolutions": resolutions,
+            "accept_missing_complementaria": True,
+        },
+    )
     assert confirmed.status_code == 200
     assert confirmed.json()["records_count"] == 10
     assert confirmed.json()["new_records"] == 10
@@ -275,7 +294,7 @@ def test_conflict_does_not_auto_change_existing_learner_status(client: TestClien
         )
     )
     seed = _validate(client, seed_path, "df14a")
-    assert client.post(f"/api/imports/{seed['validation_id']}/confirm").status_code == 200
+    assert client.post(f"/api/imports/{seed['validation_id']}/confirm", json={"accept_missing_complementaria": True}).status_code == 200
 
     with client.session_factory() as session:
         learner = session.query(Learner).filter_by(identification="5555").one()
@@ -304,12 +323,35 @@ def test_conflict_does_not_auto_change_existing_learner_status(client: TestClien
     )
     body = _validate(client, conflict_path, "actas_completo")
     assert body["status"] == "warning"
-    assert client.post(f"/api/imports/{body['validation_id']}/confirm").status_code == 200
+    assert body["coherence_conflicts"] == [
+        {
+            "identification": "5555",
+            "group_code": "99999",
+            "name": "Aprendiz En Conflicto",
+            "in_certificados": True,
+            "in_pendientes": True,
+        }
+    ]
+    blocked = client.post(f"/api/imports/{body['validation_id']}/confirm", json={"accept_missing_complementaria": True})
+    assert blocked.status_code == 400
+
+    confirmed = client.post(
+        f"/api/imports/{body['validation_id']}/confirm",
+        json={
+            "conflict_resolutions": [
+                {"identification": "5555", "status": "PENDIENTE"}
+            ],
+            "accept_missing_complementaria": True,
+        },
+    )
+    assert confirmed.status_code == 200
 
     with client.session_factory() as session:
         learner = session.query(Learner).filter_by(identification="5555").one()
-        # No se elige CERTIFICADOS ni PENDIENTES: se conserva el estado previo.
-        assert learner.certification_status == "Por Certificar"
+        assert learner.certification_status == "PENDIENTE"
+        assert "Conflicto resuelto: Pendiente" in learner.tracking_notes
+        assert "ACTAS 2026 · CERTIFICADOS" in learner.data_sources
+        assert "ACTAS 2026 · PENDIENTES" in learner.data_sources
         assert session.query(ImportedRecord).filter_by(information_type="certificados").count() == 1
         assert session.query(ImportedRecord).filter_by(information_type="pendientes").count() == 1
 
@@ -340,11 +382,24 @@ def test_new_conflicted_learner_is_not_assigned_an_invented_status(
     )
     body = _validate(client, conflict_path, "actas_completo")
     assert body["status"] == "warning"
-    assert client.post(f"/api/imports/{body['validation_id']}/confirm").status_code == 200
+    assert [item["identification"] for item in body["coherence_conflicts"]] == ["7777"]
+    confirmed = client.post(
+        f"/api/imports/{body['validation_id']}/confirm",
+        json={
+            "conflict_resolutions": [
+                {"identification": "7777", "status": "CERTIFICADOS"}
+            ],
+            "accept_missing_complementaria": True,
+        },
+    )
+    assert confirmed.status_code == 200
 
     with client.session_factory() as session:
         learner = session.query(Learner).filter_by(identification="7777").one()
-        assert learner.certification_status is None
+        assert learner.certification_status == "CERTIFICADOS"
+        assert "Conflicto resuelto: Certificado" in learner.tracking_notes
+        assert "ACTAS 2026 · CERTIFICADOS" in learner.data_sources
+        assert "ACTAS 2026 · PENDIENTES" in learner.data_sources
 
 
 def test_correct_actas_expands_complementaria_and_reports_the_breakdown(client: TestClient):
@@ -372,7 +427,7 @@ def test_correct_actas_expands_complementaria_and_reports_the_breakdown(client: 
     assert preview["records_count"] == 21
     assert preview["new_records"] == 21
 
-    confirmed = client.post(f"/api/imports/{validation_id}/confirm").json()
+    confirmed = client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True}).json()
     assert confirmed["records_count"] == 21
     assert confirmed["new_records"] == 21
     with client.session_factory() as session:
@@ -400,8 +455,9 @@ def test_missing_complementaria_remains_an_explicit_warning(client: TestClient, 
 
     assert body["status"] == "warning"
     assert body["valid_records"] == 2
-    assert "Hoja COMPLEMENTARIA no encontrada" in labels
-    assert "decision administrativa pendiente" in labels
+    assert body["missing_complementaria"] is True
+    assert "No se detectó la hoja COMPLEMENTARIA" in labels
+    assert "no actualizará formación complementaria" in labels
 
 
 def test_unclassified_level_is_importable_but_reported_as_warning(client: TestClient, tmp_path):
@@ -411,7 +467,7 @@ def test_unclassified_level_is_importable_but_reported_as_warning(client: TestCl
                 "DOCUMENTO": "1001",
                 "NOMBRES": "Ana",
                 "FICHA": "3001",
-                "NIVEL_FORMACION": "OPERARIO",
+                "NIVEL_FORMACION": "NIVEL_DESCONOCIDO",
                 "ESTADO_ASPIRANTE": "Por Certificar",
             }
         ]
@@ -424,7 +480,7 @@ def test_unclassified_level_is_importable_but_reported_as_warning(client: TestCl
 
     assert body["status"] == "warning"
     assert body["valid_records"] == 1
-    assert "OPERARIO" in labels
+    assert "NIVEL_DESCONOCIDO" in labels
     assert "no se asignan automaticamente" in labels
 
 
@@ -567,7 +623,7 @@ def _preview(client: TestClient, validation_id: str) -> dict:
 
 
 def _confirm(client: TestClient, validation_id: str) -> dict:
-    response = client.post(f"/api/imports/{validation_id}/confirm")
+    response = client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True})
     assert response.status_code == 200
     return response.json()
 
@@ -626,10 +682,11 @@ def test_acta_docx_with_table_registers_act_and_links_learners(client: TestClien
         "1001001002",
     }
 
-    # Figurar en un acta no equivale a tener el certificado expedido: no se
-    # deduce un estado de certificacion.
+    # Figurar en un acta oficial marca al aprendiz como "Por Certificar" (apto
+    # para certificacion), nunca como "Certificado": el certificado expedido solo
+    # consta en el consolidado ACTAS 2026.
     learners = _learners_by_identification(client)
-    assert learners["1001001001"]["certification_status"] is None
+    assert learners["1001001001"]["certification_status"] == "Por Certificar"
 
 
 def test_acta_docx_without_table_reads_learners_from_text(client: TestClient):
@@ -682,7 +739,7 @@ def test_acta_without_number_is_rejected_and_not_registered(client: TestClient):
     )
 
     # Sin registros importables la confirmacion queda bloqueada y no hay acta.
-    confirm = client.post(f"/api/imports/{body['validation_id']}/confirm")
+    confirm = client.post(f"/api/imports/{body['validation_id']}/confirm", json={"accept_missing_complementaria": True})
     assert confirm.status_code == 400
     assert client.get("/api/acts").json()["items"] == []
 
@@ -780,6 +837,93 @@ def test_acta_links_existing_learner_imported_by_df14a(client: TestClient):
     assert learners["1001007001"]["certification_status"] == "Por Certificar"
 
 
+def test_acta_marks_learners_por_certificar_and_registers_source(client: TestClient):
+    content = _acta_pdf(
+        [
+            "ACTA DE CERTIFICACION No. 41",
+            "Fecha: 15 de marzo de 2026",
+            "- C.C. 1001009001 - MARTINEZ LOPEZ ANA",
+        ]
+    )
+    body = _upload_bytes(client, "acta_41.pdf", content)
+    preview = _preview(client, body["validation_id"])
+    assert preview["acta"]["learners_por_certificar"] == 1
+
+    _confirm(client, body["validation_id"])
+
+    listing = client.get("/api/learners").json()
+    learners = {item["identification"]: item for item in listing["items"]}
+    item = learners["1001009001"]
+    # El acta lo marca apto para certificacion ("Por Certificar"), no certificado.
+    assert item["certification_status"] == "Por Certificar"
+    assert "certificado" not in item["certification_status"].lower()
+    # La procedencia queda registrada con el numero de acta.
+    assert item["data_sources"] == ["Acta 41"]
+    # El contador y el filtro «Por Certificar» incluyen al aprendiz.
+    assert listing["por_certificar_total"] == 1
+    filtered = client.get("/api/learners", params={"status": "Por Certificar"}).json()
+    assert [entry["identification"] for entry in filtered["items"]] == ["1001009001"]
+
+
+def test_acta_does_not_demote_a_certified_learner(client: TestClient):
+    with client.session_factory() as session:
+        session.add(
+            Learner(
+                identification="1001009002",
+                name="CERTIFICADO PREVIO",
+                certification_status="CERTIFICADOS",
+            )
+        )
+        session.commit()
+
+    content = _acta_pdf(
+        [
+            "ACTA DE CERTIFICACION No. 42",
+            "Fecha: 15 de marzo de 2026",
+            "- C.C. 1001009002 - CERTIFICADO PREVIO",
+        ]
+    )
+    body = _upload_bytes(client, "acta_42.pdf", content)
+    preview = _preview(client, body["validation_id"])
+    # Ya esta CERTIFICADO: no entra en el conteo de los que quedaran Por Certificar.
+    assert preview["acta"]["learners_por_certificar"] == 0
+
+    confirmed = _confirm(client, body["validation_id"])
+    assert "conservan su estado del consolidado" in confirmed["message"]
+
+    learners = _learners_by_identification(client)
+    assert learners["1001009002"]["certification_status"] == "CERTIFICADOS"
+    # El acta se registra igual como origen adicional.
+    assert "Acta 42" in learners["1001009002"]["data_sources"]
+
+
+def test_acta_keeps_pendiente_status_from_consolidado(client: TestClient):
+    with client.session_factory() as session:
+        session.add(
+            Learner(
+                identification="1001009003",
+                name="PENDIENTE PREVIO",
+                certification_status="PENDIENTE",
+            )
+        )
+        session.commit()
+
+    content = _acta_pdf(
+        [
+            "ACTA DE CERTIFICACION No. 43",
+            "Fecha: 15 de marzo de 2026",
+            "- C.C. 1001009003 - PENDIENTE PREVIO",
+        ]
+    )
+    body = _upload_bytes(client, "acta_43.pdf", content)
+    _confirm(client, body["validation_id"])
+
+    learners = _learners_by_identification(client)
+    # PENDIENTE del consolidado no se borra en silencio al figurar en el acta.
+    assert learners["1001009003"]["certification_status"] == "PENDIENTE"
+    assert "Acta 43" in learners["1001009003"]["data_sources"]
+
+
 def test_acta_without_learner_identifications_does_not_associate_by_name(
     client: TestClient,
 ):
@@ -869,7 +1013,7 @@ def test_acta_persistence_failure_leaves_no_partial_records(
     )
 
     with pytest.raises(RuntimeError):
-        client.post(f"/api/imports/{body['validation_id']}/confirm")
+        client.post(f"/api/imports/{body['validation_id']}/confirm", json={"accept_missing_complementaria": True})
 
     # La confirmacion es atomica: no quedan actas, aprendices ni historial a medias.
     assert client.get("/api/acts").json()["items"] == []
@@ -935,3 +1079,184 @@ def test_df14a_without_status_does_not_erase_an_existing_one(client: TestClient)
     assert learners["1001009001"]["certification_status"] == "Certificado"
     # Los datos presentes si se actualizan.
     assert learners["1001009001"]["group_code"] == "3002"
+
+
+# --- Normalizacion del nombre de programa (#53) -----------------------------
+
+
+def test_df14a_program_with_line_breaks_is_stored_in_one_line(client: TestClient):
+    df14a = (
+        "DOCUMENTO,NOMBRES,FICHA,PROGRAMA\n"
+        '1001014001,APRENDIZ PROGRAMA,3001,"OPERACIONES\nCOMERCIALES"\n'
+    ).encode("utf-8")
+    seeded = _upload_bytes(client, "df14a.csv", df14a, information_type="df14a")
+    _confirm(client, seeded["validation_id"])
+
+    learners = _learners_by_identification(client)
+    # El salto de linea del archivo queda como un unico espacio, en una sola linea.
+    assert learners["1001014001"]["program"] == "OPERACIONES COMERCIALES"
+
+
+def test_acta_pdf_program_is_stored_in_a_single_line(client: TestClient):
+    content = _acta_docx(
+        "112",
+        "02 de octubre de 2026",
+        [
+            {
+                "documento": "1001015001",
+                "nombre": "PROGRAMA PARTIDO APRENDIZ",
+                "ficha": "3001",
+                "programa": "OPERACIONES\nCOMERCIALES",
+            }
+        ],
+    )
+    body = _upload_bytes(client, "acta.docx", content)
+    _confirm(client, body["validation_id"])
+
+    learners = _learners_by_identification(client)
+    assert learners["1001015001"]["program"] == "OPERACIONES COMERCIALES"
+
+
+def test_reimport_never_degrades_a_cleaner_program(client: TestClient):
+    first = (
+        "DOCUMENTO,NOMBRES,FICHA,PROGRAMA\n"
+        "1001016001,LIMPIO APRENDIZ,3001,OPERACIONES COMERCIALES\n"
+        "1001016002,FRAGMENTADO APRENDIZ,3001,OPERACION ES COMERCIAL ES\n"
+    ).encode("utf-8")
+    seeded = _upload_bytes(client, "df14a.csv", first, information_type="df14a")
+    _confirm(client, seeded["validation_id"])
+
+    # Segunda carga con las formas intercambiadas: la fuente fragmentada no debe
+    # pisar el programa consolidado, y la forma limpia si corrige la partida.
+    second = (
+        "DOCUMENTO,NOMBRES,FICHA,PROGRAMA\n"
+        "1001016001,LIMPIO APRENDIZ,3001,OPERACION ES COMERCIAL ES\n"
+        "1001016002,FRAGMENTADO APRENDIZ,3001,OPERACIONES COMERCIALES\n"
+    ).encode("utf-8")
+    reimported = _upload_bytes(client, "df14a_2.csv", second, information_type="df14a")
+    _confirm(client, reimported["validation_id"])
+
+    learners = _learners_by_identification(client)
+    assert learners["1001016001"]["program"] == "OPERACIONES COMERCIALES"
+    assert learners["1001016002"]["program"] == "OPERACIONES COMERCIALES"
+
+
+def test_acta_does_not_degrade_program_of_existing_learner(client: TestClient):
+    df14a = (
+        "DOCUMENTO,NOMBRES,FICHA,PROGRAMA,ESTADO_ASPIRANTE\n"
+        "1001017001,APRENDIZ PREVIO,3001,OPERACIONES COMERCIALES,Por Certificar\n"
+    ).encode("utf-8")
+    seeded = _upload_bytes(client, "df14a.csv", df14a, information_type="df14a")
+    _confirm(client, seeded["validation_id"])
+
+    content = _acta_docx(
+        "113",
+        "02 de octubre de 2026",
+        [
+            {
+                "documento": "1001017001",
+                "nombre": "APRENDIZ PREVIO",
+                "ficha": "3001",
+                "programa": "OPERACION ES COMERCIAL ES",
+            }
+        ],
+    )
+    body = _upload_bytes(client, "acta.docx", content)
+    _confirm(client, body["validation_id"])
+
+    learners = _learners_by_identification(client)
+    # El acta no degrada el programa ya consolidado por DF14A.
+    assert learners["1001017001"]["program"] == "OPERACIONES COMERCIALES"
+
+
+def test_import_does_not_degrade_clean_name_of_existing_learner(client: TestClient):
+    from app.services.learners import _text_is_weaker
+
+    assert _text_is_weaker("MATEO LOPEZ ESPINOSA", "MATEO LOPEZ ESPINOS A") is True
+    assert _text_is_weaker("MATEO LOPEZ ESPINOS A", "MATEO LOPEZ ESPINOSA") is False
+
+    df14a = (
+        "DOCUMENTO,NOMBRES,FICHA,PROGRAMA,ESTADO_ASPIRANTE\n"
+        "1001018001,MATEO LOPEZ ESPINOSA,3001,GESTION DE REDES,Por Certificar\n"
+    ).encode("utf-8")
+    seeded = _upload_bytes(client, "df14a.csv", df14a, information_type="df14a")
+    _confirm(client, seeded["validation_id"])
+
+    # Segunda carga simulando una fuente con nombre fragmentado
+    second = (
+        "DOCUMENTO,NOMBRES,FICHA,PROGRAMA,ESTADO_ASPIRANTE\n"
+        "1001018001,MATEO LOPEZ ESPINOS A,3001,GESTION DE REDES,Por Certificar\n"
+    ).encode("utf-8")
+    reimported = _upload_bytes(client, "df14a_2.csv", second, information_type="df14a")
+    _confirm(client, reimported["validation_id"])
+
+    learners = _learners_by_identification(client)
+    assert learners["1001018001"]["name"] == "MATEO LOPEZ ESPINOSA"
+
+
+def test_renormalize_persisted_learners(db_session):
+    from app.models import Learner
+    from app.services.learners import renormalize_persisted_learners
+
+    db_session.add_all([
+        Learner(
+            identification="999888777",
+            name="MATEO LOPEZ ESPINOS A",
+            program="PROCESOS PARA LA COMERCIALI ZACION INTERNACIO NAL",
+            group_code="12345",
+        ),
+        Learner(
+            identification="1002412610",
+            name="YOLAINE JUDITH HERNAN DEZ CASTRO",
+            program="OPERACIO NES COMERCI ALES EN RETAIL",
+            group_code="3140661",
+        ),
+        Learner(
+            identification="1043973527",
+            name="VALERYN ZENITH LOPEZ CHARRAS QUIEL",
+            program="GESTION CONTABLE Y DE INFORMACI ON FINANCIERA",
+            group_code="3020613",
+        ),
+        Learner(
+            identification="1043648540",
+            name="VANESA PALACIO GALLEGO",
+            program="COORDIN ACION DE PROCESOS LOGISTICOS",
+            group_code="2993445",
+        ),
+        Learner(
+            identification="57270204",
+            name="YOLIBETH BENAVIDES",
+            program="PANIFICACI ON.",
+            group_code="3067100",
+        ),
+        Learner(
+            identification="1151201822",
+            name="YULIS ISABEL CASTRO TERAN",
+            program="CONTABILIZ ACION DE OPERACIONES COMERCIALES Y FINANCIERAS.",
+            group_code="3140690",
+        ),
+    ])
+    db_session.flush()
+
+    updated = renormalize_persisted_learners(db_session)
+    assert updated == 6
+
+    l1 = db_session.query(Learner).filter_by(identification="999888777").one()
+    assert l1.name == "MATEO LOPEZ ESPINOSA"
+    assert l1.program == "PROCESOS PARA LA COMERCIALIZACION INTERNACIONAL"
+
+    l2 = db_session.query(Learner).filter_by(identification="1002412610").one()
+    assert l2.name == "YOLAINE JUDITH HERNANDEZ CASTRO"
+    assert l2.program == "OPERACIONES COMERCIALES EN RETAIL"
+
+    l3 = db_session.query(Learner).filter_by(identification="1043973527").one()
+    assert l3.program == "GESTION CONTABLE Y DE INFORMACION FINANCIERA"
+
+    l4 = db_session.query(Learner).filter_by(identification="1043648540").one()
+    assert l4.program == "COORDINACION DE PROCESOS LOGISTICOS"
+
+    l5 = db_session.query(Learner).filter_by(identification="57270204").one()
+    assert l5.program == "PANIFICACION"
+
+    l6 = db_session.query(Learner).filter_by(identification="1151201822").one()
+    assert l6.program == "CONTABILIZACION DE OPERACIONES COMERCIALES Y FINANCIERAS"

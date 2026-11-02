@@ -120,7 +120,7 @@ def test_excel_institucional_multi_sheet_upload_flow(client: TestClient):
     assert any("Hoja META detectada" in c["label"] for c in val_data["checks"])
 
     validation_id = val_data["validation_id"]
-    confirm_res = client.post(f"/api/imports/{validation_id}/confirm")
+    confirm_res = client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True})
     assert confirm_res.status_code == 200
 
     # Comprobar que los aprendices se sincronizaron en SQLite
@@ -195,7 +195,7 @@ def test_csv_alternativo_deduplicates_against_excel_and_does_not_increment_indic
         data={"information_type": "actas_completo"},
         files={"file": ("ACTAS 2026.xlsx", excel_content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     )
-    client.post(f"/api/imports/{val_excel.json()['validation_id']}/confirm")
+    client.post(f"/api/imports/{val_excel.json()['validation_id']}/confirm", json={"accept_missing_complementaria": True})
 
     ind_before = client.get("/api/indicadores").json()
     assert ind_before["total_certificados"] == 1
@@ -218,7 +218,7 @@ def test_csv_alternativo_deduplicates_against_excel_and_does_not_increment_indic
     assert preview_res["new_records"] == 0
     assert preview_res["updated_records"] == 1
 
-    confirm_csv = client.post(f"/api/imports/{val_csv.json()['validation_id']}/confirm").json()
+    confirm_csv = client.post(f"/api/imports/{val_csv.json()['validation_id']}/confirm", json={"accept_missing_complementaria": True}).json()
     assert confirm_csv["new_records"] == 0
     assert confirm_csv["updated_records"] == 1
 
@@ -243,7 +243,7 @@ def test_csv_imported_first_then_excel_does_not_duplicate(client: TestClient):
         data={"information_type": "csv_certificacion"},
         files={"file": ("certificados.csv", csv_content, "text/csv")},
     )
-    client.post(f"/api/imports/{val_csv.json()['validation_id']}/confirm")
+    client.post(f"/api/imports/{val_csv.json()['validation_id']}/confirm", json={"accept_missing_complementaria": True})
 
     assert client.get("/api/indicadores").json()["total_certificados"] == 1
 
@@ -271,7 +271,7 @@ def test_csv_imported_first_then_excel_does_not_duplicate(client: TestClient):
     assert preview["new_records"] == 0
     assert preview["updated_records"] == 1
 
-    client.post(f"/api/imports/{val_excel.json()['validation_id']}/confirm")
+    client.post(f"/api/imports/{val_excel.json()['validation_id']}/confirm", json={"accept_missing_complementaria": True})
     assert client.get("/api/indicadores").json()["total_certificados"] == 1
     assert client.get("/api/learners").json()["total"] == 1
 
@@ -291,7 +291,7 @@ def test_requisitos_matrix_updates_learner_and_requirement_entities(client: Test
     assert val_res.status_code == 200
     assert val_res.json()["status"] == "ready"
 
-    confirm_res = client.post(f"/api/imports/{val_res.json()['validation_id']}/confirm")
+    confirm_res = client.post(f"/api/imports/{val_res.json()['validation_id']}/confirm", json={"accept_missing_complementaria": True})
     assert confirm_res.status_code == 200
 
     # Verificar que los aprendices existen
@@ -312,3 +312,159 @@ def test_requisitos_matrix_updates_learner_and_requirement_entities(client: Test
     reqs = {r["requirement_type"]: r for r in detail_res.json()["requirements"]}
     assert reqs["saber_tyt"]["status"] == "Pendiente"
     assert "Presenta en noviembre" in (reqs["saber_tyt"]["observations"] or "")
+
+
+def test_actas_2026_pendientes_persist_reason_and_build_evidence_requirements(client: TestClient):
+    """El motivo de no certificacion se guarda y las columnas X/N.A. -> requisitos."""
+    pend_rows = [
+        {
+            "NIVEL": "TÉCNICO",
+            "NÚMERO DE DOCUMENTO": "9001",
+            "NOMBRE": "María Gabriela",
+            "APELLIDOS": "García Estrada",
+            "FICHA": "3001",
+            "ESTADO": "PENDIENTE",
+            "MOTIVO DE NO CERTIFICACIÓN": "Destrucción del Carnet",
+            "INSTRUCTOR DE SEGUIMIENTO": "Ana Instructora",
+            "CORREO": "maria@example.com",
+            "TELEFONO": "3001234567",
+            "BIBLIOTECA": "X",
+            "BIENESTAR DEL APRENDIZ": "N.A",
+            "ALMACEN": "",
+            "Comprobante de Destrucción de Carnet.": "X",
+            "Certificado de la empresa": "",
+        }
+    ]
+    content = _multi_sheet_actas_xlsx(pendientes=pend_rows)
+
+    validated = client.post(
+        "/api/files/validate",
+        data={"information_type": "actas_completo"},
+        files={"file": ("ACTAS 2026.xlsx", content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert validated.status_code == 200
+    # Un archivo con solo la hoja PENDIENTES valida con advertencia (faltan las
+    # demas hojas del paquete), no como error: los registros siguen importables.
+    assert validated.json()["status"] in {"ready", "warning"}
+    client.post(f"/api/imports/{validated.json()['validation_id']}/confirm", json={"accept_missing_complementaria": True})
+
+    items = {item["identification"]: item for item in client.get("/api/learners").json()["items"]}
+    maria = items["9001"]
+    detail = client.get(f"/api/learners/{maria['id']}").json()
+
+    # El motivo es el "porque" resumido y se persiste en el aprendiz.
+    assert detail["basic_info"]["non_certification_reason"] == "Destrucción del Carnet"
+    assert detail["basic_info"]["instructor"] == "Ana Instructora"
+    assert detail["basic_info"]["email"] == "maria@example.com"
+    assert detail["basic_info"]["phone"] == "3001234567"
+
+    # Cada columna de evidencia se convierte en un requisito con el estado leido:
+    # X -> Cumplido, N.A -> No aplica, vacio -> Pendiente.
+    reqs = {r["requirement_type"]: r["status"] for r in detail["requirements"]}
+    assert reqs["biblioteca"] == "Cumplido"
+    assert reqs["bienestar"] == "No aplica"
+    assert reqs["almacen"] == "Pendiente"
+    assert reqs["carnet"] == "Cumplido"
+    assert reqs["certificado_empresa"] == "Pendiente"
+    # No se marca "Cumplido" si la celda no trae una "X".
+    assert reqs["certificado_empresa"] != "Cumplido"
+
+    # El listado cuenta solo los requisitos realmente en Pendiente (almacen y
+    # certificado_empresa); el motivo no se usa como si fuera un conteo.
+    assert maria["pending_count"] == 2
+    pending = client.get("/api/learners/with-pending-requirements").json()["items"]
+    assert [p["identification"] for p in pending] == ["9001"]
+
+
+def test_actas_2026_certificados_update_status_and_month_without_reason(client: TestClient):
+    """CERTIFICADOS actualiza estado/mes y no exige ni inventa un motivo."""
+    cert_rows = [
+        {
+            "NIVEL": "TECNÓLOGO",
+            "NÚMERO DE DOCUMENTO": "9100",
+            "NOMBRE": "Luis",
+            "APELLIDOS": "Ramos",
+            "FICHA": "3010",
+            "ESTADO": "CERTIFICADOS",
+            "MES DE CERTIFICACIÓN": "JUNIO",
+            "ACTA": "36",
+        }
+    ]
+    content = _multi_sheet_actas_xlsx(certificados=cert_rows)
+
+    validated = client.post(
+        "/api/files/validate",
+        data={"information_type": "actas_completo"},
+        files={"file": ("ACTAS 2026.xlsx", content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert validated.status_code == 200
+    client.post(f"/api/imports/{validated.json()['validation_id']}/confirm", json={"accept_missing_complementaria": True})
+
+    item = client.get("/api/learners", params={"search": "9100"}).json()["items"][0]
+    assert item["certification_status"] == "CERTIFICADOS"
+    assert item["certification_month"] == "JUNIO"
+    assert not item["non_certification_reason"]
+    # La procedencia registra la hoja de origen del archivo importado.
+    assert item["data_sources"] == ["ACTAS 2026 · CERTIFICADOS"]
+
+
+def test_actas_2026_registers_origin_per_sheet_and_accumulates_sources(client: TestClient):
+    """La procedencia se registra por hoja y se acumula entre importaciones."""
+    documento = "9301"
+    pend_rows = [
+        {
+            "NIVEL": "TÉCNICO",
+            "NÚMERO DE DOCUMENTO": documento,
+            "NOMBRE": "Origen",
+            "APELLIDOS": "Pendiente",
+            "FICHA": "3020",
+            "ESTADO": "PENDIENTE",
+            "MOTIVO DE NO CERTIFICACIÓN": "Falta carnet",
+        }
+    ]
+    pend_content = _multi_sheet_actas_xlsx(pendientes=pend_rows)
+    validated = client.post(
+        "/api/files/validate",
+        data={"information_type": "actas_completo"},
+        files={"file": ("ACTAS 2026.xlsx", pend_content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    client.post(f"/api/imports/{validated.json()['validation_id']}/confirm", json={"accept_missing_complementaria": True})
+
+    item = client.get("/api/learners", params={"search": documento}).json()["items"][0]
+    assert item["data_sources"] == ["ACTAS 2026 · PENDIENTES"]
+    assert item["non_certification_reason"] == "Falta carnet"
+
+    # Segunda importacion: la misma persona aparece luego en CERTIFICADOS. El
+    # origen previo no se pierde, se conservan ambas fuentes.
+    cert_rows = [
+        {
+            "NIVEL": "TÉCNICO",
+            "NÚMERO DE DOCUMENTO": documento,
+            "NOMBRE": "Origen",
+            "APELLIDOS": "Pendiente",
+            "FICHA": "3020",
+            "ESTADO": "CERTIFICADOS",
+            "MES DE CERTIFICACIÓN": "JUNIO",
+            "ACTA": "40",
+        }
+    ]
+    cert_content = _multi_sheet_actas_xlsx(certificados=cert_rows)
+    validated_cert = client.post(
+        "/api/files/validate",
+        data={"information_type": "actas_completo"},
+        files={"file": ("ACTAS 2026.xlsx", cert_content, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    client.post(f"/api/imports/{validated_cert.json()['validation_id']}/confirm", json={"accept_missing_complementaria": True})
+
+    item = client.get("/api/learners", params={"search": documento}).json()["items"][0]
+    assert set(item["data_sources"]) == {
+        "ACTAS 2026 · PENDIENTES",
+        "ACTAS 2026 · CERTIFICADOS",
+    }
+
+    # El detalle expone el mismo origen en basic_info.
+    detail = client.get(f"/api/learners/{item['id']}").json()
+    assert set(detail["basic_info"]["data_sources"]) == {
+        "ACTAS 2026 · PENDIENTES",
+        "ACTAS 2026 · CERTIFICADOS",
+    }

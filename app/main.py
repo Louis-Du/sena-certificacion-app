@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 # Importamos varias funciones y clases de nuestro propio módulo app para manejar la base de datos, modelos, servicios y validaciones.
-from app.database import get_db, init_db
+from app.database import SessionLocal, get_db, init_db
 from app.models import Act
 from app.services.imports import (
     confirm_import,
@@ -37,12 +37,16 @@ from app.services.acts import (
     unlink_learner_from_act,
     update_act,
 )
-from app.services.learners import get_learner_detail, list_learners
+from app.services.learners import (
+    get_learner_detail,
+    learners_with_pending,
+    list_learners,
+    renormalize_persisted_learners,
+)
 from app.services.requirements import (
     REQUIREMENT_STATUSES,
     REQUIREMENT_TYPES,
     list_requirements,
-    pending_learners,
     save_requirement,
 )
 from app.services.validation import TYPE_LABELS
@@ -54,6 +58,12 @@ BASE_DIR = Path(__file__).resolve().parent
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
+    try:
+        with SessionLocal() as session:
+            renormalize_persisted_learners(session)
+            session.commit()
+    except Exception:
+        pass
     yield
 
 
@@ -88,6 +98,14 @@ class ActUpdateRequest(BaseModel):
 class ActLearnerRequest(BaseModel):
     learner_id: int
     observations: str | None = None
+
+class ConflictResolutionRequest(BaseModel):
+    identification: str
+    status: str
+
+class ConfirmImportRequest(BaseModel):
+    conflict_resolutions: list[ConflictResolutionRequest] = []
+    accept_missing_complementaria: bool = False
 
 # Esta ruta devuelve el archivo index.html ubicado en el directorio static cuando se accede a la raíz del sitio web. Se utiliza FileResponse para enviar el archivo como respuesta HTTP.
 @app.get("/", include_in_schema=False)
@@ -170,10 +188,24 @@ async def import_preview_endpoint(
 @app.post("/api/imports/{validation_id}/confirm")
 async def confirm_import_endpoint(
     validation_id: str,
+    request: ConfirmImportRequest | None = None,
     session: Session = Depends(get_db),
 ) -> dict:
     try:
-        return confirm_import(validation_id, session)
+        resolutions = (
+            [item.model_dump() for item in request.conflict_resolutions]
+            if request is not None
+            else None
+        )
+        accept_missing_complementaria = (
+            request.accept_missing_complementaria if request is not None else False
+        )
+        return confirm_import(
+            validation_id,
+            session,
+            resolutions,
+            accept_missing_complementaria=accept_missing_complementaria,
+        )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except ValueError as error:
@@ -189,16 +221,24 @@ async def import_history(session: Session = Depends(get_db)) -> dict:
 async def learners(
     search: str = Query(default="", max_length=100),
     status: str = Query(default="", max_length=100),
+    missing_requirement: list[str] = Query(default=[]),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100),
     session: Session = Depends(get_db),
 ) -> dict:
-    return list_learners(session, search=search, status=status, page=page, page_size=page_size)
+    return list_learners(
+        session,
+        search=search,
+        status=status,
+        missing_requirement=missing_requirement,
+        page=page,
+        page_size=page_size,
+    )
 
-# Esta ruta devuelve una lista de aprendices que tienen requisitos pendientes. Se llama a la función pending_learners para obtener los aprendices desde la base de datos y se devuelve un diccionario con los elementos.
+# Esta ruta devuelve una lista de aprendices que tienen requisitos pendientes. Se llama a la función learners_with_pending para obtener los aprendices desde la base de datos y se devuelve un diccionario con los elementos.
 @app.get("/api/learners/with-pending-requirements")
 async def learners_with_pending_requirements(session: Session = Depends(get_db)) -> dict:
-    return {"items": pending_learners(session)}
+    return {"items": learners_with_pending(session)}
 
 
 @app.get("/api/learners/{learner_id}/requirements")
@@ -261,10 +301,22 @@ async def learner_detail(learner_id: int, session: Session = Depends(get_db)) ->
 async def acts(
     search: str = Query(default="", max_length=200),
     review_status: str | None = Query(default=None, max_length=50),
+    number: str = Query(default="", max_length=100),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
     session: Session = Depends(get_db),
 ) -> dict:
     try:
-        return {"items": list_acts(session, search, review_status)}
+        return {
+            "items": list_acts(
+                session,
+                search,
+                review_status,
+                number=number,
+                date_from=date_from,
+                date_to=date_to,
+            )
+        }
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 

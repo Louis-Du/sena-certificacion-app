@@ -117,6 +117,175 @@ def clean_act_number(value: Any) -> str | None:
     return clean_identification(value)
 
 
+def heal_fragmented_text(text: str, is_name: bool = False) -> str:
+    """
+    Intenta corregir texto fragmentado por el extractor de PDF.
+
+    Une fragmentos de palabras que quedaron separados por espacios (ej.
+    "OPERACION ES" -> "OPERACIONES", "DOCUMENT AL" -> "DOCUMENTAL"). No une
+    conectores comunes del español como "de", "la", "y".
+    """
+    if not text:
+        return text
+
+    # Limpieza inicial de ruidos comunes en PDF (puntos y espacios flotantes al inicio/fin)
+    text = re.sub(r"\s+\.", ".", text)
+    text = re.sub(r"^[.\s]+", "", text)
+    text = re.sub(r"[.\s]+$", "", text)
+
+    words = text.split()
+    if not words:
+        return text
+
+    # Conectores y palabras cortas que NO deben unirse al anterior
+    connectors = {
+        "de", "del", "la", "las", "los", "el", "y", "e", "en", "para",
+        "con", "por", "si", "no", "su", "sus", "sin", "sobre"
+    }
+    # Sufijos y fragmentos terminales comunes en cortes de linea de PDF
+    suffixes = {
+        "es", "al", "iva", "ica", "as", "tiva", "ora", "dor", "cion",
+        "ion", "os", "ez", "za", "erly", "na", "ria", "rio", "ico",
+        "ero", "era", "ment", "ante", "ente", "ista", "ismo",
+        # Sufijos adicionales frecuentes en programas y nombres
+        "zacion", "zaciones", "nal", "nales", "ro", "ra", "rro", "rra",
+        "ros", "ras", "rros", "rras", "miento", "mientos", "ciones",
+        "sion", "siones", "tivo", "tivos", "tivas", "dora", "dores",
+        "doras", "dad", "dades", "icos", "icas", "logia", "logico",
+        "logica", "logicos", "logicas",
+        # Cortes a mitad de raiz frecuentes
+        "nes", "ales", "on", "acion", "aciones", "dez", "tez",
+        "ble", "bles", "encia", "encias", "ancia", "ancias",
+        "tor", "tores", "tora", "toras", "tura", "turas",
+        "lez", "rez", "quez", "chez", "pez", "gues", "guez",
+    }
+
+    healed = [words[0]]
+    for i in range(1, len(words)):
+        word = words[i]
+        prev = healed[-1]
+        lower_word = word.lower().strip(".,")
+
+        should_join = False
+        if lower_word in connectors:
+            should_join = False
+        # Manejo de 'a', 'o', 'u' (vocales que pueden ser conector en frases pero fragmento en nombres o al final)
+        elif lower_word in {"a", "o", "u"}:
+            prev_lower = prev.lower()
+            last_char = prev_lower[-1]
+            # Si la palabra previa ya termina en vocal (a, e, o, u) o es un descriptor
+            # clasificador como "programa", "nivel", "grupo", "curso", "fase":
+            # "Programa A", "Nivel A", "Grupo A", "Curso A", "Fase A", etc. NO deben unirse.
+            if last_char in {"a", "e", "o", "u"} or prev_lower in {
+                "programa", "nivel", "grupo", "curso", "fase", "modulo",
+                "bloque", "categoria", "tipo", "clase", "grado", "seccion"
+            }:
+                should_join = False
+            elif is_name:
+                # En nombres de personas, las consonantes finales seguidas de 'a' u 'o'
+                # corresponden a fragmentos (ej. "ESPINOS A", "CARCAM O", "ALEJANDR A", "FERNAND A").
+                should_join = True
+            elif i == len(words) - 1:
+                # En programas al final: si termina en 'i' (tecnologi a) o consonante truncada
+                # (logistic a, administrac a, espinos a), se une.
+                if last_char == "i" and len(prev_lower) >= 4:
+                    should_join = True
+                elif prev_lower.endswith((
+                    "ndr", "nd", "str", "ntr", "mbr", "rbr", "ldr", "ncl", "mpl",
+                    "rcam", "sayonar", "brocher", "espinos"
+                )):
+                    should_join = True
+                elif len(prev_lower) >= 4 and last_char in {"m", "b", "c", "p", "t", "v", "s", "r"}:
+                    should_join = True
+                else:
+                    should_join = False
+            else:
+                # En posición intermedia de programas
+                if last_char == "i" and len(prev_lower) >= 4:
+                    should_join = True
+                elif prev_lower.endswith((
+                    "ndr", "nd", "str", "ntr", "mbr", "rbr", "ldr", "ncl", "mpl",
+                    "rcam", "sayonar", "brocher", "espinos"
+                )):
+                    should_join = True
+                elif len(prev_lower) >= 4 and last_char in {"m", "b", "c", "p", "t", "v"}:
+                    should_join = True
+                else:
+                    should_join = False
+        # Heuristica: unir si es una sola letra (ej. "INTEGRACIO N", "HOTELERO S")
+        elif len(lower_word) == 1 and lower_word.isalpha():
+            should_join = True
+        # Heuristica: unir si es un sufijo conocido fragmentado
+        elif lower_word in suffixes:
+            # Excepcion para 'al': solo unir si parece fragmento
+            if lower_word == "al":
+                # Si es la ultima palabra, probablemente es fragmento (Document Al)
+                if i == len(words) - 1:
+                    should_join = True
+                else:
+                    # Si la siguiente palabra es un conector, tambien es probable fragmento
+                    # (Gestion Document Al . y Administrativa)
+                    next_word = words[i+1].lower().strip(".,")
+                    if next_word in connectors:
+                        should_join = True
+                    else:
+                        should_join = False
+            else:
+                should_join = True
+        # Heuristica adicional: si la palabra previa es larga y no termina en vocal,
+        # 'n' o 's', y la actual es muy corta (2-3 letras) y no es conector.
+        elif len(prev) >= 4 and len(lower_word) <= 3 and lower_word not in connectors:
+            last_char = prev[-1].lower()
+            if last_char not in {"a", "e", "i", "o", "u", "n", "s", "r", "l", "d", "z"}:
+                should_join = True
+
+        if should_join:
+            healed[-1] = prev + word.strip(".,")
+        else:
+            healed.append(word)
+
+    return " ".join(healed).strip(" .")
+
+
+def normalize_program_name(value: Any) -> str | None:
+    """
+    Devuelve el nombre del programa en una sola linea legible.
+
+    Los PDF y algunas celdas de Excel entregan el programa partido por saltos de
+    linea ("OPERACIONES\\nCOMERCIALES") o con espacios repetidos. Aqui esos
+    saltos y espacios se reemplazan por un unico espacio, se recorta el texto y
+    se intenta sanar fragmentaciones de palabras.
+
+    Solo se unifica el espaciado del texto tal como viene en la fuente: no se
+    corrigen palabras ni se inventan nombres de programa que no existan en el
+    documento. Devuelve ``None`` si no hay un valor util.
+    """
+    if value is None:
+        return None
+    text = str(value)
+    if text.strip().lower() in {"nan", "nat", "none"}:
+        return None
+    # Colapsar espacios y sanar fragmentos
+    clean = " ".join(text.split()).strip(" .")
+    res = heal_fragmented_text(clean, is_name=False)
+    return res.strip(" .") if res else None
+
+
+def normalize_learner_name(value: Any) -> str | None:
+    """
+    Normaliza el nombre del aprendiz sanando posibles fragmentaciones.
+    """
+    if value is None:
+        return None
+    text = str(value)
+    if text.strip().lower() in {"nan", "nat", "none"}:
+        return None
+    # Colapsar espacios y sanar fragmentos
+    clean = " ".join(text.split()).strip(" .")
+    res = heal_fragmented_text(clean, is_name=True)
+    return res.strip(" .") if res else None
+
+
 # ---------------------------------------------------------------------------
 # Clasificacion por NIVEL de formacion
 # ---------------------------------------------------------------------------
@@ -139,16 +308,19 @@ NIVEL_ALIASES: dict[str, str] = {
     "profundizacion tecnica": "profundizacion tecnica",
     "profundacion tecnica": "profundizacion tecnica",
     "media tecnica": "media tecnica",
-    "operario": "operario",
-    "operarios": "operario",
+    # OPERARIO se clasifica igual que AUXILIAR (regla de negocio #33).
+    "operario": "auxiliar",
+    "operarios": "auxiliar",
 }
 
 # Regla misional acordada con el Centro de Comercio y Servicios:
 #   * Educacion Superior           -> Tecnologo
 #   * Tecnica Laboral y Otros      -> Auxiliar, Profundizacion Tecnica, SENATIC, Tecnico
 #   * Articulacion con la Media    -> Media Tecnica
-# Cualquier otro nivel (por ejemplo OPERARIO) NO se asigna por defecto: queda
-# como "sin clasificar" para que la persona responsable decida con evidencia.
+# OPERARIO se trata como AUXILIAR (regla de negocio #33).
+# Cualquier otro nivel no documentado (por ejemplo NIVEL_DESCONOCIDO) NO se
+# asigna por defecto: queda como "sin clasificar" para que la persona
+# responsable decida con evidencia.
 NIVEL_A_CATEGORIA: dict[str, str] = {
     "tecnologo": "superior",
     "tecnico": "tecnica",
@@ -469,6 +641,12 @@ def extract_corte_referencia(content: bytes) -> str | None:
 
 # Nombres de columna que se buscan dentro de cada hoja. Se comparan con
 # ``normalize_text`` para no depender de tildes, mayusculas ni espacios finales.
+#
+# Las claves de las columnas de evidencias coinciden con el ``requirement_type``
+# que usa el importador (ver ``app.services.requirements``) para que cada celda
+# leida se convierta directamente en un requisito del aprendiz. Los encabezados
+# reales traen signos finales (":", ".") y saltos de linea internos, por eso cada
+# campo lista sus variantes ya normalizadas.
 _CAMPOS_ACTAS: dict[str, tuple[str, ...]] = {
     "nivel": ("nivel",),
     "numero de documento": ("numero de documento", "documento"),
@@ -482,6 +660,31 @@ _CAMPOS_ACTAS: dict[str, tuple[str, ...]] = {
     "motivo de no certificacion": ("motivo de no certificacion", "motivo"),
     "fecha de evaluacion": ("fecha de evaluacion",),
     "correo": ("correo",),
+    # Seguimiento de certificacion (datos de contacto del instructor).
+    "instructor": ("instructor de seguimiento", "instructor"),
+    "telefono": ("telefono", "celular"),
+    # Checklist de evidencias / paz y salvos: cada columna es un requisito.
+    "biblioteca": ("biblioteca",),
+    "bienestar": ("bienestar del aprendiz",),
+    "almacen": ("almacen",),
+    "etapa_productiva": (
+        "formato de evaluacion de la etapa productiva:",
+        "formato de evaluacion de la etapa productiva",
+    ),
+    "documento_identidad": ("copia del documento de identidad vigente",),
+    "saber_tyt": (
+        "evidencia de la presentacion de las pruebas saber t y t. ( solo tgo)",
+        "evidencia de la presentacion de las pruebas saber t y t",
+    ),
+    "ape": (
+        "comprobante de inscripcion en la ape- agencia publica de empleo",
+        "comprobante de inscripcion en la ape agencia publica de empleo",
+    ),
+    "carnet": (
+        "comprobante de destruccion de carnet.",
+        "comprobante de destruccion de carnet",
+    ),
+    "certificado_empresa": ("certificado de la empresa",),
 }
 
 
@@ -1007,7 +1210,7 @@ def _learners_from_rows(
                 if value:
                     learner[field_name] = value
         document = clean_identification(learner.get("documento"))
-        name = learner.get("nombre")
+        name = normalize_learner_name(learner.get("nombre"))
         if not document or not name:
             # Sin identificacion o sin nombre no se puede asociar a una persona
             # con certeza; se omite en lugar de inventar una relacion.
@@ -1021,9 +1224,11 @@ def _learners_from_rows(
         # nombre completo en el orden en que aparecen en el documento.
         if learner.get("apellidos") and learner.get("nombre"):
             if mapping.get("apellidos", 0) < mapping.get("nombre", 0):
-                learner["nombre"] = f"{learner['apellidos']} {learner['nombre']}".strip()
+                full_raw = f"{learner['apellidos']} {learner['nombre']}".strip()
             else:
-                learner["nombre"] = f"{learner['nombre']} {learner['apellidos']}".strip()
+                full_raw = f"{learner['nombre']} {learner['apellidos']}".strip()
+            name = normalize_learner_name(full_raw) or name
+        learner["nombre"] = name
         learner.pop("apellidos", None)
         learners.append(learner)
     return learners
@@ -1087,7 +1292,7 @@ def _learners_from_text(text: str) -> list[dict[str, str]]:
         match = _ACTA_APRENDIZ_TEXTO_RE.search(line)
         if match:
             document = clean_identification(match.group(1))
-            name = match.group(2).strip(" -–\t.")
+            name = normalize_learner_name(match.group(2).strip(" -–\t."))
             if document and name:
                 learners.append({"documento": document, "nombre": name})
                 continue
@@ -1096,7 +1301,7 @@ def _learners_from_text(text: str) -> list[dict[str, str]]:
         match = _ACTA_APRENDIZ_NOMBRE_PRIMERO_RE.search(line)
         if not match:
             continue
-        name = match.group(1).strip(" -–\t.,")
+        name = normalize_learner_name(match.group(1).strip(" -–\t.,"))
         document = clean_identification(match.group(2))
         if document and name:
             learners.append({"documento": document, "nombre": name})
@@ -1199,7 +1404,21 @@ def extract_acta_data(file_name: str, content: bytes) -> dict[str, Any]:
     act_date = parse_fecha_documento(full_text)
     asunto = _ACTA_ASUNTO_RE.search(full_text)
     act_type = asunto.group(1).strip() if asunto else None
+    missing_documents = sum(1 for learner in learners if not learner.get("documento"))
+    with_document = sum(1 for learner in learners if learner.get("documento"))
     learners = _dedupe_learners(learners)
+    duplicate_learners = with_document - len(learners)
+    # El programa se guarda en una sola linea: en los PDF la columna suele venir
+    # partida por el ancho de la celda ("OPERACIONES\nCOMERCIALES").
+    for learner in learners:
+        name = normalize_learner_name(learner.get("nombre"))
+        if name:
+            learner["nombre"] = name
+        program = normalize_program_name(learner.get("programa"))
+        if program:
+            learner["programa"] = program
+        else:
+            learner.pop("programa", None)
 
     warnings: list[str] = []
     if not full_text.strip():
@@ -1211,6 +1430,16 @@ def extract_acta_data(file_name: str, content: bytes) -> dict[str, Any]:
         warnings.append("No se pudo identificar el numero del acta en el documento.")
     if not act_date:
         warnings.append("No se pudo identificar la fecha del acta.")
+    if missing_documents:
+        warnings.append(
+            f"{missing_documents} aprendiz(es) sin numero de documento confiable; "
+            "no se asociaran al acta."
+        )
+    if duplicate_learners:
+        warnings.append(
+            f"{duplicate_learners} aprendiz(es) duplicado(s) en el documento; "
+            "se conservo una sola asociacion por documento."
+        )
     if not learners:
         if tables_count:
             warnings.append(

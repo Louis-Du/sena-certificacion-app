@@ -79,7 +79,7 @@ def test_invalid_files_never_leave_partial_records(client):
             validation_id = response.json()["validation_id"]
             if response.json()["status"] == "error":
                 assert client.get(f"/api/imports/{validation_id}/preview").status_code == 400
-                assert client.post(f"/api/imports/{validation_id}/confirm").status_code == 400
+                assert client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True}).status_code == 400
 
     assert all(count == 0 for count in table_counts(client).values())
 

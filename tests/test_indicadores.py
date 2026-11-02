@@ -139,7 +139,7 @@ def test_clasificacion_misional_y_filtrado_por_periodo(session_factory):
         _certificado("4", "SENATIC", "JUNIO"),              # tecnica
         _certificado("5", "PROFUNDIZACIÓN TÉCNICA", "JUNIO"),  # tecnica
         _certificado("6", "MEDIA TÉCNICA", "JUNIO"),        # articulacion
-        _certificado("7", "OPERARIO", "JUNIO"),             # sin regla -> sin clasificar
+        _certificado("7", "OPERARIO", "JUNIO"),             # equivale a AUXILIAR -> tecnica
         _certificado("8", "TECNÓLOGO", "OCTUBRE"),          # fuera del periodo
         _certificado("9", "TÉCNICO", "JUNIO", estado=""),   # estado vacio -> no cuenta
     ]
@@ -150,13 +150,12 @@ def test_clasificacion_misional_y_filtrado_por_periodo(session_factory):
 
     metricas = _metricas_por_categoria(data)
     assert metricas["superior"]["certificados"] == 1
-    assert metricas["tecnica"]["certificados"] == 4
+    assert metricas["tecnica"]["certificados"] == 5
     assert metricas["articulacion"]["certificados"] == 1
-    # OPERARIO no esta en la regla: queda aparte, no se suma a "tecnica".
-    assert data["sin_clasificar"]["certificados"] == 1
-    assert data["sin_clasificar"]["niveles"]["certificados: operario"] == 1
+    # OPERARIO equivale a AUXILIAR y entra en "tecnica".
+    assert data["sin_clasificar"]["certificados"] == 0
     # El registro de OCTUBRE no entra al periodo Ene-Sep.
-    assert data["total_certificados"] == 6
+    assert data["total_certificados"] == 7
     assert any("fuera del periodo" in aviso for aviso in data["advertencias"])
     # El avance usa la meta documentada: 1/100 -> 1.0 %
     assert metricas["superior"]["avance"] == 1.0

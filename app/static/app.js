@@ -27,18 +27,27 @@ const confirmUpdated = document.querySelector("#confirm-updated");
 const confirmRejected = document.querySelector("#confirm-rejected");
 const confirmBreakdown = document.querySelector("#confirm-breakdown");
 const confirmWarnings = document.querySelector("#confirm-warnings");
+const coherenceSection = document.querySelector("#coherence-conflicts");
+const coherenceTitle = document.querySelector("#coherence-conflicts-title");
+const coherenceList = document.querySelector("#coherence-conflict-list");
+const coherenceHelp = document.querySelector("#coherence-help");
+const missingComplementariaSection = document.querySelector("#missing-complementaria");
+const acceptMissingComplementaria = document.querySelector("#accept-missing-complementaria");
+const missingComplementariaHelp = document.querySelector("#missing-complementaria-help");
 const historyList = document.querySelector("#history-list");
 const learnersList = document.querySelector("#learners-list");
 const learnersSummary = document.querySelector("#learners-summary");
 const refreshLearnersButton = document.querySelector("#refresh-learners");
 const learnerSearch = document.querySelector("#learner-search");
 const learnerStatus = document.querySelector("#learner-status");
+const learnerMissingRequirement = document.querySelector("#learner-missing-requirement");
+const learnerRequirementSummary = document.querySelector("#learner-missing-requirement-summary");
+const learnerRequirementOptions = document.querySelector("#learner-missing-requirement-options");
 const clearLearnerSearch = document.querySelector("#clear-learner-search");
 const learnersPrev = document.querySelector("#learners-prev");
 const learnersNext = document.querySelector("#learners-next");
 const learnersPage = document.querySelector("#learners-page");
-const porCertificarLearnersButton = document.querySelector("#por-certificar-learners-button");
-const pendingLearnersButton = document.querySelector("#pending-learners-button");
+const learnerStatusChips = document.querySelector("#learner-status-chips");
 const learnersFrame = document.querySelector(".learners-frame");
 const learnerDetail = document.querySelector("#learner-detail");
 const backToLearners = document.querySelector("#back-to-learners");
@@ -46,13 +55,23 @@ const learnerDetailTitle = document.querySelector("#learner-detail-title");
 const learnerDetailFeedback = document.querySelector("#learner-detail-feedback");
 const learnerDetailContent = document.querySelector("#learner-detail-content");
 const learnerBasicInfo = document.querySelector("#learner-basic-info");
+const learnerTrackingSection = document.querySelector("#learner-tracking-section");
+const learnerTracking = document.querySelector("#learner-tracking");
+const learnerSourcesSection = document.querySelector("#learner-sources-section");
+const learnerSources = document.querySelector("#learner-sources");
 const learnerRequirements = document.querySelector("#learner-requirements");
+const learnerRequirementHistory = document.querySelector("#learner-requirement-history");
+const learnerMoreData = document.querySelector("#learner-more-data");
+const learnerExtra = document.querySelector("#learner-extra");
 const viewLinks = document.querySelectorAll("[data-view]");
 const views = document.querySelectorAll(".app-view");
 const maxFileSize = 20 * 1024 * 1024;
 const actForm = document.querySelector("#act-form");
 const actList = document.querySelector("#acts-list");
 const actSearch = document.querySelector("#act-search");
+const actNumberFilter = document.querySelector("#act-number-filter");
+const actDateFrom = document.querySelector("#act-date-from");
+const actDateTo = document.querySelector("#act-date-to");
 const actStatusFilter = document.querySelector("#act-status-filter");
 const actSummary = document.querySelector("#acts-summary");
 const actFeedback = document.querySelector("#act-form-feedback");
@@ -82,6 +101,7 @@ const extensionsByType = {
 let selectedType = "acta";
 let selectedFile = null;
 let validationId = null;
+let missingComplementariaRequired = false;
 
 // La fuente elegida determina el tipo de procesamiento: no hay selectores de
 // subtipos. La carga de requisitos vive en la seccion secundaria.
@@ -136,6 +156,8 @@ function setCargaStep(etapa) {
 function hideReview() {
   validationPanel.hidden = true;
   confirmationPanel.hidden = true;
+  resetCoherenceConflicts();
+  resetMissingComplementaria();
   confirmButton.hidden = true;
   validateButton.hidden = false;
   validateButton.disabled = !selectedFile;
@@ -208,8 +230,97 @@ async function readResponse(response) {
   return result;
 }
 
+function resetCoherenceConflicts() {
+  coherenceSection.hidden = true;
+  coherenceTitle.textContent = "Conflictos de coherencia";
+  coherenceList.replaceChildren();
+  coherenceHelp.textContent = "";
+  coherenceHelp.classList.remove("ready");
+  confirmButton.disabled = false;
+}
+
+function resetMissingComplementaria() {
+  missingComplementariaSection.hidden = true;
+  missingComplementariaRequired = false;
+  acceptMissingComplementaria.checked = false;
+  missingComplementariaHelp.textContent = "";
+  missingComplementariaHelp.classList.remove("ready");
+}
+
+function updateCoherenceState() {
+  const rows = [...coherenceList.querySelectorAll(".coherence-conflict-row")];
+  const pending = rows.filter((row) => !row.querySelector("input[type=radio]:checked")).length;
+  const missingPending = missingComplementariaRequired && !acceptMissingComplementaria.checked;
+  confirmButton.disabled = pending > 0 || missingPending;
+  if (rows.length) {
+    coherenceHelp.classList.toggle("ready", pending === 0);
+    coherenceHelp.textContent = pending
+      ? `Resuelva los ${pending} conflictos para continuar.`
+      : "Todos los conflictos fueron resueltos. Puede confirmar la importación.";
+  } else {
+    coherenceHelp.textContent = "";
+    coherenceHelp.classList.remove("ready");
+  }
+  if (missingPending) {
+    missingComplementariaHelp.textContent = "Debe aceptar continuar sin la hoja COMPLEMENTARIA.";
+    missingComplementariaHelp.classList.remove("ready");
+  } else if (missingComplementariaRequired) {
+    missingComplementariaHelp.textContent = "Se continuará sin formación complementaria.";
+    missingComplementariaHelp.classList.add("ready");
+  } else {
+    missingComplementariaHelp.textContent = "";
+    missingComplementariaHelp.classList.remove("ready");
+  }
+}
+
+function renderCoherenceConflicts(items) {
+  resetCoherenceConflicts();
+  if (!items.length) return;
+  coherenceSection.hidden = false;
+  coherenceTitle.textContent = `Conflictos de coherencia (${items.length})`;
+  items.forEach((item, index) => {
+    const row = document.createElement("div");
+    row.className = "coherence-conflict-row";
+    row.dataset.identification = item.identification;
+    const documentCell = document.createElement("strong");
+    documentCell.textContent = item.identification;
+    const nameCell = document.createElement("span");
+    nameCell.textContent = item.name || "Nombre no disponible";
+    const groupCell = document.createElement("span");
+    groupCell.textContent = item.group_code ? `Ficha ${item.group_code}` : "Sin ficha";
+    const options = document.createElement("div");
+    options.className = "coherence-options";
+    [["CERTIFICADOS", "Certificado"], ["PENDIENTE", "Pendiente"]].forEach(([value, labelText]) => {
+      const label = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = `coherence-${index}`;
+      input.value = value;
+      input.addEventListener("change", updateCoherenceState);
+      label.append(input, document.createTextNode(labelText));
+      options.appendChild(label);
+    });
+    row.append(documentCell, nameCell, groupCell, options);
+    coherenceList.appendChild(row);
+  });
+  updateCoherenceState();
+}
+
+function collectConflictResolutions() {
+  return [...coherenceList.querySelectorAll(".coherence-conflict-row")]
+    .map((row) => {
+      const checked = row.querySelector("input[type=radio]:checked");
+      return checked
+        ? { identification: row.dataset.identification, status: checked.value }
+        : null;
+    })
+    .filter(Boolean);
+}
+
 async function validateFile() {
   if (!selectedFile) return;
+  resetCoherenceConflicts();
+  resetMissingComplementaria();
   validateButton.disabled = true;
   fileStatus.textContent = "VALIDANDO...";
   showFeedback(`Validando ${selectedType.toUpperCase()}...`);
@@ -268,6 +379,9 @@ async function validateFile() {
       if (acta.act_date) notas.push(acta.act_date);
       notas.push(acta.exists ? "acta ya registrada" : "acta nueva");
       notas.push(`${acta.learners_to_link} aprendices por vincular`);
+      if (acta.learners_por_certificar) {
+        notas.push(`${acta.learners_por_certificar} quedarán Por Certificar`);
+      }
       if (acta.learners_already_linked) notas.push(`${acta.learners_already_linked} ya vinculados`);
       if (acta.learners_not_registered) notas.push(`${acta.learners_not_registered} sin registrar`);
       detalle.textContent = notas.join(" · ");
@@ -278,6 +392,12 @@ async function validateFile() {
       item.textContent = `⚠ ${warning}`;
       return item;
     }));
+    renderCoherenceConflicts(preview.coherence_conflicts || []);
+    missingComplementariaRequired = Boolean(preview.missing_complementaria);
+    if (missingComplementariaRequired) {
+      missingComplementariaSection.hidden = false;
+    }
+    updateCoherenceState();
     confirmationPanel.hidden = false;
     confirmButton.hidden = false;
     validateButton.hidden = true;
@@ -296,7 +416,14 @@ async function confirmImport() {
   if (!validationId) return;
   confirmButton.disabled = true;
   try {
-    const result = await readResponse(await fetch(`/api/imports/${validationId}/confirm`, { method: "POST" }));
+    const result = await readResponse(await fetch(`/api/imports/${validationId}/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conflict_resolutions: collectConflictResolutions(),
+        accept_missing_complementaria: acceptMissingComplementaria.checked,
+      }),
+    }));
     fileStatus.textContent = "IMPORTACION COMPLETA";
     showFeedback(`${result.message} ${result.records_count} registros procesados.`);
     confirmButton.hidden = true;
@@ -306,7 +433,7 @@ async function confirmImport() {
   } catch (error) {
     showFeedback(error.message, true);
   } finally {
-    confirmButton.disabled = false;
+    if (!confirmButton.hidden) updateCoherenceState();
   }
 }
 
@@ -335,8 +462,8 @@ async function loadHistory() {
 
 let learnerPageNumber = 1;
 const learnerPageSize = 25;
-let learnerStatusCounts = null;
-let pendingFilterActive = false;
+const selectedRequirementValues = new Set();
+const requirementLabelsByValue = new Map();
 
 function normalizeStatusText(status) {
   return (status || "")
@@ -363,54 +490,174 @@ function renderStatusCell(status) {
   return cell;
 }
 
-function syncLearnerFilterButtons() {
-  const porCertificarActivo = normalizeStatusText(learnerStatus.value) === "por certificar";
-  porCertificarLearnersButton.classList.toggle("is-active", porCertificarActivo);
-  porCertificarLearnersButton.setAttribute("aria-pressed", porCertificarActivo ? "true" : "false");
-  pendingLearnersButton.classList.toggle("is-active", pendingFilterActive);
-  pendingLearnersButton.setAttribute("aria-pressed", pendingFilterActive ? "true" : "false");
+function statusSortRank(status) {
+  const normalized = normalizeStatusText(status);
+  if (normalized.startsWith("certificado")) return 0;
+  if (normalized.startsWith("pendiente")) return 1;
+  if (normalized.startsWith("por certificar")) return 2;
+  if (normalized === "sin estado") return 3;
+  return 4;
 }
 
-async function refreshLearnerStatusCounts(statuses) {
-  try {
-    const entries = await Promise.all(
-      statuses.map(async (status) => {
-        const params = new URLSearchParams({ status, page: 1, page_size: 1 });
-        const result = await readResponse(await fetch(`/api/learners?${params}`));
-        return [normalizeStatusText(status), result.total];
-      }),
-    );
-    learnerStatusCounts = new Map(entries);
-  } catch (error) {
-    learnerStatusCounts = null;
-  }
+function statusIsActive(status) {
+  if (!status) return !learnerStatus.value;
+  return normalizeStatusText(learnerStatus.value) === normalizeStatusText(status);
 }
 
-function learnerSummaryLabel(result, conDesglose) {
+function renderStatusChips(statusCounts) {
+  const counts = [...(statusCounts || [])].sort(
+    (left, right) =>
+      statusSortRank(left.status) - statusSortRank(right.status) ||
+      left.status.localeCompare(right.status),
+  );
+  const total = counts.reduce((sum, item) => sum + item.count, 0);
+  const items = [
+    { status: "", label: "Todos", count: total, variant: "is-neutral" },
+    ...counts.map((item) => ({
+      status: item.status,
+      label: item.status,
+      count: item.count,
+      variant: statusChipVariant(item.status),
+    })),
+  ];
+  learnerStatusChips.replaceChildren(
+    ...items.map((item) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = `status-chip status-chip-button ${item.variant}`;
+      chip.classList.toggle("is-active", statusIsActive(item.status));
+      chip.setAttribute("aria-pressed", statusIsActive(item.status) ? "true" : "false");
+      chip.textContent = `${item.label} ${item.count.toLocaleString("es-CO")}`;
+      chip.addEventListener("click", () => {
+        const nextStatus = statusIsActive(item.status) ? "" : item.status;
+        if (nextStatus && ![...learnerStatus.options].some((option) => option.value === nextStatus)) {
+          learnerStatus.add(new Option(nextStatus, nextStatus));
+        }
+        learnerStatus.value = nextStatus;
+        learnerPageNumber = 1;
+        loadLearners();
+      });
+      return chip;
+    }),
+  );
+}
+
+function learnerSummaryLabel(result) {
   const total = result.total;
-  const base = `${total} ${total === 1 ? "aprendiz registrado" : "aprendices registrados"}`;
-  if (!conDesglose || !learnerStatusCounts) {
-    return `${base} · ${result.por_certificar_total} por certificar`;
-  }
-  let certificados = 0;
-  learnerStatusCounts.forEach((count, status) => {
-    if (status.startsWith("certificado")) certificados += count;
+  const label = total === 1 ? "aprendiz" : "aprendices";
+  return `${total} ${label} en la consulta actual · Página ${result.page} de ${Math.max(result.pages, 1)}`;
+}
+
+// Texto compacto de procedencia: motivo + requisitos pendientes + origen. Se usa
+// como "title" para una vista rapida al pasar el cursor, sin abrir el detalle.
+function learnerSummaryText(item) {
+  const sources = item.data_sources || [];
+  const summary = item.requirements_summary || {};
+  const pending = summary.pending || [];
+  return [
+    `Origen: ${sources.length ? sources.join(" · ") : "Desconocido"}`,
+    `Motivo: ${item.non_certification_reason || "Sin motivo"}`,
+    pending.length
+      ? `Requisitos pendientes: ${pending.join(", ")}`
+      : "Sin requisitos pendientes",
+  ].join("\n");
+}
+
+// Bloque de resumen accesible (mismo contenido del "title"), pensado para teclado
+// y movil, donde no hay hover.
+function renderLearnerSummaryBlock(item) {
+  const sources = item.data_sources || [];
+  const summary = item.requirements_summary || {};
+  const pending = summary.pending || [];
+  const wrapper = document.createElement("div");
+  wrapper.className = "learner-summary";
+  const rows = [
+    ["Origen", sources.length ? sources.join(" · ") : "Desconocido"],
+    ["Motivo de no certificación", item.non_certification_reason || "Sin motivo"],
+    [
+      "Requisitos pendientes",
+      pending.length ? pending.join(", ") : "Ninguno",
+    ],
+    [
+      "Cumplidos / No aplica",
+      `${summary.fulfilled_count || 0} / ${summary.na_count || 0}`,
+    ],
+  ];
+  rows.forEach(([label, value]) => {
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const description = document.createElement("dd");
+    description.textContent = value;
+    wrapper.append(term, description);
   });
-  const pendientes = Math.max(total - certificados, 0);
-  return `${base} · ${certificados} ${certificados === 1 ? "certificado" : "certificados"} · ${pendientes} ${pendientes === 1 ? "pendiente" : "pendientes"}`;
+  return wrapper;
+}
+
+function renderOriginCell(item, row) {
+  const cell = document.createElement("td");
+  cell.className = "origin-cell";
+  const sources = item.data_sources || [];
+  const label = document.createElement("span");
+  label.className = "origin-label";
+  label.textContent = sources.length ? sources.join(" · ") : "Desconocido";
+  const info = document.createElement("button");
+  info.type = "button";
+  info.className = "info-button";
+  info.textContent = "Info";
+  info.setAttribute("aria-expanded", "false");
+  info.setAttribute("aria-label", `Resumen del aprendiz ${item.name}`);
+  info.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleLearnerSummary(row, item, info);
+  });
+  cell.append(label, info);
+  return cell;
+}
+
+// Muestra/oculta el resumen como una fila extra bajo el aprendiz. Se usa una fila
+// (colspan completo) en lugar de un tooltip flotante para que no lo recorte el
+// contenedor con scroll de la tabla.
+function toggleLearnerSummary(row, item, button) {
+  const following = row.nextElementSibling;
+  if (following && following.classList.contains("learner-summary-row")) {
+    following.remove();
+    button.setAttribute("aria-expanded", "false");
+    return;
+  }
+  learnersList
+    .querySelectorAll(".learner-summary-row")
+    .forEach((element) => element.remove());
+  learnersList
+    .querySelectorAll(".info-button")
+    .forEach((element) => element.setAttribute("aria-expanded", "false"));
+  const summaryRow = document.createElement("tr");
+  summaryRow.className = "learner-summary-row";
+  const cell = document.createElement("td");
+  cell.colSpan = 8;
+  cell.appendChild(renderLearnerSummaryBlock(item));
+  summaryRow.appendChild(cell);
+  row.after(summaryRow);
+  button.setAttribute("aria-expanded", "true");
 }
 
 function renderLearnerRow(item) {
   const row = document.createElement("tr");
-  [item.name, item.identification, item.program || "Sin programa", item.group_code || "Sin ficha"]
+  row.title = learnerSummaryText(item);
+  const nameCell = document.createElement("td");
+  nameCell.textContent = item.name;
+  row.appendChild(nameCell);
+  [item.identification, item.program || "Sin programa", item.group_code || "Sin ficha"]
     .forEach((value) => {
       const cell = document.createElement("td");
       cell.textContent = value;
       row.appendChild(cell);
     });
   row.appendChild(renderStatusCell(item.certification_status));
+  row.appendChild(renderOriginCell(item, row));
   const pendingCell = document.createElement("td");
-  pendingCell.textContent = item.pending_count ?? "—";
+  // Conteo real de requisitos en Pendiente; sin requisitos se muestra "—" en
+  // lugar de inventar un numero.
+  pendingCell.textContent = item.pending_count ? item.pending_count : "—";
   row.appendChild(pendingCell);
   const detailCell = document.createElement("td");
   const button = document.createElement("button");
@@ -427,9 +674,61 @@ function renderLearnerRow(item) {
   return row;
 }
 
+function selectedMissingRequirements() {
+  return [...selectedRequirementValues];
+}
+
+function updateRequirementFilterUI() {
+  const selected = selectedMissingRequirements();
+  const labels = selected.map((value) => requirementLabelsByValue.get(value) || value);
+  learnerRequirementSummary.textContent = labels.length ? labels.join(", ") : "Cualquiera";
+  learnerRequirementSummary.title = labels.length ? labels.join(", ") : "Todos los requisitos";
+  [...learnerRequirementOptions.querySelectorAll(".requirement-option")].forEach((option) => {
+    const isSelected = option.dataset.value
+      ? selectedRequirementValues.has(option.dataset.value)
+      : selected.length === 0;
+    option.classList.toggle("is-selected", isSelected);
+    option.setAttribute("aria-selected", isSelected ? "true" : "false");
+  });
+}
+
+function setSelectedMissingRequirements(values) {
+  selectedRequirementValues.clear();
+  values.filter(Boolean).forEach((value) => selectedRequirementValues.add(value));
+  updateRequirementFilterUI();
+}
+
+function renderRequirementOptions(types) {
+  requirementLabelsByValue.clear();
+  Object.entries(types || {}).forEach(([value, label]) => {
+    requirementLabelsByValue.set(value, label);
+  });
+  const options = [document.createElement("button")];
+  options[0].type = "button";
+  options[0].className = "requirement-option";
+  options[0].dataset.value = "";
+  options[0].setAttribute("role", "option");
+  options[0].textContent = "Cualquiera";
+  for (const [value, label] of requirementLabelsByValue) {
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "requirement-option";
+    option.dataset.value = value;
+    option.setAttribute("role", "option");
+    option.textContent = label;
+    options.push(option);
+  }
+  learnerRequirementOptions.replaceChildren(...options);
+  updateRequirementFilterUI();
+}
+
 function renderLearnerEmptyState() {
   const searchTerm = learnerSearch.value.trim();
   const selectedStatus = learnerStatus.value;
+  const selectedRequirement = selectedMissingRequirements();
+  const requirementLabels = selectedRequirement.map(
+    (value) => requirementLabelsByValue.get(value) || value,
+  );
   let message = "Aun no hay aprendices cargados. Confirma una importacion DF14A para empezar.";
   if (searchTerm && selectedStatus) {
     message = `No se encontro ningun aprendiz que coincida con "${searchTerm}" y tenga el estado "${selectedStatus}".`;
@@ -438,9 +737,12 @@ function renderLearnerEmptyState() {
   } else if (selectedStatus) {
     message = `No se encontro ningun aprendiz con el estado "${selectedStatus}".`;
   }
+  if (selectedRequirement.length) {
+    message += ` No hay aprendices con alguno de los requisitos "${requirementLabels.join(", ")}" en estado Pendiente.`;
+  }
   const row = document.createElement("tr");
   const cell = document.createElement("td");
-  cell.colSpan = 7;
+  cell.colSpan = 8;
   cell.textContent = message;
   row.appendChild(cell);
   learnersList.replaceChildren(row);
@@ -499,12 +801,96 @@ function renderRequirementEditor(items) {
         item.id = result.id;
         item.status = result.status;
         item.observations = result.observations;
+        const detail = await readResponse(
+          await fetch(`/api/learners/${window.currentLearnerId}`),
+        );
+        renderRequirementHistory(detail.requirement_history);
         feedback.textContent = "Guardado.";
       } catch (error) {
         feedback.textContent = error.message;
       }
     });
     learnerRequirements.appendChild(form);
+  });
+}
+
+function requirementSourceLabel(source) {
+  if (source === "import:actas_completo") return "Importación ACTAS 2026";
+  if (source === "import:requisitos") return "Importación matriz de requisitos";
+  if (source === "manual") return "Edición manual";
+  return source || "Origen no registrado";
+}
+
+function formatRequirementHistoryDate(value) {
+  if (!value) return "Sin fecha";
+  // recorded_at se guarda en UTC. Si la API entrega una fecha sin zona horaria,
+  // se interpreta como UTC para evitar el desfase de 5 horas de Colombia.
+  const normalized = /(Z|[+-]\d{2}:?\d{2})$/.test(value) ? value : `${value}Z`;
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" });
+}
+
+function requirementStatusChipVariant(status) {
+  const normalized = normalizeStatusText(status);
+  if (normalized === "cumplido") return "is-ok";
+  if (normalized === "pendiente") return "is-warning";
+  return "is-neutral";
+}
+
+function renderRequirementHistory(items) {
+  learnerRequirementHistory.replaceChildren();
+  if (!items || !items.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-detail";
+    empty.textContent = "Aún no hay cambios de requisitos registrados.";
+    learnerRequirementHistory.appendChild(empty);
+    return;
+  }
+  const list = document.createElement("div");
+  list.className = "requirement-history-list";
+  items.forEach((event) => {
+    const row = document.createElement("div");
+    row.className = "requirement-history-row";
+
+    const when = document.createElement("time");
+    when.className = "requirement-history-date";
+    when.dateTime = event.recorded_at || "";
+    when.textContent = formatRequirementHistoryDate(event.recorded_at);
+
+    const detail = document.createElement("div");
+    detail.className = "requirement-history-detail";
+    const label = document.createElement("strong");
+    label.textContent = event.requirement_label || event.requirement_type;
+    const source = document.createElement("span");
+    source.className = "requirement-history-source";
+    source.textContent = requirementSourceLabel(event.source);
+    detail.append(label, source);
+
+    const status = document.createElement("span");
+    status.className = `status-chip ${requirementStatusChipVariant(event.status)}`;
+    status.textContent = event.status || "Sin estado";
+
+    row.append(when, detail, status);
+    if (event.note) {
+      const note = document.createElement("span");
+      note.className = "requirement-history-note";
+      note.textContent = event.note;
+      row.appendChild(note);
+    }
+    list.appendChild(row);
+  });
+  learnerRequirementHistory.appendChild(list);
+}
+
+function fillDetailList(container, entries) {
+  container.replaceChildren();
+  entries.forEach(([label, value]) => {
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const description = document.createElement("dd");
+    description.textContent = value || "No disponible";
+    container.append(term, description);
   });
 }
 
@@ -516,18 +902,47 @@ async function loadLearnerDetail(learnerId) {
   try {
     const result = await readResponse(await fetch(`/api/learners/${learnerId}`));
     window.currentLearnerId = learnerId;
-    learnerDetailTitle.textContent = result.basic_info.name;
-    learnerBasicInfo.replaceChildren();
-    [["Documento", result.basic_info.identification], ["Programa", result.basic_info.program],
-      ["Ficha", result.basic_info.group_code], ["Estado", result.basic_info.certification_status]]
-      .forEach(([label, value]) => {
-        const term = document.createElement("dt");
-        term.textContent = label;
-        const description = document.createElement("dd");
-        description.textContent = value || "No disponible";
-        learnerBasicInfo.append(term, description);
-      });
+    const info = result.basic_info;
+    learnerDetailTitle.textContent = info.name;
+    fillDetailList(learnerBasicInfo, [
+      ["Documento", info.identification],
+      ["Programa", info.program],
+      ["Ficha", info.group_code],
+      ["Nivel de formación", info.training_type],
+      ["Estado", info.certification_status],
+    ]);
+    // Seguimiento de certificacion: el motivo (PENDIENTES) y los datos de
+    // contacto solo se muestran si el archivo los aporto; no se rellenan.
+    const trackingEntries = [
+      ["Motivo de no certificación", info.non_certification_reason],
+      ["Instructor de seguimiento", info.instructor],
+      ["N° de acta", info.act_number],
+      ["Correo", info.email],
+      ["Teléfono", info.phone],
+      ["Mes de certificación", info.certification_month],
+    ].filter(([, value]) => value);
+    learnerTrackingSection.hidden = trackingEntries.length === 0;
+    if (trackingEntries.length) {
+      fillDetailList(learnerTracking, trackingEntries);
+    }
+    // Origen de los datos: fuentes reales registradas en la importacion. Si no
+    // hay, se muestra "Desconocido"; nunca se inventa de que archivo salio.
+    const sources = info.data_sources || [];
+    learnerSourcesSection.hidden = false;
+    fillDetailList(learnerSources, [
+      ["Fuente(s) de origen", sources.length ? sources.join(" · ") : "Desconocido"],
+    ]);
     renderRequirementEditor(result.requirements);
+    renderRequirementHistory(result.requirement_history);
+    const dates = result.dates || {};
+    const extraEntries = [
+      ["Inicio de ficha", dates.start_date],
+      ["Terminación de ficha", dates.termination_date],
+    ].filter(([, value]) => value);
+    learnerMoreData.hidden = extraEntries.length === 0;
+    if (extraEntries.length) {
+      fillDetailList(learnerExtra, extraEntries);
+    }
     learnerDetailFeedback.textContent = "";
     learnerDetailContent.hidden = false;
   } catch (error) {
@@ -537,25 +952,31 @@ async function loadLearnerDetail(learnerId) {
 
 async function loadLearners() {
   try {
-    pendingFilterActive = false;
     const params = new URLSearchParams({
       search: learnerSearch.value.trim(),
       status: learnerStatus.value,
       page: learnerPageNumber,
       page_size: learnerPageSize,
     });
+    selectedMissingRequirements().forEach((value) => {
+      params.append("missing_requirement", value);
+    });
     const result = await readResponse(await fetch(`/api/learners?${params}`));
     const selectedStatus = learnerStatus.value;
-    learnerStatus.replaceChildren(new Option("Todos los estados", ""));
-    result.statuses.forEach((status) => learnerStatus.add(new Option(status, status)));
-    if (selectedStatus) setLearnerStatus(selectedStatus);
-    porCertificarLearnersButton.textContent = `Por Certificar (${result.por_certificar_total})`;
-    syncLearnerFilterButtons();
-    const sinFiltros = !learnerSearch.value.trim() && !learnerStatus.value;
-    if (sinFiltros) {
-      await refreshLearnerStatusCounts(result.statuses);
+    const statusOptions = [...result.statuses];
+    if (
+      (result.status_counts || []).some((item) => item.status === "Sin estado") &&
+      !statusOptions.includes("Sin estado")
+    ) {
+      statusOptions.push("Sin estado");
     }
-    learnersSummary.textContent = learnerSummaryLabel(result, sinFiltros);
+    learnerStatus.replaceChildren(new Option("Todos los estados", ""));
+    statusOptions.forEach((status) => learnerStatus.add(new Option(status, status)));
+    if (selectedStatus) setLearnerStatus(selectedStatus);
+    // Opciones del filtro "Requisito faltante" segun los tipos del backend.
+    renderRequirementOptions(result.requirement_types);
+    renderStatusChips(result.status_counts);
+    learnersSummary.textContent = learnerSummaryLabel(result);
     learnersPage.textContent = `Pagina ${result.page} de ${Math.max(result.pages, 1)}`;
     learnersPrev.disabled = result.page <= 1;
     learnersNext.disabled = result.page >= result.pages;
@@ -572,22 +993,6 @@ async function loadLearners() {
 
 }
 
-async function loadPendingLearners() {
-  try {
-    pendingFilterActive = true;
-    syncLearnerFilterButtons();
-    const result = await readResponse(await fetch("/api/learners/with-pending-requirements"));
-    learnersSummary.textContent = `${result.items.length} ${result.items.length === 1 ? "aprendiz" : "aprendices"} con requisitos pendientes`;
-    learnersList.replaceChildren(...result.items.map((item) => {
-      const row = renderLearnerRow(item);
-      row.cells[5].textContent = item.pending_count;
-      return row;
-    }));
-  } catch (error) {
-    learnersSummary.textContent = error.message;
-  }
-}
-
 backToLearners.addEventListener("click", () => {
   learnerDetail.hidden = true;
   learnersFrame.hidden = false;
@@ -599,6 +1004,7 @@ learnerSearch.addEventListener("input", () => {
 clearLearnerSearch.addEventListener("click", () => {
   learnerSearch.value = "";
   learnerStatus.value = "";
+  setSelectedMissingRequirements([]);
   learnerPageNumber = 1;
   loadLearners();
 });
@@ -606,20 +1012,32 @@ learnerStatus.addEventListener("change", () => {
   learnerPageNumber = 1;
   loadLearners();
 });
-porCertificarLearnersButton.addEventListener("click", () => {
-  setLearnerStatus(
-    learnerStatus.value.toLowerCase() === "por certificar" ? "" : "Por Certificar",
-  );
+learnerRequirementOptions.addEventListener("click", (event) => {
+  const option = event.target.closest(".requirement-option");
+  if (!option) return;
+  event.preventDefault();
+  const value = option.dataset.value;
+  if (!value) {
+    selectedRequirementValues.clear();
+  } else if (selectedRequirementValues.has(value)) {
+    selectedRequirementValues.delete(value);
+  } else {
+    selectedRequirementValues.add(value);
+  }
+  updateRequirementFilterUI();
   learnerPageNumber = 1;
   loadLearners();
 });
-pendingLearnersButton.addEventListener("click", () => {
-  if (pendingFilterActive) {
-    learnerPageNumber = 1;
-    loadLearners();
-    return;
+document.addEventListener("click", (event) => {
+  if (!learnerMissingRequirement.contains(event.target)) {
+    learnerMissingRequirement.open = false;
   }
-  loadPendingLearners();
+});
+learnerMissingRequirement.addEventListener("toggle", () => {
+  learnerRequirementSummary.setAttribute(
+    "aria-expanded",
+    learnerMissingRequirement.open ? "true" : "false",
+  );
 });
 learnersPrev.addEventListener("click", () => {
   if (learnerPageNumber > 1) {
@@ -1057,7 +1475,14 @@ function renderActs(items) {
 }
 async function loadActs() {
   try {
-    const result = await readResponse(await fetch(`/api/acts?${new URLSearchParams({search: actSearch.value.trim(), ...(actStatusFilter.value ? {review_status: actStatusFilter.value} : {})})}`));
+    const params = {
+      search: actSearch.value.trim(),
+      ...(actNumberFilter.value.trim() ? {number: actNumberFilter.value.trim()} : {}),
+      ...(actDateFrom.value ? {date_from: actDateFrom.value} : {}),
+      ...(actDateTo.value ? {date_to: actDateTo.value} : {}),
+      ...(actStatusFilter.value ? {review_status: actStatusFilter.value} : {}),
+    };
+    const result = await readResponse(await fetch(`/api/acts?${new URLSearchParams(params)}`));
     actSummary.textContent = `${result.items.length} actas registradas`; renderActs(result.items);
   } catch (error) { actSummary.textContent = error.message; }
 }
@@ -1077,7 +1502,7 @@ function renderActLearners(items) {
   actLearners.replaceChildren();
   if (!items.length) { actLearners.innerHTML = '<p class="empty-detail">Sin aprendices asociados.</p>'; return; }
   items.forEach((item) => {
-    const entry = document.createElement("div"); entry.className = "detail-list-item"; entry.textContent = `${item.name} · ${item.identification}`;
+    const entry = document.createElement("div"); entry.className = "detail-list-item"; entry.textContent = `${item.name} · ${item.identification} · ${item.certification_status || "Sin estado"}`;
     const button = document.createElement("button"); button.className = "cancel-button"; button.type = "button"; button.textContent = "Desasociar";
     button.addEventListener("click", async () => {
       let failure = null;
@@ -1101,6 +1526,9 @@ actLearnerForm.addEventListener("submit", async (event) => {
 });
 document.querySelector("#refresh-acts").addEventListener("click", loadActs);
 actSearch.addEventListener("input", loadActs);
+actNumberFilter.addEventListener("input", loadActs);
+actDateFrom.addEventListener("change", loadActs);
+actDateTo.addEventListener("change", loadActs);
 actStatusFilter.addEventListener("change", loadActs);
 document.querySelector("#back-to-acts").addEventListener("click", () => { document.querySelectorAll("#actas-view > .panel").forEach((panel) => { panel.hidden = false; }); actDetail.hidden = true; });
 
@@ -1116,6 +1544,7 @@ removeButton.addEventListener("click", clearFile);
 cancelButton.addEventListener("click", () => { clearFile(); clearFeedback(); resetSelection(); });
 validateButton.addEventListener("click", validateFile);
 confirmButton.addEventListener("click", confirmImport);
+acceptMissingComplementaria.addEventListener("change", updateCoherenceState);
 resetSelection();
 loadHistory();
 loadLearners();

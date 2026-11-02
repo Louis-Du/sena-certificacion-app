@@ -243,6 +243,7 @@ def test_classify_nivel_maps_every_documented_level():
     # Tecnica Laboral y Otros -> Tecnico, Auxiliar, Profundizacion Tecnica, SENATIC.
     assert classify_nivel("TÉCNICO") == "tecnica"
     assert classify_nivel("AUXILIAR") == "tecnica"
+    assert classify_nivel("OPERARIO") == "tecnica"
     assert classify_nivel("PROFUNDIZACIÓN TÉCNICA") == "tecnica"
     assert classify_nivel("SENATIC") == "tecnica"
     # Articulacion con la Media -> Media Tecnica.
@@ -250,8 +251,8 @@ def test_classify_nivel_maps_every_documented_level():
 
 
 def test_classify_nivel_returns_none_when_there_is_no_documented_rule():
-    # OPERARIO no esta en la regla institucional: NO se asigna por defecto.
-    assert classify_nivel("OPERARIO") is None
+    # OPERARIO equivale a AUXILIAR; los niveles no documentados no se asignan.
+    assert classify_nivel("OPERARIO") == "tecnica"
     assert classify_nivel("") is None
     assert classify_nivel(None) is None
     assert classify_nivel("NIVEL DESCONOCIDO") is None
@@ -577,6 +578,72 @@ def test_clean_identification_normalizes_thousands_separators():
     assert clean_identification("1.043.000.100") == "1043000100"
     assert clean_identification("1 043 000 100") == "1043000100"
     assert clean_identification("1043966273.0") == "1043966273"
+
+
+def test_normalize_program_name_collapses_line_breaks_and_spaces():
+    from app.services.parsers import normalize_program_name
+
+    assert normalize_program_name("OPERACIONES\nCOMERCIALES") == "OPERACIONES COMERCIALES"
+    assert normalize_program_name("  GESTION   DE\nREDES  ") == "GESTION DE REDES"
+    assert normalize_program_name("OPERACIONES\u00a0COMERCIALES") == "OPERACIONES COMERCIALES"
+    assert (
+        normalize_program_name("PROCESOS PARA LA COMERCIALI ZACION INTERNACIO NAL")
+        == "PROCESOS PARA LA COMERCIALIZACION INTERNACIONAL"
+    )
+    # No inventa nombres: sin dato util devuelve None.
+    assert normalize_program_name("") is None
+    assert normalize_program_name("   ") is None
+    assert normalize_program_name(None) is None
+    assert normalize_program_name(float("nan")) is None
+
+
+def test_heal_fragmented_text_examples_and_connectors():
+    from app.services.parsers import heal_fragmented_text
+
+    # Ejemplos reales de Acta 41
+    assert heal_fragmented_text("ESPINOS A") == "ESPINOSA"
+    assert heal_fragmented_text("CARCAM O") == "CARCAMO"
+    assert heal_fragmented_text("ALEJANDR A") == "ALEJANDRA"
+    assert heal_fragmented_text("SAYONAR A") == "SAYONARA"
+    assert heal_fragmented_text("CHAMOR RO") == "CHAMORRO"
+    assert heal_fragmented_text("BROCHER O") == "BROCHERO"
+    assert heal_fragmented_text("COMERCIALI ZACION") == "COMERCIALIZACION"
+    assert heal_fragmented_text("INTERNACIO NAL") == "INTERNACIONAL"
+    assert heal_fragmented_text("OPERACIO NES COMERCI ALES EN RETAIL") == "OPERACIONES COMERCIALES EN RETAIL"
+    assert heal_fragmented_text("GESTION CONTABLE Y DE INFORMACI ON FINANCIERA") == "GESTION CONTABLE Y DE INFORMACION FINANCIERA"
+    assert heal_fragmented_text("COORDIN ACION DE PROCESOS LOGISTICOS") == "COORDINACION DE PROCESOS LOGISTICOS"
+    assert heal_fragmented_text("PANIFICACI ON.") == "PANIFICACION"
+    assert (
+        heal_fragmented_text("CONTABILIZ ACION DE OPERACIONES COMERCIALES Y FINANCIERAS.")
+        == "CONTABILIZACION DE OPERACIONES COMERCIALES Y FINANCIERAS"
+    )
+
+    # Conectores reales que no deben pegarse
+    assert heal_fragmented_text("GESTION DE REDES") == "GESTION DE REDES"
+    assert heal_fragmented_text("OPERACIONES COMERCIALES EN RETAIL") == "OPERACIONES COMERCIALES EN RETAIL"
+    assert heal_fragmented_text("GESTION ADMINISTRATIVA DEL SECTOR SALUD") == "GESTION ADMINISTRATIVA DEL SECTOR SALUD"
+    assert heal_fragmented_text("ATENCION A CLIENTES") == "ATENCION A CLIENTES"
+
+
+def test_normalize_learner_name_heals_fragments_and_preserves_connectors():
+    from app.services.parsers import normalize_learner_name
+
+    # Ejemplos del listado real (Acta 41)
+    assert normalize_learner_name("HERNAN DEZ CASTRO") == "HERNANDEZ CASTRO"
+    assert normalize_learner_name("YOLAINE JUDITH HERNAN DEZ CASTRO") == "YOLAINE JUDITH HERNANDEZ CASTRO"
+    assert normalize_learner_name("LILIA BEATRIZ RAMIREZ ESPINOS A") == "LILIA BEATRIZ RAMIREZ ESPINOSA"
+    assert normalize_learner_name("LUISA FERNAND A PEREZ DIAZ") == "LUISA FERNANDA PEREZ DIAZ"
+    assert normalize_learner_name("MANUEL LUCIO CARCAM O ALMEIDA") == "MANUEL LUCIO CARCAMO ALMEIDA"
+    assert normalize_learner_name("MARIA ALEJANDR A LOPEZ GALERA") == "MARIA ALEJANDRA LOPEZ GALERA"
+    assert normalize_learner_name("MATEO LOPEZ ESPINOS A") == "MATEO LOPEZ ESPINOSA"
+    assert normalize_learner_name("SANDY SANDRIT BROCHER O BUELVAS") == "SANDY SANDRIT BROCHERO BUELVAS"
+    assert normalize_learner_name("SAYONAR A YI MARTINEZ") == "SAYONARA YI MARTINEZ"
+    assert normalize_learner_name("STEFANNY YULIETH BERRIO CHAMOR RO") == "STEFANNY YULIETH BERRIO CHAMORRO"
+
+    # Conectores legítimos en nombres
+    assert normalize_learner_name("JOSE DE LA CRUZ") == "JOSE DE LA CRUZ"
+    assert normalize_learner_name("CARLOS DEL VALLE") == "CARLOS DEL VALLE"
+    assert normalize_learner_name("ORTEGA Y GASSET") == "ORTEGA Y GASSET"
 
 
 def test_frame_to_records_strips_nan_values():

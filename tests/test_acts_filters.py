@@ -59,3 +59,24 @@ def test_unknown_review_status_is_rejected_with_400(acts_client):
 
 def test_acts_are_ordered_by_most_recent_date_first(acts_client):
     assert numbers(acts_client) == ["ACT-004", "ACT-003", "ACT-002", "ACT-001"]
+
+
+def test_number_filter_matches_partial_number(acts_client):
+    assert numbers(acts_client, number="002") == ["ACT-002"]
+
+
+def test_date_range_filter_is_inclusive(acts_client):
+    assert numbers(acts_client, date_from="2026-09-08", date_to="2026-09-15") == [
+        "ACT-003",
+        "ACT-002",
+    ]
+    assert numbers(acts_client, date_from="2026-09-20") == ["ACT-004"]
+    assert numbers(acts_client, date_to="2026-09-01") == ["ACT-001"]
+
+
+def test_inverted_date_range_is_rejected_with_400(acts_client):
+    response = acts_client.get(
+        "/api/acts", params={"date_from": "2026-09-20", "date_to": "2026-09-01"}
+    )
+    assert response.status_code == 400
+    assert "posterior" in response.json()["detail"]

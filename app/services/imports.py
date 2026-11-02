@@ -4,6 +4,7 @@ import hashlib
 import json
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -15,8 +16,12 @@ from sqlalchemy.orm import Session
 
 from app.models import Act, ActLearner, ImportHistory, ImportedRecord, Learner
 from app.services import parsers
-from app.services.acts import import_act_from_document
-from app.services.learners import upsert_learners_from_records
+from app.services.acts import acta_marks_por_certificar, import_act_from_document
+from app.services.learners import (
+    _prepare_learner_row,
+    set_learner_sources,
+    upsert_learners_from_records,
+)
 from app.services.records import (
     parse_records,
     prepare_records,
@@ -25,7 +30,7 @@ from app.services.records import (
 from app.services.validation import (
     TYPE_LABELS,
     ValidationResult,
-    conflicting_pairs,
+    coherence_conflicts,
     validate_file,
 )
 
@@ -40,6 +45,60 @@ class StagedImport:
 
 
 _staged_imports: dict[str, StagedImport] = {}
+
+# Estados canonicos admitidos al resolver un cruce CERTIFICADOS/PENDIENTES.
+CONFLICT_STATUSES = {"CERTIFICADOS", "PENDIENTE"}
+_CONFLICT_STATUS_LABELS = {"CERTIFICADOS": "Certificado", "PENDIENTE": "Pendiente"}
+
+
+def _conflict_resolution_map(
+    conflicts: list[dict[str, Any]],
+    raw_resolutions: list[dict[str, Any]] | None,
+) -> dict[str, str]:
+    """Valida que cada conflicto tenga una decision explicita del usuario."""
+    required = {item["identification"]: item for item in conflicts}
+    if not required:
+        return {}
+
+    resolutions: dict[str, str] = {}
+    invalid: list[str] = []
+    for item in raw_resolutions or []:
+        identification = str(item.get("identification") or "").strip()
+        status = str(item.get("status") or "").strip().upper()
+        if identification not in required:
+            continue
+        if status not in CONFLICT_STATUSES:
+            invalid.append(f"{identification}: {status or 'sin estado'}")
+            continue
+        resolutions[identification] = status
+
+    if invalid:
+        raise ValueError(
+            "Resolucion de conflicto no valida para "
+            f"{', '.join(invalid)}. Use CERTIFICADOS o PENDIENTE."
+        )
+    missing = [identification for identification in required if identification not in resolutions]
+    if missing:
+        raise ValueError(
+            f"Faltan {len(missing)} resolucion(es) de conflicto: {', '.join(missing)}. "
+            "Elija Certificado o Pendiente para cada aprendiz antes de confirmar."
+        )
+    return resolutions
+
+
+def _apply_conflict_resolutions(session: Session, resolutions: dict[str, str]) -> None:
+    """Fija el estado elegido y deja rastro en las notas de seguimiento."""
+    learners = session.scalars(
+        select(Learner).where(Learner.identification.in_(resolutions))
+    ).all()
+    for learner in learners:
+        status = resolutions[learner.identification]
+        learner.certification_status = status
+        note = f"Conflicto resuelto: {_CONFLICT_STATUS_LABELS[status]}"
+        current = (learner.tracking_notes or "").strip()
+        if note not in current:
+            learner.tracking_notes = f"{current}; {note}" if current else note
+    session.flush()
 
 
 def stage_file(file_name: str, content: bytes, information_type: str) -> StagedImport:
@@ -84,6 +143,12 @@ def import_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
         "detected_columns": staged.result.detected_columns,
         "missing_columns": staged.result.missing_columns,
         "breakdown": prepared.breakdown(),
+        "coherence_conflicts": (
+            coherence_conflicts(prepared)
+            if staged.information_type == "actas_completo"
+            else []
+        ),
+        "missing_complementaria": getattr(staged.result, "missing_complementaria", False),
     }
     if staged.information_type == "acta":
         # Una acta no se revisa como una tabla: la vista previa explica si el
@@ -99,13 +164,16 @@ def _acta_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
     act = session.scalar(select(Act).where(Act.number == number)) if number else None
 
     documents = [item.get("documento") for item in extraction.get("learners") or [] if item.get("documento")]
-    registered: set[str] = set()
+    statuses: dict[str, str | None] = {}
     if documents:
-        registered = set(
-            session.scalars(
-                select(Learner.identification).where(Learner.identification.in_(documents))
+        statuses = dict(
+            session.execute(
+                select(Learner.identification, Learner.certification_status).where(
+                    Learner.identification.in_(documents)
+                )
             ).all()
         )
+    registered = set(statuses)
     already_linked: set[str] = set()
     if act is not None:
         already_linked = set(
@@ -127,6 +195,13 @@ def _acta_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
         if document not in registered:
             not_registered.append(document)
 
+    # Cuantos aprendices quedaran en estado "Por Certificar" tras confirmar: los
+    # nuevos y los que aun no tienen estado. Los ya CERTIFICADOS o PENDIENTES del
+    # consolidado no se degradan.
+    por_certificar = sum(
+        1 for document in documents if acta_marks_por_certificar(statuses.get(document))
+    )
+
     return {
         "number": number,
         "act_date": extraction.get("act_date"),
@@ -137,6 +212,7 @@ def _acta_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
         "learners_to_link": to_link,
         "learners_already_linked": already,
         "learners_not_registered": not_registered,
+        "learners_por_certificar": por_certificar,
         "warnings": extraction.get("warnings", []),
     }
 
@@ -151,6 +227,14 @@ def _format_acta_message(result: dict[str, Any]) -> str:
         parts.append(f"{result['already_linked']} ya estaba(n) asociado(s)")
     if result["not_linked"]:
         parts.append(f"{result['not_linked']} registro(s) sin identificacion, no vinculados")
+    # Conflicto de estado: aprendices que ya figuran en el consolidado con otro
+    # estado (CERTIFICADOS/PENDIENTE) y se conservan sin degradar a Por Certificar.
+    conflicts = result.get("status_conflicts") or []
+    if conflicts:
+        parts.append(
+            f"{len(conflicts)} aprendiz(es) conservan su estado del consolidado "
+            "(no se degradan a Por Certificar)"
+        )
     return ". ".join(parts) + "."
 
 
@@ -178,13 +262,21 @@ def _format_breakdown_message(breakdown: dict[str, dict[str, int]]) -> str:
     return "Se importaron: " + ", ".join(parts) + "."
 
 
-def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
+def confirm_import(
+    validation_id: str,
+    session: Session,
+    conflict_resolutions: list[dict[str, Any]] | None = None,
+    accept_missing_complementaria: bool = False,
+) -> dict[str, Any]:
     staged = get_staged(validation_id)
     if staged is None:
         raise KeyError("La validacion ya no esta disponible. Cargue el archivo nuevamente.")
     if staged.result.status == "error":
         raise ValueError("El archivo tiene errores que impiden la importacion.")
-
+    if getattr(staged.result, "missing_complementaria", False) and not accept_missing_complementaria:
+        raise ValueError(
+            "Falta la hoja COMPLEMENTARIA. Acepte continuar sin ella o cargue otro archivo."
+        )
     try:
         prepared = prepare_records(staged.file_name, staged.content, staged.information_type)
         if not prepared.importable:
@@ -192,6 +284,13 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
                 "El archivo no contiene registros importables. Corrija los errores de "
                 "validacion antes de confirmar."
             )
+
+        conflicts = (
+            coherence_conflicts(prepared)
+            if staged.information_type == "actas_completo"
+            else []
+        )
+        resolutions = _conflict_resolution_map(conflicts, conflict_resolutions)
 
         final_records = [
             (entry.record, entry.information_type) for entry in prepared.importable
@@ -237,32 +336,53 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
                 current.row_number = row_number
                 current.payload = payload
 
+        # Politica #34: si un aprendiz figura en CERTIFICADOS y PENDIENTES,
+        # el estado final es CERTIFICADOS. Para que gane, los registros de
+        # PENDIENTES se procesan primero y los de CERTIFICADOS despues (el
+        # upsert conserva el ultimo por identificacion).
         learners_records = [
             record
-            for record, rtype in final_records
-            if rtype in {"df14a", "certificados", "pendientes"}
+            for record, rtype in sorted(
+                [(r, t) for r, t in final_records if t in {"df14a", "certificados", "pendientes"}],
+                key=lambda item: 0 if item[1] == "pendientes" else 1,
+            )
         ]
-        conflicted_identifications = set()
-        if staged.information_type == "actas_completo":
-            # Un aprendiz que aparece en CERTIFICADOS y PENDIENTES no debe
-            # recibir un estado elegido automaticamente. Sus registros se
-            # guardan, pero el estado del aprendiz se deja como estaba (o sin
-            # definir si es nuevo) hasta que una persona lo resuelva.
-            conflicted_identifications = {
-                documento for documento, _ in conflicting_pairs(prepared)
-            }
         if learners_records:
-            upsert_learners_from_records(
+            upsert_learners_from_records(session, learners_records)
+
+        if resolutions:
+            _apply_conflict_resolutions(session, resolutions)
+            history.message = (
+                f"{history.message} Conflictos resueltos manualmente: {len(resolutions)}."
+            )
+
+        # Las columnas de evidencias de CERTIFICADOS/PENDIENTES se convierten en
+        # requisitos del aprendiz (X -> Cumplido, N.A -> No aplica, vacio ->
+        # Pendiente). El motivo de no certificacion ya quedo en el aprendiz.
+        evidence_records = [
+            record
+            for record, rtype in final_records
+            if rtype in {"certificados", "pendientes"}
+        ]
+        sync_recorded_at = datetime.now(timezone.utc)
+        if evidence_records:
+            _sync_actas_requirements(
                 session,
-                learners_records,
-                skip_status_for=conflicted_identifications,
+                evidence_records,
+                source="import:actas_completo",
+                recorded_at=sync_recorded_at,
             )
 
         requisitos_records = [
             record for record, rtype in final_records if rtype == "requisitos"
         ]
         if requisitos_records:
-            _sync_requirements_from_records(session, requisitos_records)
+            _sync_requirements_from_records(
+                session,
+                requisitos_records,
+                source="import:requisitos",
+                recorded_at=sync_recorded_at,
+            )
 
         if staged.information_type == "acta":
             # El acta y sus relaciones se guardan en la misma transaccion que el
@@ -273,6 +393,10 @@ def confirm_import(validation_id: str, session: Session) -> dict[str, Any]:
                 session, extraction, staged.file_name, history.id
             )
             history.message = _format_acta_message(acta_result)
+
+        # Procedencia: se registra de que archivo/hoja salio cada aprendiz. Se
+        # acumula (union) y no reemplaza los origenes previos.
+        _register_sources(session, final_records, staged.file_name)
 
         session.commit()
         _staged_imports.pop(validation_id, None)
@@ -287,7 +411,11 @@ def import_result(history: ImportHistory) -> dict[str, Any]:
         "id": history.id,
         "file_name": history.file_name,
         "information_type": history.information_type,
-        "imported_at": history.imported_at.isoformat(),
+        "imported_at": (
+            history.imported_at.replace(tzinfo=timezone.utc).isoformat()
+            if history.imported_at is not None and history.imported_at.tzinfo is None
+            else (history.imported_at.isoformat() if history.imported_at else None)
+        ),
         "records_count": history.records_count,
         "new_records": history.new_records,
         "updated_records": history.updated_records,
@@ -354,73 +482,6 @@ def _existing_records_multi(session: Session, keys: list[str]) -> dict[str, Impo
     return {record.record_key: record for record in records}
 
 
-def _upsert_learners(records: list[dict[str, Any]], session: Session) -> None:
-    prepared_rows = [_prepare_learner_row(record) for record in records]
-    rows = [row for row in prepared_rows if row is not None]
-    if not rows:
-        return
-
-    identifications = [row["identification"] for row in rows]
-    existing = session.scalars(
-        select(Learner).where(Learner.identification.in_(identifications))
-    ).all()
-    existing_by_identification = {learner.identification: learner for learner in existing}
-
-    for row in rows:
-        learner = existing_by_identification.get(row["identification"])
-        if learner is None:
-            session.add(Learner(**row))
-            continue
-        if row.get("name") and row["name"] != "Aprendiz sin nombre":
-            learner.name = row["name"]
-        if row.get("program"):
-            learner.program = row["program"]
-        if row.get("group_code"):
-            learner.group_code = row["group_code"]
-        if row.get("training_type"):
-            learner.training_type = row["training_type"]
-        if row.get("certification_status"):
-            learner.certification_status = row["certification_status"]
-        if row.get("tracking_notes"):
-            learner.tracking_notes = row["tracking_notes"]
-
-
-def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
-    name = _first_value(
-        record,
-        "nombre",
-        "nombres",
-        "aprendiz",
-        "nombre aprendiz",
-        "nombre completo",
-        "nombre_aprendiz",
-    )
-    identification = _first_value(
-        record,
-        "identificacion",
-        "identificación",
-        "documento",
-        "numero documento",
-        "numero_documento",
-        "cedula",
-        "cédula",
-        "id",
-    )
-    if not name and not identification:
-        return None
-
-    generated_identification = identification or f"AUTO-{record_key('learner', record)[:12]}"
-    return {
-        "identification": generated_identification,
-        "name": name or "Aprendiz sin nombre",
-        "program": _first_value(record, "programa", "programa formacion", "programa de formacion"),
-        "group_code": _first_value(record, "ficha", "grupo", "codigo grupo", "codigo ficha"),
-        "training_type": _first_value(record, "tipo formacion", "modalidad"),
-        "certification_status": _first_value(record, "estado", "estado certificacion", "estado de certificacion"),
-        "tracking_notes": _first_value(record, "observaciones", "novedades", "seguimiento", "notas"),
-    }
-
-
 def _first_value(record: dict[str, Any], *candidates: str) -> str | None:
     normalized = {_normalize_key(str(key)): value for key, value in record.items()}
     for candidate in candidates:
@@ -438,10 +499,14 @@ def _normalize_key(value: str) -> str:
     return " ".join(ascii_value.lower().replace("_", " ").split())
 
 
-def _sync_requirements_from_records(session: Session, records: list[dict[str, Any]]) -> int:
-    from app.models import Requirement
+def _sync_requirements_from_records(
+    session: Session,
+    records: list[dict[str, Any]],
+    source: str = "import:requisitos",
+    recorded_at: datetime | None = None,
+) -> int:
     from app.services.parsers import clean_identification, normalize_text
-    from app.services.requirements import REQUIREMENT_TYPES
+    from app.services.requirements import REQUIREMENT_TYPES, upsert_requirement_status
 
     req_map = {
         "rap": "learning_outcome",
@@ -509,24 +574,116 @@ def _sync_requirements_from_records(session: Session, records: list[dict[str, An
         obs = norm.get("observaciones") or norm.get("novedades") or norm.get("motivo")
         obs_text = str(obs).strip() if obs and not pd.isna(obs) else None
 
-        existing_req = session.scalar(
-            select(Requirement).where(
-                Requirement.learner_id == learner.id,
-                Requirement.requirement_type == req_type,
-            )
+        upsert_requirement_status(
+            session,
+            learner_id=learner.id,
+            requirement_type=req_type,
+            status=status,
+            observations=obs_text,
+            source=source,
+            recorded_at=recorded_at,
         )
-        if existing_req is None:
-            session.add(
-                Requirement(
-                    learner_id=learner.id,
-                    requirement_type=req_type,
-                    status=status,
-                    observations=obs_text,
-                )
-            )
-        else:
-            existing_req.status = status
-            if obs_text:
-                existing_req.observations = obs_text
         count += 1
+    return count
+
+
+# Columnas de evidencias de ACTAS 2026 que se convierten en requisitos. La clave
+# es el nombre de campo interno que produce ``parsers._actas_records`` y coincide
+# con el ``requirement_type`` registrado en ``app.services.requirements``.
+_EVIDENCE_FIELDS = (
+    "biblioteca",
+    "bienestar",
+    "almacen",
+    "etapa_productiva",
+    "documento_identidad",
+    "saber_tyt",
+    "ape",
+    "carnet",
+    "certificado_empresa",
+)
+
+
+# Etiquetas de procedencia por tipo interno. Describen de que archivo/hoja salio
+# cada registro; se acumulan en el aprendiz y nunca reemplazan un origen previo.
+_SOURCE_LABELS = {
+    "certificados": "ACTAS 2026 · CERTIFICADOS",
+    "pendientes": "ACTAS 2026 · PENDIENTES",
+    "complementaria": "ACTAS 2026 · COMPLEMENTARIA",
+    "meta": "ACTAS 2026 · META",
+    "df14a": "DF14A",
+    "requisitos": "Matriz de requisitos",
+}
+
+
+def _source_label(rtype: str, record: dict[str, Any], file_name: str) -> str | None:
+    """Etiqueta legible del origen de un registro, o ``None`` si no se conoce."""
+    if rtype == "acta":
+        number = _first_value(record, "numero de acta", "acta")
+        return f"Acta {number}" if number else f"Acta oficial · {file_name}"
+    return _SOURCE_LABELS.get(rtype)
+
+
+def _register_sources(
+    session: Session, final_records: list[tuple[dict[str, Any], str]], file_name: str
+) -> None:
+    """Acumula en cada aprendiz las fuentes que lo alimentaron en esta importacion.
+
+    Solo se registra un origen conocido; si el tipo no tiene etiqueta (por
+    ejemplo documentos de apoyo) no se inventa procedencia.
+    """
+    sources: dict[str, list[str]] = {}
+    for record, rtype in final_records:
+        label = _source_label(rtype, record, file_name)
+        if not label:
+            continue
+        prepared = _prepare_learner_row(record)
+        if prepared is None:
+            continue
+        labels = sources.setdefault(prepared["identification"], [])
+        if label not in labels:
+            labels.append(label)
+    set_learner_sources(session, sources)
+
+
+def _sync_actas_requirements(
+    session: Session,
+    records: list[dict[str, Any]],
+    source: str = "import:actas_completo",
+    recorded_at: datetime | None = None,
+) -> int:
+    """Crea o actualiza los requisitos desde las columnas de evidencias del acta.
+
+    Cada columna de checklist de CERTIFICADOS/PENDIENTES es un requisito del
+    aprendiz con el estado leido en la celda: ``X`` -> Cumplido, ``N.A`` -> No
+    aplica, vacio u otro -> Pendiente. Solo se procesan las columnas que existen
+    en la hoja; una columna ausente no genera un requisito inventado.
+    """
+    from app.services.parsers import clean_identification
+    from app.services.requirements import evidence_status, upsert_requirement_status
+
+    count = 0
+    for record in records:
+        document = clean_identification(
+            _first_value(record, "numero de documento", "documento")
+        )
+        if not document:
+            continue
+        learner = session.scalar(
+            select(Learner).where(Learner.identification == document)
+        )
+        if learner is None:
+            continue
+        for field in _EVIDENCE_FIELDS:
+            if field not in record:
+                continue
+            status = evidence_status(record.get(field))
+            upsert_requirement_status(
+                session,
+                learner_id=learner.id,
+                requirement_type=field,
+                status=status,
+                source=source,
+                recorded_at=recorded_at,
+            )
+            count += 1
     return count

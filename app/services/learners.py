@@ -3,18 +3,73 @@ from __future__ import annotations
 import json
 # Se importa hashlib para generar identificadores automáticos únicos para aprendices sin identificación proporcionada. Esto asegura que cada aprendiz pueda ser identificado de manera consistente incluso si no se proporciona un número de identificación explícito.
 import hashlib
+# Se importa re para comparar nombres de programa ignorando el espaciado.
+import re
 # Se importa unicodedata para normalizar cadenas de texto, eliminando acentos y caracteres especiales, lo que facilita la comparación y búsqueda de datos.
 from unicodedata import normalize
 # Se importa Any del módulo typing para indicar que una variable puede ser de cualquier tipo, lo que es útil para funciones que devuelven datos heterogéneos.
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, inspect, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import Act, ActLearner, ImportedRecord, Learner
-from app.services.requirements import editor_requirements
+from app.models import Act, ActLearner, ImportedRecord, Learner, Requirement
+from app.services.parsers import normalize_learner_name, normalize_program_name
+from app.services.requirements import (
+    REQUIREMENT_TYPES,
+    editor_requirements,
+    list_requirement_history,
+)
 
 POR_CERTIFICAR_STATUS = "Por Certificar"
+
+
+def parse_sources(value: str | None) -> list[str]:
+    """Devuelve la lista de fuentes guardada en ``data_sources`` (JSON).
+
+    Un valor vacío, nulo o ilegible se trata como "sin origen registrado": no se
+    inventa de qué archivo salió un aprendiz antiguo.
+    """
+    if not value:
+        return []
+    try:
+        data = json.loads(value)
+    except (TypeError, ValueError):
+        return []
+    if isinstance(data, list):
+        return [str(item) for item in data if str(item).strip()]
+    return []
+
+
+def serialize_sources(sources: list[str]) -> str:
+    return json.dumps(sources, ensure_ascii=False)
+
+
+def set_learner_sources(
+    session: Session, sources_by_identification: dict[str, list[str]]
+) -> None:
+    """Agrega fuentes de origen a los aprendices indicados sin borrar las previas.
+
+    La procedencia se acumula: si un aprendiz ya venía de ACTAS 2026 · PENDIENTES
+    y luego aparece en DF14A, conserva ambas etiquetas.
+    """
+    if not sources_by_identification:
+        return
+    # Los aprendices pueden haberse creado en esta misma transaccion (autoflush
+    # desactivado en algunos entornos): se fuerza el flush para poder consultarlos.
+    session.flush()
+    learners = session.scalars(
+        select(Learner).where(
+            Learner.identification.in_(list(sources_by_identification))
+        )
+    ).all()
+    for learner in learners:
+        merged = parse_sources(learner.data_sources)
+        for label in sources_by_identification[learner.identification]:
+            if label and label not in merged:
+                merged.append(label)
+        if merged:
+            learner.data_sources = serialize_sources(merged)
 
 
 def list_learners(
@@ -23,6 +78,7 @@ def list_learners(
     status: str = "",
     page: int = 1,
     page_size: int = 25,
+    missing_requirement: str | list[str] = "",
 ) -> dict[str, Any]:
     learner_count = session.scalar(select(func.count()).select_from(Learner)) or 0
     if learner_count == 0:
@@ -41,7 +97,34 @@ def list_learners(
             )
         )
     if status.strip():
-        filters.append(Learner.certification_status.ilike(status.strip()))
+        if status.strip().lower() == "sin estado":
+            filters.append(
+                or_(
+                    Learner.certification_status.is_(None),
+                    func.trim(Learner.certification_status) == "",
+                )
+            )
+        else:
+            filters.append(Learner.certification_status.ilike(status.strip()))
+    missing_values = (
+        [missing_requirement]
+        if isinstance(missing_requirement, str)
+        else list(missing_requirement)
+    )
+    missing_values = [
+        value.strip().lower() for value in missing_values if value and value.strip()
+    ]
+    if missing_values:
+        # Muestra aprendices con al menos uno de los requisitos seleccionados en
+        # estado Pendiente. Se usa una subconsulta para no recorrer fila por fila.
+        filters.append(
+            Learner.id.in_(
+                select(Requirement.learner_id).where(
+                    func.lower(Requirement.requirement_type).in_(missing_values),
+                    func.lower(Requirement.status) == "pendiente",
+                )
+            )
+        )
     query = select(Learner).order_by(Learner.name.asc(), Learner.id.asc())
     count_query = select(func.count()).select_from(Learner)
     if filters:
@@ -53,11 +136,32 @@ def list_learners(
         .select_from(Learner)
         .where(func.lower(Learner.certification_status) == POR_CERTIFICAR_STATUS.lower())
     ) or 0
+    # Conteos globales por estado (independientes de pagina y filtros) para los
+    # chips del listado. No se normalizan los valores: se muestran los mismos
+    # strings que guarda la BD y que usa el selector de estado.
+    status_counts: list[dict[str, Any]] = []
+    sin_estado = 0
+    for status_value, count in session.execute(
+        select(Learner.certification_status, func.count(Learner.id)).group_by(
+            Learner.certification_status
+        )
+    ).all():
+        if status_value is None or not str(status_value).strip():
+            sin_estado += count
+        else:
+            status_counts.append({"status": str(status_value), "count": count})
+    if sin_estado:
+        status_counts.append({"status": "Sin estado", "count": sin_estado})
+    status_counts.sort(key=lambda item: (item["status"].lower(), item["status"]))
     learners = session.scalars(
         query.offset((page - 1) * page_size).limit(page_size)
     ).all()
+    summaries = _requirements_summary(session, [learner.id for learner in learners])
     return {
-        "items": [learner_result(learner) for learner in learners],
+        "items": [
+            learner_result(learner, _summary(learner.id, summaries))
+            for learner in learners
+        ],
         "statuses": [
             value
             for value in session.scalars(
@@ -68,6 +172,8 @@ def list_learners(
             ).all()
             if value
         ],
+        "requirement_types": REQUIREMENT_TYPES,
+        "status_counts": status_counts,
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -76,7 +182,31 @@ def list_learners(
     }
 
 
-def learner_result(learner: Learner) -> dict[str, Any]:
+def learners_with_pending(session: Session) -> list[dict[str, Any]]:
+    """Aprendices con al menos un requisito en Pendiente.
+
+    Reutiliza el mismo formato del listado (origen, motivo y resumen de
+    requisitos) para que la tabla se pinte igual desde cualquier vista y sin una
+    consulta por fila.
+    """
+    learner_ids = session.scalars(
+        select(Requirement.learner_id)
+        .where(func.lower(Requirement.status) == "pendiente")
+        .distinct()
+    ).all()
+    if not learner_ids:
+        return []
+    learners = session.scalars(
+        select(Learner).where(Learner.id.in_(learner_ids)).order_by(Learner.name.asc())
+    ).all()
+    summaries = _requirements_summary(session, [learner.id for learner in learners])
+    return [learner_result(learner, _summary(learner.id, summaries)) for learner in learners]
+
+
+def learner_result(
+    learner: Learner, summary: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    summary = summary or {"pending": [], "fulfilled_count": 0, "na_count": 0}
     return {
         "id": learner.id,
         "identification": learner.identification,
@@ -85,7 +215,61 @@ def learner_result(learner: Learner) -> dict[str, Any]:
         "group_code": learner.group_code,
         "training_type": learner.training_type,
         "certification_status": learner.certification_status,
+        # Motivo de no certificacion (PENDIENTES) y datos de seguimiento. El
+        # motivo es el "porque" resumido, distinto de los requisitos y del estado.
+        "non_certification_reason": learner.non_certification_reason,
+        "certification_month": learner.certification_month,
+        "instructor": learner.instructor,
+        "act_number": learner.act_number,
+        "email": learner.email,
+        "phone": learner.phone,
+        # Procedencia: archivo(s)/hoja(s) que alimentaron al aprendiz.
+        "data_sources": parse_sources(learner.data_sources),
+        # Conteo real de requisitos en Pendiente (0 si no tiene ninguno).
+        "pending_count": len(summary.get("pending", [])),
+        "requirements_summary": summary,
     }
+
+
+def _empty_summary() -> dict[str, Any]:
+    return {"pending": [], "fulfilled_count": 0, "na_count": 0}
+
+
+def _summary(learner_id: int, summaries: dict[int, dict[str, Any]]) -> dict[str, Any]:
+    return summaries.get(learner_id) or _empty_summary()
+
+
+def _requirements_summary(
+    session: Session, learner_ids: list[int]
+) -> dict[int, dict[str, Any]]:
+    """Resumen de requisitos por aprendiz en una sola consulta.
+
+    ``pending`` lleva las etiquetas legibles de los requisitos en estado
+    Pendiente; ``fulfilled_count`` y ``na_count`` cuentan Cumplido y No aplica.
+    Evita una consulta por fila al renderizar el listado.
+    """
+    if not learner_ids:
+        return {}
+    rows = session.execute(
+        select(
+            Requirement.learner_id,
+            Requirement.requirement_type,
+            Requirement.status,
+        ).where(Requirement.learner_id.in_(learner_ids))
+    ).all()
+    summaries: dict[int, dict[str, Any]] = {}
+    for learner_id, requirement_type, status_value in rows:
+        bucket = summaries.setdefault(learner_id, _empty_summary())
+        normalized = str(status_value or "").strip().lower()
+        if normalized == "pendiente":
+            bucket["pending"].append(
+                REQUIREMENT_TYPES.get(requirement_type or "", requirement_type)
+            )
+        elif normalized == "cumplido":
+            bucket["fulfilled_count"] += 1
+        elif normalized == "no aplica":
+            bucket["na_count"] += 1
+    return summaries
 
 
 def get_learner_detail(session: Session, learner_id: int) -> dict[str, Any] | None:
@@ -93,9 +277,11 @@ def get_learner_detail(session: Session, learner_id: int) -> dict[str, Any] | No
     if learner is None:
         return None
     requirements = editor_requirements(session, learner_id)
+    summary = _requirements_summary(session, [learner_id]).get(learner_id) or _empty_summary()
     return {
-        "basic_info": learner_result(learner),
+        "basic_info": learner_result(learner, summary),
         "requirements": requirements or [],
+        "requirement_history": list_requirement_history(session, learner_id) or [],
         "acts": learner_acts(session, learner_id),
         # Pendiente de definición funcional: ImportHistory/ImportedRecord no tienen
         # relación con Learner, así que no se atribuyen importaciones al aprendiz.
@@ -136,7 +322,21 @@ def sync_learners_from_imports(session: Session) -> int:
         .where(ImportedRecord.information_type == "df14a")
         .order_by(ImportedRecord.id.asc())
     ).all()
-    return upsert_learners_from_records(session, [json.loads(record.payload) for record in records])
+    payloads = [json.loads(record.payload) for record in records]
+    updated = upsert_learners_from_records(session, payloads)
+    if updated:
+        # Al rehidratar la tabla de aprendices desde el historial, se conserva la
+        # procedencia real: esos registros vienen de DF14A.
+        sources: dict[str, list[str]] = {}
+        for record in payloads:
+            prepared = _prepare_learner_row(record)
+            if prepared is None:
+                continue
+            labels = sources.setdefault(prepared["identification"], [])
+            if "DF14A" not in labels:
+                labels.append("DF14A")
+        set_learner_sources(session, sources)
+    return updated
 
 
 def upsert_learners_from_records(
@@ -171,14 +371,67 @@ def upsert_learners_from_records(
     for row in prepared_rows:
         ident = row["identification"]
         if ident not in seen:
-            seen[ident] = True
+            seen[ident] = len(deduplicated_rows)
             deduplicated_rows.append(row)
+        else:
+            # Politica #34: si el mismo aprendiz aparece en varias hojas
+            # (CERTIFICADOS despues de PENDIENTES), el ultimo registro gana el
+            # estado final. Se reemplaza la fila previa en su posicion.
+            deduplicated_rows[seen[ident]] = row
 
     identifications = [row["identification"] for row in deduplicated_rows]
     existing = session.scalars(
         select(Learner).where(Learner.identification.in_(identifications))
     ).all()
     existing_by_identification = {learner.identification: learner for learner in existing}
+
+    # Heurística #53: sanar programas y nombres fragmentados usando otros registros ya limpios en la BD
+    unique_programs = {row["program"] for row in deduplicated_rows if row.get("program")}
+    if unique_programs:
+        program_clean_map = {}
+        for prog in unique_programs:
+            slug = re.sub(r"\s+", "", prog)
+            if len(slug) < 5:
+                continue
+            # Buscamos en la BD un programa con el mismo slug pero menos fragmentos (espacios)
+            cleaner = session.execute(
+                select(Learner.program)
+                .where(func.replace(Learner.program, " ", "") == slug)
+                .order_by(func.length(Learner.program).asc())
+                .limit(1)
+            ).scalar()
+            if cleaner and len(cleaner.split()) < len(prog.split()):
+                program_clean_map[prog] = cleaner
+
+        if program_clean_map:
+            for row in deduplicated_rows:
+                if row.get("program") in program_clean_map:
+                    row["program"] = program_clean_map[row["program"]]
+
+    unique_names = {
+        row["name"]
+        for row in deduplicated_rows
+        if row.get("name") and row["name"] != "Aprendiz sin nombre"
+    }
+    if unique_names:
+        name_clean_map = {}
+        for nm in unique_names:
+            slug = re.sub(r"\s+", "", nm)
+            if len(slug) < 5:
+                continue
+            cleaner = session.execute(
+                select(Learner.name)
+                .where(func.replace(Learner.name, " ", "") == slug)
+                .order_by(func.length(Learner.name).asc())
+                .limit(1)
+            ).scalar()
+            if cleaner and len(cleaner.split()) < len(nm.split()):
+                name_clean_map[nm] = cleaner
+
+        if name_clean_map:
+            for row in deduplicated_rows:
+                if row.get("name") in name_clean_map:
+                    row["name"] = name_clean_map[row["name"]]
 
     updated = 0
     for row in deduplicated_rows:
@@ -195,6 +448,8 @@ def upsert_learners_from_records(
                 continue
             if field == "name" and value == "Aprendiz sin nombre" and learner.name and learner.name != "Aprendiz sin nombre":
                 continue
+            if field in ("program", "name") and _text_is_weaker(getattr(learner, field), value):
+                continue
             if getattr(learner, field) != value:
                 setattr(learner, field, value)
                 changed = True
@@ -202,6 +457,30 @@ def upsert_learners_from_records(
             updated += 1
     session.flush()
     return updated
+
+
+def _text_is_weaker(existing: str | None, incoming: str | None) -> bool:
+    """Indica si ``incoming`` es una version mas fragmentada del texto.
+
+    Un acta PDF puede partir el nombre en varias lineas ("OPERACION ES COMERCIAL
+    ES") mientras que el consolidado trae la forma limpia ("OPERACIONES
+    COMERCIALES"). Cuando al quitar los espacios ambas formas coinciden, se
+    conserva la que tiene menos fragmentos; tambien se conserva la existente si
+    el valor entrante es solo una parte de ella. Asi una fuente menos limpia no
+    degrada un programa o nombre ya guardado.
+    """
+    if not existing or not incoming:
+        return False
+    existing_slug = re.sub(r"[\s.,]+", "", existing)
+    incoming_slug = re.sub(r"[\s.,]+", "", incoming)
+    if not incoming_slug:
+        return True
+    if existing_slug == incoming_slug:
+        return len(incoming.split()) > len(existing.split())
+    return incoming_slug in existing_slug
+
+
+_program_is_weaker = _text_is_weaker
 
 
 def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
@@ -212,6 +491,8 @@ def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
         full_name = f"{name} {apellidos}".strip()
     else:
         full_name = name or apellidos
+    
+    full_name = normalize_learner_name(full_name)
     identification = _first_value(
         normalized,
         "numero de documento",
@@ -224,7 +505,9 @@ def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
         "identificacion",
         "cedula",
     )
-    program = _first_value(normalized, "programa", "programa de formacion", "programa formacion")
+    program = normalize_program_name(
+        _first_value(normalized, "programa", "programa de formacion", "programa formacion")
+    )
     group_code = _first_value(normalized, "ficha", "codigo ficha", "grupo")
     training_type = _first_value(
         normalized,
@@ -242,6 +525,14 @@ def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
     )
     email = _first_value(normalized, "correo", "correo electronico")
     act_number = _first_value(normalized, "acta", "numero de acta")
+    # Motivo de no certificacion (hoja PENDIENTES) y datos de seguimiento. Se
+    # guardan tal como vienen en el archivo: no se inventa ni se resume el motivo.
+    non_certification_reason = _first_value(
+        normalized, "motivo de no certificacion", "motivo"
+    )
+    certification_month = _first_value(normalized, "mes de certificacion")
+    instructor = _first_value(normalized, "instructor de seguimiento", "instructor")
+    phone = _first_value(normalized, "telefono", "celular")
     notes_parts = [p for p in (email, f"Acta: {act_number}" if act_number else None) if p]
     tracking_notes = "; ".join(notes_parts) if notes_parts else _first_value(
         normalized, "observaciones", "novedades", "seguimiento"
@@ -257,6 +548,12 @@ def _prepare_learner_row(record: dict[str, Any]) -> dict[str, Any] | None:
         "group_code": group_code,
         "training_type": training_type,
         "certification_status": certification_status,
+        "non_certification_reason": non_certification_reason,
+        "certification_month": certification_month,
+        "instructor": instructor,
+        "act_number": act_number,
+        "email": email,
+        "phone": phone,
         "tracking_notes": tracking_notes,
     }
 
@@ -289,3 +586,41 @@ def _clean_identification(value: str) -> str:
         if suffix.isdigit():
             return suffix
     return cleaned
+
+
+def renormalize_persisted_learners(session: Session) -> int:
+    """Re-aplica la normalización y saneamiento a nombres y programas ya guardados."""
+    try:
+        bind = session.get_bind()
+        if not inspect(bind).has_table("learners"):
+            return 0
+        learners = session.scalars(select(Learner)).all()
+    except Exception:
+        return 0
+    updated = 0
+    for learner in learners:
+        changed = False
+        if learner.name:
+            healed_name = normalize_learner_name(learner.name)
+            if healed_name and healed_name != learner.name:
+                learner.name = healed_name
+                changed = True
+        if learner.program:
+            healed_prog = normalize_program_name(learner.program)
+            if healed_prog and healed_prog != learner.program:
+                learner.program = healed_prog
+                changed = True
+        if changed:
+            updated += 1
+    if updated > 0:
+        session.flush()
+    return updated
+
+
+if __name__ == "__main__":
+    from app.database import SessionLocal
+
+    with SessionLocal() as s:
+        count = renormalize_persisted_learners(s)
+        s.commit()
+        print(f"Aprendices renormalizados: {count}")

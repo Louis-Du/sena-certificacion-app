@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [desarrollo, main, master]
+  push:
+    branches: [desarrollo, main, master]
+
+jobs:
+  unit:
+    name: Pytest (sin E2E)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ejecutar pytest
+        env:
+          DATABASE_URL: "sqlite:///:memory:"
+        run: pytest
+        # pytest.ini ya ignora tests/e2e
+
+  e2e:
+    name: Playwright E2E
+    runs-on: ubuntu-latest
+    needs: unit
+    # Solo en push a desarrollo/main; en PR puedes quitar el if para exigirlo siempre
+    if: github.event_name == 'push'
+    timeout-minutes: 35
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: Ejecutar E2E
+        env:
+          DATABASE_URL: "sqlite:///:memory:"
+        run: pytest tests/e2e -m e2e -q --tb=short
