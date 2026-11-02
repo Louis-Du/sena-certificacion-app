@@ -2190,11 +2190,15 @@ a {
   border-bottom: 0;
 }
 
+.origin-cell-wrapper {
+  min-width: 150px;
+}
+
 .origin-cell {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-width: 150px;
+  min-width: 0;
 }
 
 .origin-label {

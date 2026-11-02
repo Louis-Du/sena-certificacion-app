@@ -134,6 +134,15 @@ def test_list_distinguishes_missing_matrix_and_exposes_filters(
     assert "Sin requisitos registrados" not in complete_cell.text_content()
     assert complete_cell.locator(".pending-count-badge").count() == 0
 
+    # La celda de Origen debe seguir siendo table-cell: si se convierte en flex,
+    # su borde inferior no cubre la altura de la fila y la linea se descuadra.
+    origin_wrapper = complete_row.locator(".origin-cell-wrapper")
+    assert origin_wrapper.evaluate("el => getComputedStyle(el).display") == "table-cell"
+    cell_heights = complete_row.locator("td").evaluate_all(
+        "cells => cells.map(cell => Math.round(cell.getBoundingClientRect().height))"
+    )
+    assert len(set(cell_heights)) == 1
+
     # Error 8: el antiguo "Info" ahora dice qué muestra.
     resumen = complete_row.locator(".info-button")
     assert resumen.text_content().strip() == "Resumen"
