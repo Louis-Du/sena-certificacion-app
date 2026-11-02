@@ -949,7 +949,11 @@ function updateRequirementsPanelSubtitle(summary) {
 
 function renderOriginCell(item, row) {
   const cell = document.createElement("td");
-  cell.className = "origin-cell";
+  cell.className = "origin-cell-wrapper";
+  // El flex debe ir en un div interno: aplicar display:flex al td lo saca del
+  // layout de tabla y rompe la linea inferior de la fila.
+  const content = document.createElement("div");
+  content.className = "origin-cell";
   const sources = item.data_sources || [];
   const label = document.createElement("span");
   label.className = "origin-label";
@@ -965,7 +969,8 @@ function renderOriginCell(item, row) {
     event.stopPropagation();
     toggleLearnerSummary(row, item, info);
   });
-  cell.append(label, info);
+  content.append(label, info);
+  cell.appendChild(content);
   return cell;
 }
 
