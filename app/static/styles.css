@@ -3419,10 +3419,113 @@ a {
   line-height: 1.35;
 }
 
-/* Requisitos: filas compactas. Una sola línea cuando la tarjeta es ancha;
-   si no, el nombre pasa arriba y los controles quedan en la línea siguiente. */
+/* Requisitos: el compacto es un tablero de estado; el expandido conserva el editor. */
 .learner-card-requirements {
   container: reqcard / inline-size;
+}
+
+.requirements-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.requirements-panel-header h3 {
+  margin: 0 0 4px;
+  font-size: var(--text-md);
+  font-weight: 750;
+}
+
+.requirements-panel-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.requirements-panel-header button {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 7px 12px;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+.requirements-compact {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #d5e5e2;
+  border-radius: 12px;
+  background: #f0fdfa;
+}
+
+.requirements-compact[hidden],
+.requirements-expanded[hidden] {
+  display: none;
+}
+
+.requirements-summary-section {
+  display: grid;
+  gap: 6px;
+}
+
+.requirements-summary-section > strong {
+  color: var(--ink-soft);
+  font-size: var(--text-xs);
+}
+
+.requirements-summary-section.is-pending > strong {
+  color: #92400e;
+}
+
+.requirements-summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.requirements-summary-chip,
+.requirements-summary-more {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-weight: 650;
+}
+
+.requirements-summary-chip {
+  background: #fff;
+  border: 1px solid var(--line-strong);
+}
+
+.requirements-summary-section.is-pending .requirements-summary-chip {
+  background: var(--warning-soft);
+  border-color: #f0c36d;
+  color: #92400e;
+}
+
+.requirements-summary-section.is-fulfilled .requirements-summary-chip {
+  background: var(--success-soft);
+  border-color: #a7f3d0;
+  color: #065f46;
+}
+
+.requirements-summary-section.is-na .requirements-summary-chip {
+  color: var(--muted);
+}
+
+.requirements-summary-more,
+.requirements-summary-empty {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.requirements-expanded {
+  padding-top: 2px;
 }
 
 .requirements-editor {
@@ -3550,12 +3653,6 @@ a {
 
 .requirements-editor .requirement-feedback:empty {
   display: none;
-}
-
-.requirements-toggle {
-  justify-self: start;
-  margin-top: 4px;
-  box-shadow: none;
 }
 
 /* Historial tipo tabla */

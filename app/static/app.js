@@ -69,6 +69,9 @@ const learnerTracking = document.querySelector("#learner-tracking");
 const learnerSourcesSection = document.querySelector("#learner-sources-section");
 const learnerSources = document.querySelector("#learner-sources");
 const learnerRequirements = document.querySelector("#learner-requirements");
+const learnerRequirementsCompact = document.querySelector("#learner-requirements-compact");
+const learnerRequirementsExpanded = document.querySelector("#learner-requirements-expanded");
+const toggleRequirements = document.querySelector("#toggle-requirements");
 const learnerRequirementsSubtitle = document.querySelector("#learner-requirements-subtitle");
 const learnerRequirementHistory = document.querySelector("#learner-requirement-history");
 const learnerMoreData = document.querySelector("#learner-more-data");
@@ -76,8 +79,6 @@ const learnerExtra = document.querySelector("#learner-extra");
 const viewLinks = document.querySelectorAll("[data-view]");
 const views = document.querySelectorAll(".app-view");
 const maxFileSize = 20 * 1024 * 1024;
-const requirementsCollapsedLimit = 6;
-const requirementsPreferenceKey = "sena-certificacion-requirements-expanded";
 const actForm = document.querySelector("#act-form");
 const actList = document.querySelector("#acts-list");
 const actSearch = document.querySelector("#act-search");
@@ -948,6 +949,8 @@ function requirementStatusClass(status) {
 function summarizeRequirementItems(items) {
   const list = items || [];
   const pending = [];
+  const fulfilledNames = [];
+  const naNames = [];
   let fulfilled = 0;
   let na = 0;
   list.forEach((item) => {
@@ -956,15 +959,19 @@ function summarizeRequirementItems(items) {
       pending.push(item.label || item.requirement_type || "Requisito");
     } else if (normalized === "cumplido") {
       fulfilled += 1;
+      fulfilledNames.push(item.label || item.requirement_type || "Requisito");
     } else if (normalized === "no aplica") {
       na += 1;
+      naNames.push(item.label || item.requirement_type || "Requisito");
     }
   });
   return {
     total: list.length,
     pending,
     fulfilled,
+    fulfilledNames,
     na,
+    naNames,
     applicable: list.length - na,
     complete: list.length > 0 && pending.length === 0,
   };
@@ -1059,6 +1066,71 @@ function updateRequirementsPanelSubtitle(summary) {
   learnerRequirementsSubtitle.textContent = summary.total
     ? requirementCountsText(summary)
     : "Sin requisitos registrados.";
+}
+
+function renderRequirementSummary(items) {
+  if (!learnerRequirementsCompact) return;
+  const summary = summarizeRequirementItems(items);
+  learnerRequirementsCompact.replaceChildren();
+  if (!summary.total) {
+    const empty = document.createElement("p");
+    empty.className = "empty-detail";
+    empty.textContent = "Sin requisitos registrados.";
+    learnerRequirementsCompact.appendChild(empty);
+    return;
+  }
+
+  const sections = [
+    {
+      label: "Pendientes",
+      names: summary.pending,
+      empty: "Ninguno pendiente",
+      className: "is-pending",
+    },
+    {
+      label: "Cumplidos",
+      names: summary.fulfilledNames,
+      empty: "Ninguno cumplido",
+      className: "is-fulfilled",
+    },
+    {
+      label: "No aplica",
+      names: summary.naNames,
+      empty: "Ninguno",
+      className: "is-na",
+    },
+  ];
+  sections.forEach(({label, names, empty, className}) => {
+    const section = document.createElement("section");
+    section.className = `requirements-summary-section ${className}`;
+    const heading = document.createElement("strong");
+    heading.textContent = label;
+    section.appendChild(heading);
+    if (!names.length) {
+      const message = document.createElement("span");
+      message.className = "requirements-summary-empty";
+      message.textContent = empty;
+      section.appendChild(message);
+    } else {
+      const namesList = document.createElement("div");
+      namesList.className = "requirements-summary-chips";
+      const visibleNames = names.slice(0, 5);
+      visibleNames.forEach((name) => {
+        const chip = document.createElement("span");
+        chip.className = "requirements-summary-chip";
+        chip.textContent = name;
+        namesList.appendChild(chip);
+      });
+      if (names.length > visibleNames.length) {
+        const remaining = document.createElement("span");
+        remaining.className = "requirements-summary-more";
+        remaining.textContent = `y ${names.length - visibleNames.length} más`;
+        namesList.appendChild(remaining);
+      }
+      section.appendChild(namesList);
+    }
+    learnerRequirementsCompact.appendChild(section);
+  });
 }
 
 function renderOriginCell(item, row) {
@@ -1406,7 +1478,6 @@ function renderRequirementEditor(items) {
   learnerRequirements.replaceChildren();
   if (!items.length) {
     learnerRequirements.innerHTML = "<p class=\"empty-detail\">Sin requisitos registrados.</p>";
-    updateRequirementsPanelSubtitle(summarizeRequirementItems(items));
     return;
   }
 
@@ -1469,6 +1540,7 @@ function renderRequirementEditor(items) {
           await fetch(`/api/learners/${window.currentLearnerId}`),
         );
         renderRequirementHistory(detail.requirement_history);
+        renderRequirementSummary(detail.requirements);
         updateRequirementsPanelSubtitle(summarizeRequirementItems(detail.requirements));
         feedback.textContent = "Guardado.";
       } catch (error) {
@@ -1477,44 +1549,29 @@ function renderRequirementEditor(items) {
     });
     learnerRequirements.appendChild(form);
   });
-  if (ordered.length > requirementsCollapsedLimit) {
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "requirements-toggle cancel-button";
-    toggle.setAttribute("aria-expanded", "false");
-    toggle.textContent = `Ver todos los requisitos (${ordered.length})`;
-    learnerRequirements.appendChild(toggle);
+}
 
-    let expanded = false;
-    try {
-      expanded = window.sessionStorage.getItem(requirementsPreferenceKey) === "true";
-    } catch (error) {
-      expanded = false;
-    }
-    const updateCollapse = () => {
-      learnerRequirements
-        .querySelectorAll(".requirement-editor")
-        .forEach((form, index) => {
-          form.hidden = !expanded && index >= requirementsCollapsedLimit;
-        });
-      toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
-      toggle.textContent = expanded
-        ? "Recoger requisitos"
-        : `Ver todos los requisitos (${ordered.length})`;
-    };
-    toggle.addEventListener("click", () => {
-      expanded = !expanded;
-      try {
-        window.sessionStorage.setItem(requirementsPreferenceKey, String(expanded));
-      } catch (error) {
-        // La preferencia es opcional; el control sigue funcionando aunque el
-        // navegador bloquee sessionStorage.
-      }
-      updateCollapse();
-    });
-    updateCollapse();
-  }
-  updateRequirementsPanelSubtitle(summarizeRequirementItems(ordered));
+function renderRequirementsPanel(items) {
+  const list = items || [];
+  const summary = summarizeRequirementItems(list);
+  renderRequirementSummary(list);
+  renderRequirementEditor(list);
+  updateRequirementsPanelSubtitle(summary);
+  if (!toggleRequirements || !learnerRequirementsExpanded) return;
+
+  const hasRequirements = summary.total > 0;
+  toggleRequirements.hidden = !hasRequirements;
+  toggleRequirements.setAttribute("aria-expanded", "false");
+  toggleRequirements.textContent = `Ver todos (${summary.total})`;
+  learnerRequirementsExpanded.hidden = true;
+  learnerRequirementsCompact.hidden = false;
+  toggleRequirements.onclick = () => {
+    const expanded = toggleRequirements.getAttribute("aria-expanded") === "true";
+    toggleRequirements.setAttribute("aria-expanded", expanded ? "false" : "true");
+    toggleRequirements.textContent = expanded ? `Ver todos (${summary.total})` : "Recoger";
+    learnerRequirementsExpanded.hidden = expanded;
+    learnerRequirementsCompact.hidden = !expanded;
+  };
 }
 
 function requirementSourceLabel(source) {
@@ -1652,7 +1709,7 @@ async function loadLearnerDetail(learnerId) {
     fillDetailList(learnerSources, [
       ["Fuente(s) de origen", sources.length ? sources.join(" · ") : "Desconocido"],
     ]);
-    renderRequirementEditor(result.requirements);
+    renderRequirementsPanel(result.requirements);
     renderRequirementHistory(result.requirement_history);
     const dates = result.dates || {};
     const extraEntries = [
