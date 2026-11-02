@@ -17,6 +17,10 @@ const validationMessage = document.querySelector("#validation-message");
 const validationStatus = document.querySelector("#validation-status");
 const validationChecks = document.querySelector("#validation-checks");
 const cargaView = document.querySelector("#carga-view");
+const importSuccessBanner = document.querySelector("#import-success-banner");
+const importSuccessMeta = document.querySelector("#import-success-meta");
+const newImportButton = document.querySelector("#new-import-button");
+const viewImportedButton = document.querySelector("#view-imported-button");
 const stepsNav = document.querySelector(".steps");
 const stepElements = stepsNav ? [...stepsNav.querySelectorAll(".step")] : [];
 const confirmationPanel = document.querySelector("#confirmation-panel");
@@ -87,6 +91,13 @@ const actLearners = document.querySelector("#act-learners");
 const actLearnerForm = document.querySelector("#act-learner-form");
 let currentActId = null;
 
+const importSuccessViews = {
+  acta: { view: "actas", label: "Ver actas" },
+  actas_completo: { view: "aprendices", label: "Ver aprendices" },
+  df14a: { view: "aprendices", label: "Ver aprendices" },
+  requisitos: { view: "aprendices", label: "Ver aprendices" },
+};
+
 const extensionsByType = {
   actas_completo: [".xlsx", ".xls"],
   df14a: [".xlsx", ".xls", ".csv", ".xml"],
@@ -154,6 +165,66 @@ function setCargaStep(etapa) {
       step.removeAttribute("aria-current");
     }
   });
+}
+
+function resetImportSuccessUI() {
+  cargaView.classList.remove("is-import-success");
+  importSuccessBanner.hidden = true;
+  importSuccessMeta.textContent = "";
+  viewImportedButton.hidden = true;
+  viewImportedButton.textContent = "";
+  delete viewImportedButton.dataset.viewTarget;
+}
+
+function setImportSuccessUI(result) {
+  const records = Number(result?.records_count || 0);
+  const fileNameValue = result?.file_name || selectedFile?.name || "Archivo importado";
+  const countText = selectedType === "acta"
+    ? `${records} ${records === 1 ? "aprendiz vinculado" : "aprendices vinculados"}`
+    : `${records} ${records === 1 ? "registro procesado" : "registros procesados"}`;
+  const meta = [fileNameValue, countText];
+  const newRecords = Number(result?.new_records || 0);
+  const updatedRecords = Number(result?.updated_records || 0);
+  const warningCount = Number(result?.warning_count || 0);
+  if (newRecords) meta.push(`+${newRecords} nuevos`);
+  if (updatedRecords) meta.push(`${updatedRecords} actualizados`);
+  if (warningCount) meta.push(`${warningCount} advertencias`);
+  importSuccessMeta.textContent = meta.join(" · ");
+
+  const destination = importSuccessViews[selectedType];
+  if (destination) {
+    viewImportedButton.textContent = destination.label;
+    viewImportedButton.dataset.viewTarget = destination.view;
+    viewImportedButton.hidden = false;
+  } else {
+    viewImportedButton.hidden = true;
+  }
+
+  cargaView.classList.add("is-import-success");
+  importSuccessBanner.hidden = false;
+  setCargaStep("completado");
+  // El modal se cierra cuando confirmButton pasa a hidden; esperamos ese ciclo
+  // para llevar el foco al banner y que el lector de pantalla anuncie el cierre.
+  window.setTimeout(() => {
+    if (cargaView.classList.contains("is-import-success")) {
+      importSuccessBanner.focus({ preventScroll: false });
+    }
+  }, 120);
+}
+
+function startNewImport() {
+  // Solo se limpia el estado de UI. El tipo de informacion se conserva para
+  // que una segunda carga del mismo formato sea inmediata.
+  clearFile();
+  clearFeedback();
+  resetImportSuccessUI();
+  fileName.textContent = "";
+  fileDetails.textContent = "";
+  validationMessage.textContent = "";
+  validationStatus.textContent = "";
+  validationStatus.className = "result-badge";
+  validationChecks.replaceChildren();
+  window.setTimeout(() => dropZone.focus(), 0);
 }
 
 function hideReview() {
@@ -550,7 +621,7 @@ async function confirmImport() {
     fileStatus.textContent = "IMPORTACION COMPLETA";
     showFeedback(`${result.message} ${result.records_count} registros procesados.`);
     confirmButton.hidden = true;
-    setCargaStep("completado");
+    setImportSuccessUI(result);
     await loadHistory();
     await loadLearners();
   } catch (error) {
@@ -2128,6 +2199,11 @@ removeButton.addEventListener("click", clearFile);
 cancelButton.addEventListener("click", () => { clearFile(); clearFeedback(); resetSelection(); });
 validateButton.addEventListener("click", validateFile);
 confirmButton.addEventListener("click", confirmImport);
+newImportButton.addEventListener("click", startNewImport);
+viewImportedButton.addEventListener("click", () => {
+  const target = viewImportedButton.dataset.viewTarget;
+  if (target) showView(target);
+});
 acceptMissingComplementaria.addEventListener("change", updateCoherenceState);
 resetSelection();
 loadHistory();

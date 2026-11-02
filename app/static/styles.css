@@ -438,6 +438,88 @@ a {
   align-items: start;
 }
 
+/* ---------- Estado de éxito post-importación ---------- */
+.carga-success-banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 18px;
+  padding: 22px;
+  border: 1px solid #a7f3d0;
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, #fff 0%, var(--success-soft) 100%);
+  box-shadow: var(--shadow-sm);
+}
+
+.carga-success-banner[hidden] {
+  display: none;
+}
+
+.carga-success-banner:focus {
+  outline: none;
+}
+
+.carga-success-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--success);
+  color: #fff;
+  font-size: 1.35rem;
+  font-weight: 800;
+  box-shadow: 0 6px 16px rgba(5, 150, 105, 0.24);
+}
+
+.carga-success-content {
+  min-width: 0;
+}
+
+.carga-success-content h2 {
+  margin: 0 0 6px;
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.carga-success-meta {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.carga-success-body {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.carga-success-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.carga-success-actions .primary-button,
+.carga-success-actions .cancel-button {
+  white-space: nowrap;
+}
+
+/* En éxito no se ofrece otra carga hasta pulsar "Nueva importación". */
+#carga-view.is-import-success .type-panel,
+#carga-view.is-import-success .upload-panel,
+#carga-view.is-import-success #file-panel,
+#carga-view.is-import-success #validation-panel,
+#carga-view.is-import-success #confirmation-panel,
+#carga-view.is-import-success .actions {
+  display: none !important;
+}
+
 .category-options {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1635,6 +1717,16 @@ a {
   .form-grid,
   .category-options {
     grid-template-columns: 1fr;
+  }
+  .carga-success-banner {
+    grid-template-columns: 1fr;
+  }
+  .carga-success-actions {
+    flex-direction: column;
+  }
+  .carga-success-actions .primary-button,
+  .carga-success-actions .cancel-button {
+    width: 100%;
   }
   .coherence-conflict-row {
     grid-template-columns: 1fr;
