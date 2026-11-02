@@ -560,14 +560,16 @@ def _sync_requirements_from_records(
             if key in req_text:
                 req_type = candidate
                 break
-        if not req_type:
-            req_type = "documentation"
+        if not req_type or req_type not in REQUIREMENT_TYPES:
+            continue
 
         status_raw = normalize_text(norm.get("estado"))
         if any(w in status_raw for w in ("cumplid", "aprob", "si", "ok", "listo")):
             status = "Cumplido"
         elif any(w in status_raw for w in ("no aplica", "exento", "n/a")):
             status = "No aplica"
+        elif not status_raw:
+            status = "Sin información"
         else:
             status = "Pendiente"
 
@@ -598,7 +600,6 @@ _EVIDENCE_FIELDS = (
     "documento_identidad",
     "saber_tyt",
     "ape",
-    "carnet",
     "certificado_empresa",
 )
 

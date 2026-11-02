@@ -3518,6 +3518,11 @@ a {
   color: var(--muted);
 }
 
+.requirements-summary-section.is-info > strong,
+.requirements-summary-section.is-info .requirements-summary-empty {
+  color: var(--muted);
+}
+
 .requirements-summary-more,
 .requirements-summary-empty {
   color: var(--muted);
