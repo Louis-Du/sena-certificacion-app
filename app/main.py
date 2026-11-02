@@ -223,6 +223,8 @@ async def learners(
     search: str = Query(default="", max_length=100),
     status: str = Query(default="", max_length=100),
     missing_requirement: list[str] = Query(default=[]),
+    reason: list[str] = Query(default=[]),
+    act_number: str = Query(default="", max_length=100),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100),
     session: Session = Depends(get_db),
@@ -232,6 +234,8 @@ async def learners(
         search=search,
         status=status,
         missing_requirement=missing_requirement,
+        reason=reason,
+        act_number=act_number,
         page=page,
         page_size=page_size,
     )

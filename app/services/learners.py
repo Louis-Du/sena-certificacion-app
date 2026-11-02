@@ -19,6 +19,7 @@ from app.models import Act, ActLearner, ImportedRecord, Learner, Requirement
 from app.services.parsers import (
     normalize_learner_name,
     normalize_program_name,
+    normalize_text,
     parse_date_value,
 )
 from app.services.requirements import (
@@ -85,6 +86,8 @@ def list_learners(
     page: int = 1,
     page_size: int = 25,
     missing_requirement: str | list[str] = "",
+    reason: str | list[str] = "",
+    act_number: str = "",
 ) -> dict[str, Any]:
     learner_count = session.scalar(select(func.count()).select_from(Learner)) or 0
     if learner_count == 0:
@@ -100,6 +103,7 @@ def list_learners(
                 Learner.group_code.ilike(term),
                 Learner.program.ilike(term),
                 Learner.certification_status.ilike(term),
+                Learner.act_number.ilike(term),
             )
         )
     if status.strip():
@@ -131,6 +135,39 @@ def list_learners(
                 )
             )
         )
+    # Drill-down desde Indicadores: causa normalizada -> motivos tal como se
+    # guardaron en ``non_certification_reason``. Se compara sin tildes ni
+    # mayusculas y por contenido, porque un aprendiz puede tener varias causas
+    # en la misma celda (por ejemplo "APE, No anexa T&T").
+    reason_values = [reason] if isinstance(reason, str) else list(reason)
+    reason_values = [
+        normalize_text(value) for value in reason_values if value and value.strip()
+    ]
+    if reason_values:
+        coincidencias = [
+            learner_id
+            for learner_id, motivo in session.execute(
+                select(Learner.id, Learner.non_certification_reason)
+            ).all()
+            if any(needle in normalize_text(motivo or "") for needle in reason_values)
+        ]
+        filters.append(Learner.id.in_(coincidencias))
+
+    # Drill-down desde Indicadores: acta del consolidado -> aprendices con ese
+    # numero de acta. Se toleran ceros a la izquierda y el prefijo "ACTA ".
+    act_value = (act_number or "").strip()
+    if act_value:
+        normalized_act = act_value.upper()
+        if normalized_act.startswith("ACTA "):
+            normalized_act = normalized_act[5:].strip()
+        digits = normalized_act.lstrip("0") or normalized_act
+        filters.append(
+            or_(
+                func.upper(func.trim(Learner.act_number)) == normalized_act,
+                func.ltrim(func.upper(func.trim(Learner.act_number)), "0") == digits,
+            )
+        )
+
     query = select(Learner).order_by(Learner.name.asc(), Learner.id.asc())
     count_query = select(func.count()).select_from(Learner)
     if filters:
