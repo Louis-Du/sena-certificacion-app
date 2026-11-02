@@ -17,9 +17,14 @@ const validationMessage = document.querySelector("#validation-message");
 const validationStatus = document.querySelector("#validation-status");
 const validationChecks = document.querySelector("#validation-checks");
 const cargaView = document.querySelector("#carga-view");
+const importSuccessBanner = document.querySelector("#import-success-banner");
+const importSuccessMeta = document.querySelector("#import-success-meta");
+const newImportButton = document.querySelector("#new-import-button");
+const viewImportedButton = document.querySelector("#view-imported-button");
 const stepsNav = document.querySelector(".steps");
 const stepElements = stepsNav ? [...stepsNav.querySelectorAll(".step")] : [];
 const confirmationPanel = document.querySelector("#confirmation-panel");
+const confirmSummary = document.querySelector("#confirm-summary");
 const confirmFile = document.querySelector("#confirm-file");
 const confirmImportable = document.querySelector("#confirm-importable");
 const confirmNew = document.querySelector("#confirm-new");
@@ -44,6 +49,9 @@ const learnerMissingRequirement = document.querySelector("#learner-missing-requi
 const learnerRequirementSummary = document.querySelector("#learner-missing-requirement-summary");
 const learnerRequirementOptions = document.querySelector("#learner-missing-requirement-options");
 const clearLearnerSearch = document.querySelector("#clear-learner-search");
+const learnersDrilldownBanner = document.querySelector("#learners-drilldown-banner");
+const learnersDrilldownText = document.querySelector("#learners-drilldown-text");
+const learnersDrilldownClear = document.querySelector("#learners-drilldown-clear");
 const learnersPrev = document.querySelector("#learners-prev");
 const learnersNext = document.querySelector("#learners-next");
 const learnersPage = document.querySelector("#learners-page");
@@ -51,6 +59,7 @@ const learnerStatusChips = document.querySelector("#learner-status-chips");
 const learnersFrame = document.querySelector(".learners-frame");
 const learnerDetail = document.querySelector("#learner-detail");
 const backToLearners = document.querySelector("#back-to-learners");
+const refreshLearnerDetail = document.querySelector("#refresh-learner-detail");
 const learnerDetailTitle = document.querySelector("#learner-detail-title");
 const learnerDetailFeedback = document.querySelector("#learner-detail-feedback");
 const learnerDetailContent = document.querySelector("#learner-detail-content");
@@ -60,6 +69,7 @@ const learnerTracking = document.querySelector("#learner-tracking");
 const learnerSourcesSection = document.querySelector("#learner-sources-section");
 const learnerSources = document.querySelector("#learner-sources");
 const learnerRequirements = document.querySelector("#learner-requirements");
+const learnerRequirementsSubtitle = document.querySelector("#learner-requirements-subtitle");
 const learnerRequirementHistory = document.querySelector("#learner-requirement-history");
 const learnerMoreData = document.querySelector("#learner-more-data");
 const learnerExtra = document.querySelector("#learner-extra");
@@ -83,6 +93,13 @@ const actBasicInfo = document.querySelector("#act-basic-info");
 const actLearners = document.querySelector("#act-learners");
 const actLearnerForm = document.querySelector("#act-learner-form");
 let currentActId = null;
+
+const importSuccessViews = {
+  acta: { view: "actas", label: "Ver actas" },
+  actas_completo: { view: "aprendices", label: "Ver aprendices" },
+  df14a: { view: "aprendices", label: "Ver aprendices" },
+  requisitos: { view: "aprendices", label: "Ver aprendices" },
+};
 
 const extensionsByType = {
   actas_completo: [".xlsx", ".xls"],
@@ -151,6 +168,66 @@ function setCargaStep(etapa) {
       step.removeAttribute("aria-current");
     }
   });
+}
+
+function resetImportSuccessUI() {
+  cargaView.classList.remove("is-import-success");
+  importSuccessBanner.hidden = true;
+  importSuccessMeta.textContent = "";
+  viewImportedButton.hidden = true;
+  viewImportedButton.textContent = "";
+  delete viewImportedButton.dataset.viewTarget;
+}
+
+function setImportSuccessUI(result) {
+  const records = Number(result?.records_count || 0);
+  const fileNameValue = result?.file_name || selectedFile?.name || "Archivo importado";
+  const countText = selectedType === "acta"
+    ? `${records} ${records === 1 ? "aprendiz vinculado" : "aprendices vinculados"}`
+    : `${records} ${records === 1 ? "registro procesado" : "registros procesados"}`;
+  const meta = [fileNameValue, countText];
+  const newRecords = Number(result?.new_records || 0);
+  const updatedRecords = Number(result?.updated_records || 0);
+  const warningCount = Number(result?.warning_count || 0);
+  if (newRecords) meta.push(`+${newRecords} nuevos`);
+  if (updatedRecords) meta.push(`${updatedRecords} actualizados`);
+  if (warningCount) meta.push(`${warningCount} advertencias`);
+  importSuccessMeta.textContent = meta.join(" · ");
+
+  const destination = importSuccessViews[selectedType];
+  if (destination) {
+    viewImportedButton.textContent = destination.label;
+    viewImportedButton.dataset.viewTarget = destination.view;
+    viewImportedButton.hidden = false;
+  } else {
+    viewImportedButton.hidden = true;
+  }
+
+  cargaView.classList.add("is-import-success");
+  importSuccessBanner.hidden = false;
+  setCargaStep("completado");
+  // El modal se cierra cuando confirmButton pasa a hidden; esperamos ese ciclo
+  // para llevar el foco al banner y que el lector de pantalla anuncie el cierre.
+  window.setTimeout(() => {
+    if (cargaView.classList.contains("is-import-success")) {
+      importSuccessBanner.focus({ preventScroll: false });
+    }
+  }, 120);
+}
+
+function startNewImport() {
+  // Solo se limpia el estado de UI. El tipo de informacion se conserva para
+  // que una segunda carga del mismo formato sea inmediata.
+  clearFile();
+  clearFeedback();
+  resetImportSuccessUI();
+  fileName.textContent = "";
+  fileDetails.textContent = "";
+  validationMessage.textContent = "";
+  validationStatus.textContent = "";
+  validationStatus.className = "result-badge";
+  validationChecks.replaceChildren();
+  window.setTimeout(() => dropZone.focus(), 0);
 }
 
 function hideReview() {
@@ -317,6 +394,160 @@ function collectConflictResolutions() {
     .filter(Boolean);
 }
 
+// #65: llevar el foco y la vista al resultado de la validación. El scroll solo
+// es suave cuando el usuario no pidió reducir el movimiento.
+function prefersReducedMotion() {
+  return typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function revealValidationResult(element) {
+  if (!element) return;
+  window.requestAnimationFrame(() => {
+    element.scrollIntoView({
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
+      block: "start",
+    });
+    if (typeof element.focus === "function") {
+      element.focus({ preventScroll: true });
+    }
+  });
+}
+
+const breakdownLabels = {
+  certificados: "Aprendices para certificar",
+  pendientes: "Aprendices con pendientes",
+  complementaria: "Registros de formación complementaria",
+  meta: "Metas institucionales",
+  requisitos: "Requisitos de aprendices",
+  df14a: "Aprendices (Base DF14A)",
+  acta: "Registros de acta",
+  informe: "Tablas de informe de gestión",
+  otro: "Documentos de apoyo",
+};
+
+function createBreakdownCard({ count, label, meta, warning = false, icon, extraClass = "" }) {
+  const card = document.createElement("article");
+  card.className = `breakdown-card ${warning ? "is-warning" : "is-ok"} ${extraClass}`.trim();
+
+  const iconElement = document.createElement("span");
+  iconElement.className = "breakdown-icon";
+  iconElement.setAttribute("aria-hidden", "true");
+  iconElement.textContent = icon || (warning ? "⚠" : "✓");
+
+  const body = document.createElement("div");
+  body.className = "breakdown-body";
+  const headline = document.createElement("div");
+  headline.className = "breakdown-headline";
+  const countElement = document.createElement("strong");
+  countElement.className = "breakdown-count";
+  countElement.textContent = count;
+  const labelElement = document.createElement("span");
+  labelElement.className = "breakdown-label";
+  labelElement.textContent = label;
+  headline.append(countElement, document.createTextNode(" "), labelElement);
+  body.appendChild(headline);
+
+  if (meta) {
+    const metaElement = document.createElement("span");
+    metaElement.className = "breakdown-meta";
+    metaElement.textContent = meta;
+    body.appendChild(metaElement);
+  }
+
+  card.append(iconElement, body);
+  return card;
+}
+
+function renderPreviewBreakdown(preview) {
+  const cards = [];
+
+  // Contexto del acta: se conserva como tarjeta informativa, separada de las
+  // métricas por tipo que entrega el preview.
+  if (preview.acta) {
+    const acta = preview.acta;
+    const details = [`Acta ${acta.number || "sin número"}`];
+    if (acta.act_date) details.push(acta.act_date);
+    details.push(acta.exists ? "ya registrada" : "nueva");
+    // El backend puede enviar un conteo o la lista de documentos; el resumen
+    // siempre muestra el conteo (antes se imprimía la lista completa, sin espacios).
+    const countOf = (value) => (Array.isArray(value) ? value.length : Number(value) || 0);
+    details.push(`${countOf(acta.learners_to_link)} aprendices por vincular`);
+    if (countOf(acta.learners_por_certificar)) {
+      details.push(`${countOf(acta.learners_por_certificar)} quedarán Por Certificar`);
+    }
+    if (countOf(acta.learners_already_linked)) {
+      details.push(`${countOf(acta.learners_already_linked)} ya vinculados`);
+    }
+    if (countOf(acta.learners_not_registered)) {
+      details.push(`${countOf(acta.learners_not_registered)} sin registrar`);
+    }
+    cards.push(createBreakdownCard({
+      count: acta.number ? `Acta ${acta.number}` : "Acta",
+      label: "",
+      meta: details.slice(1).join(" · "),
+      icon: "📋",
+      extraClass: "breakdown-acta",
+    }));
+  }
+
+  Object.entries(preview.breakdown || {}).forEach(([type, counts]) => {
+    const valid = Number(counts?.valid_records ?? 0);
+    const found = Number(counts?.records_found ?? valid);
+    const rejected = Number(counts?.rejected_records ?? Math.max(found - valid, 0));
+    const warning = valid !== found || rejected > 0;
+    const label = breakdownLabels[type] || type;
+    let meta = "";
+    if (warning) {
+      meta = `${found} detectados · ${rejected} rechazados`;
+    }
+    cards.push(createBreakdownCard({
+      count: valid,
+      label: label.toLowerCase(),
+      meta,
+      warning,
+    }));
+  });
+
+  if (!cards.length) {
+    const empty = document.createElement("p");
+    empty.className = "breakdown-empty";
+    empty.textContent = "No hay desglose por tipo para este archivo.";
+    confirmBreakdown.replaceChildren(empty);
+    return;
+  }
+  confirmBreakdown.replaceChildren(...cards);
+}
+
+function renderPreviewWarnings(warnings) {
+  const items = Array.isArray(warnings) ? warnings : [];
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "confirm-warning is-ok";
+    const icon = document.createElement("span");
+    icon.className = "confirm-warning-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = "✓";
+    const text = document.createElement("span");
+    text.textContent = "Sin advertencias para este archivo.";
+    empty.append(icon, text);
+    confirmWarnings.replaceChildren(empty);
+    return;
+  }
+  confirmWarnings.replaceChildren(...items.map((warning) => {
+    const item = document.createElement("div");
+    item.className = "confirm-warning";
+    const icon = document.createElement("span");
+    icon.className = "confirm-warning-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = "⚠";
+    const text = document.createElement("span");
+    text.textContent = warning;
+    item.append(icon, text);
+    return item;
+  }));
+}
+
 async function validateFile() {
   if (!selectedFile) return;
   resetCoherenceConflicts();
@@ -335,6 +566,7 @@ async function validateFile() {
     fileStatus.textContent = result.status === "error" ? "REVISAR ARCHIVO" : "VALIDACION COMPLETA";
     if (result.status === "error") {
       showFeedback("Corrige los errores antes de continuar.", true);
+      revealValidationResult(validationPanel);
       return;
     }
     const preview = await readResponse(await fetch(`/api/imports/${validationId}/preview`));
@@ -346,52 +578,12 @@ async function validateFile() {
     confirmNew.textContent = preview.new_records;
     confirmUpdated.textContent = preview.updated_records;
     confirmRejected.textContent = preview.rejected_records ?? 0;
-    const breakdownLabels = {
-      certificados: "Aprendices para certificar",
-      pendientes: "Aprendices con pendientes",
-      complementaria: "Registros de formación complementaria",
-      meta: "Metas institucionales",
-      requisitos: "Requisitos de aprendices",
-      df14a: "Aprendices (Base DF14A)",
-      acta: "Registros de acta",
-      informe: "Tablas de informe de gestión",
-      otro: "Documentos de apoyo",
-    };
-    const breakdownLines = Object.entries(preview.breakdown || {}).map(([type, counts]) => {
-      const label = breakdownLabels[type] || type;
-      return {
-        warning: counts.valid_records !== counts.records_found,
-        text: counts.valid_records === counts.records_found
-          ? `✓ ${counts.valid_records} ${label.toLowerCase()}`
-          : `⚠ ${counts.valid_records} ${label.toLowerCase()} (de ${counts.records_found} detectados)`,
-      };
-    });
-    confirmBreakdown.replaceChildren(...breakdownLines.map((line) => {
-      const item = document.createElement("div");
-      if (line.warning) item.className = "is-warning";
-      item.textContent = line.text;
-      return item;
-    }));
-    const acta = preview.acta;
-    if (acta) {
-      const detalle = document.createElement("div");
-      const notas = [`📋 Acta ${acta.number}`];
-      if (acta.act_date) notas.push(acta.act_date);
-      notas.push(acta.exists ? "acta ya registrada" : "acta nueva");
-      notas.push(`${acta.learners_to_link} aprendices por vincular`);
-      if (acta.learners_por_certificar) {
-        notas.push(`${acta.learners_por_certificar} quedarán Por Certificar`);
-      }
-      if (acta.learners_already_linked) notas.push(`${acta.learners_already_linked} ya vinculados`);
-      if (acta.learners_not_registered) notas.push(`${acta.learners_not_registered} sin registrar`);
-      detalle.textContent = notas.join(" · ");
-      confirmBreakdown.prepend(detalle);
-    }
-    confirmWarnings.replaceChildren(...preview.warnings.map((warning) => {
-      const item = document.createElement("div");
-      item.textContent = `⚠ ${warning}`;
-      return item;
-    }));
+    confirmRejected.closest(".confirm-metric")?.classList.toggle(
+      "has-rejected",
+      Number(preview.rejected_records || 0) > 0,
+    );
+    renderPreviewBreakdown(preview);
+    renderPreviewWarnings(preview.warnings);
     renderCoherenceConflicts(preview.coherence_conflicts || []);
     missingComplementariaRequired = Boolean(preview.missing_complementaria);
     if (missingComplementariaRequired) {
@@ -403,10 +595,15 @@ async function validateFile() {
     validateButton.hidden = true;
     cargaView.classList.add("carga-en-revision");
     setCargaStep("confirmar");
+    // El modal de revisión se abre al mostrar el panel (ui-enhancements.js).
+    // Este segundo aviso deja el foco en el resumen incluso si el modal se
+    // monta de forma asíncrona.
+    window.setTimeout(() => revealValidationResult(confirmSummary), 60);
     showFeedback("Revisa el resumen y confirma para importar. Aun no se han guardado datos.");
   } catch (error) {
     fileStatus.textContent = "ERROR DE VALIDACION";
     showFeedback(error.message, true);
+    revealValidationResult(validationPanel.hidden ? feedback : validationPanel);
   } finally {
     validateButton.disabled = false;
   }
@@ -427,7 +624,7 @@ async function confirmImport() {
     fileStatus.textContent = "IMPORTACION COMPLETA";
     showFeedback(`${result.message} ${result.records_count} registros procesados.`);
     confirmButton.hidden = true;
-    setCargaStep("completado");
+    setImportSuccessUI(result);
     await loadHistory();
     await loadLearners();
   } catch (error) {
@@ -437,33 +634,204 @@ async function confirmImport() {
   }
 }
 
+const HISTORY_LIMIT = 5;
+const HISTORY_TYPE_LABELS = {
+  df14a: "DF14A",
+  certificados: "Listado de certificados",
+  pendientes: "Listado de pendientes",
+  complementaria: "Formación complementaria",
+  meta: "Metas oficiales",
+  informe: "Informe de gestión",
+  acta: "Acta de certificación",
+  requisitos: "Requisitos / pendientes",
+  actas_completo: "Excel institucional (ACTAS 2026)",
+  csv_certificacion: "CSV alternativo",
+  otro: "Otro archivo",
+};
+
+function historyTypeLabel(item) {
+  const raw = item.information_type || "";
+  return HISTORY_TYPE_LABELS[raw] || raw || "Importación";
+}
+
+function historyFileIcon(item) {
+  const extension = String(item.file_name || "").split(".").pop().toLowerCase();
+  return {
+    xlsx: "▦",
+    xls: "▦",
+    csv: "▤",
+    pdf: "▣",
+    docx: "▤",
+    xml: "◇",
+  }[extension] || "▦";
+}
+
+function historyStatusMeta(item) {
+  const errorCount = Number(item.error_count || 0);
+  const warningCount = Number(item.warning_count || 0);
+  const message = String(item.message || "");
+  if (errorCount > 0 || /error/i.test(item.status || "")) {
+    return { label: "Error", className: "is-error" };
+  }
+  if (/conflictos resueltos manualmente/i.test(message)) {
+    return { label: "Conflictos resueltos", className: "is-resolved" };
+  }
+  if (warningCount > 0) {
+    return { label: "Con advertencias", className: "is-warning" };
+  }
+  return { label: "Éxito", className: "is-success" };
+}
+
+function formatHistoryDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Fecha no disponible";
+  return date.toLocaleString("es-CO", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+function createHistoryMetric(value, label, className = "") {
+  const metric = document.createElement("span");
+  metric.className = `history-metric ${className}`.trim();
+  const valueElement = document.createElement("strong");
+  valueElement.textContent = value;
+  metric.append(valueElement, document.createTextNode(` ${label}`));
+  return metric;
+}
+
+function renderHistoryEmpty(message, isError = false) {
+  const empty = document.createElement("div");
+  empty.className = `history-empty ${isError ? "is-error" : ""}`.trim();
+  const title = document.createElement("strong");
+  title.textContent = message;
+  empty.appendChild(title);
+  historyList.replaceChildren(empty);
+}
+
+function renderHistoryItem(item) {
+  const card = document.createElement("article");
+  card.className = "history-item";
+
+  const top = document.createElement("div");
+  top.className = "history-item-top";
+  const file = document.createElement("div");
+  file.className = "history-file";
+  const icon = document.createElement("span");
+  icon.className = "history-file-icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.textContent = historyFileIcon(item);
+  const fileName = document.createElement("strong");
+  fileName.className = "history-file-name";
+  fileName.textContent = item.file_name || "Archivo sin nombre";
+  fileName.title = fileName.textContent; // nombre completo al pasar el cursor
+  file.append(icon, fileName);
+  const status = historyStatusMeta(item);
+  const statusBadge = document.createElement("span");
+  statusBadge.className = `history-status ${status.className}`;
+  statusBadge.textContent = status.label;
+  top.append(file, statusBadge);
+
+  const meta = document.createElement("div");
+  meta.className = "history-meta";
+  const typeBadge = document.createElement("span");
+  typeBadge.className = "history-type-badge";
+  typeBadge.textContent = historyTypeLabel(item);
+  const time = document.createElement("time");
+  time.setAttribute("datetime", item.imported_at || "");
+  time.textContent = formatHistoryDate(item.imported_at);
+  meta.append(typeBadge, time);
+
+  const metrics = document.createElement("div");
+  metrics.className = "history-metrics";
+  metrics.append(
+    createHistoryMetric(`+${Number(item.new_records || 0)}`, "nuevos", "is-new"),
+    createHistoryMetric(Number(item.updated_records || 0), "actualizados", "is-updated"),
+    createHistoryMetric(Number(item.records_count || 0), "registros", "is-total"),
+  );
+  if (Number(item.warning_count || 0) > 0) {
+    metrics.appendChild(
+      createHistoryMetric(Number(item.warning_count), "advertencias", "is-warning"),
+    );
+  }
+  if (Number(item.rejected_records || 0) > 0) {
+    metrics.appendChild(
+      createHistoryMetric(Number(item.rejected_records), "rechazados", "is-danger"),
+    );
+  }
+
+  const message = document.createElement("p");
+  message.className = "history-message";
+  message.textContent = item.message || "Importación exitosa";
+  message.title = message.textContent; // mensaje completo al pasar el cursor
+
+  card.append(top, meta, metrics, message);
+  return card;
+}
+
 async function loadHistory() {
   try {
     const result = await readResponse(await fetch("/api/imports/history"));
-    if (!result.items.length) return;
-    historyList.replaceChildren(...result.items.slice(0, 5).map((item) => {
-      const element = document.createElement("div");
-      element.className = "history-item";
-      const title = document.createElement("strong");
-      title.textContent = item.file_name;
-      const details = document.createElement("small");
-      const timeStr = new Date(item.imported_at).toLocaleString();
-      details.textContent = `${item.information_type} · ${timeStr}`;
-      const msg = document.createElement("div");
-      msg.className = "history-message";
-      msg.textContent = item.message || "Importación exitosa";
-      element.append(title, details, msg);
-      return element;
-    }));
+    const items = Array.isArray(result?.items) ? result.items : [];
+    if (!items.length) {
+      renderHistoryEmpty("Aún no hay importaciones.");
+      return;
+    }
+    historyList.replaceChildren(
+      ...items.slice(0, HISTORY_LIMIT).map(renderHistoryItem),
+    );
   } catch (error) {
-    historyList.textContent = "No fue posible cargar el historial.";
+    renderHistoryEmpty("No fue posible cargar el historial.", true);
   }
 }
 
 let learnerPageNumber = 1;
+let learnerRequestId = 0;
 const learnerPageSize = 25;
 const selectedRequirementValues = new Set();
 const requirementLabelsByValue = new Map();
+// Drill-down desde Indicadores. ``learnerDrilldown`` conserva los filtros que no
+// tienen control propio en el listado (causa y numero de acta); el estado se
+// aplica al selector y el resto de filtros sigue viviendo en sus controles.
+let learnerDrilldown = null;
+let learnerPendingStatus = "";
+
+function renderDrilldownBanner() {
+  if (!learnersDrilldownBanner) return;
+  if (!learnerDrilldown) {
+    learnersDrilldownBanner.hidden = true;
+    if (learnersDrilldownText) learnersDrilldownText.textContent = "";
+    return;
+  }
+  if (learnersDrilldownText) {
+    learnersDrilldownText.textContent = `Filtro desde Indicadores: ${learnerDrilldown.label}`;
+  }
+  learnersDrilldownBanner.hidden = false;
+}
+
+// Abre el listado con los filtros de un KPI, causa o acta de Indicadores.
+// No inventa filtros: estado, causa y numero de acta son parametros reales de
+// /api/learners; si un KPI no se puede representar en el padron local no se
+// enlaza (caso de los certificados del consolidado ENE-SEP).
+function abrirAprendicesDesdeIndicadores({ label, status = "", reasons = [], actNumber = "" }) {
+  learnerDrilldown = {
+    label: label || "Indicadores",
+    status: status || "",
+    reasons: (reasons || []).filter(Boolean),
+    actNumber: actNumber || "",
+  };
+  learnerSearch.value = "";
+  setSelectedMissingRequirements([]);
+  learnerStatus.value = "";
+  learnerPendingStatus = status || "";
+  learnerPageNumber = 1;
+  renderDrilldownBanner();
+  showView("aprendices");
+}
 
 function normalizeStatusText(status) {
   return (status || "")
@@ -524,9 +892,18 @@ function renderStatusChips(statusCounts) {
     ...items.map((item) => {
       const chip = document.createElement("button");
       chip.type = "button";
+      const countLabel = `${item.count.toLocaleString("es-CO")} ${
+        item.count === 1 ? "aprendiz" : "aprendices"
+      }`;
       chip.className = `status-chip status-chip-button ${item.variant}`;
       chip.classList.toggle("is-active", statusIsActive(item.status));
       chip.setAttribute("aria-pressed", statusIsActive(item.status) ? "true" : "false");
+      chip.setAttribute(
+        "aria-label",
+        item.status
+          ? `Filtrar por estado ${item.label}, ${countLabel}`
+          : `Mostrar todos los estados, ${countLabel}`,
+      );
       chip.textContent = `${item.label} ${item.count.toLocaleString("es-CO")}`;
       chip.addEventListener("click", () => {
         const nextStatus = statusIsActive(item.status) ? "" : item.status;
@@ -548,18 +925,94 @@ function learnerSummaryLabel(result) {
   return `${total} ${label} en la consulta actual · Página ${result.page} de ${Math.max(result.pages, 1)}`;
 }
 
-// Texto compacto de procedencia: motivo + requisitos pendientes + origen. Se usa
-// como "title" para una vista rapida al pasar el cursor, sin abrir el detalle.
+// Orden operativo de los requisitos: primero lo que falta, luego lo cumplido y
+// al final lo que no aplica. "No aplica" no cuenta como falta documental.
+function requirementStatusRank(status) {
+  const normalized = normalizeStatusText(status);
+  if (normalized === "pendiente") return 0;
+  if (normalized === "cumplido") return 1;
+  if (normalized === "no aplica") return 2;
+  return 3;
+}
+
+function requirementStatusClass(status) {
+  const normalized = normalizeStatusText(status);
+  if (normalized === "pendiente") return "is-pending";
+  if (normalized === "cumplido") return "is-fulfilled";
+  if (normalized === "no aplica") return "is-na";
+  return "is-other";
+}
+
+function summarizeRequirementItems(items) {
+  const list = items || [];
+  const pending = [];
+  let fulfilled = 0;
+  let na = 0;
+  list.forEach((item) => {
+    const normalized = normalizeStatusText(item.status);
+    if (normalized === "pendiente") {
+      pending.push(item.label || item.requirement_type || "Requisito");
+    } else if (normalized === "cumplido") {
+      fulfilled += 1;
+    } else if (normalized === "no aplica") {
+      na += 1;
+    }
+  });
+  return {
+    total: list.length,
+    pending,
+    fulfilled,
+    na,
+    applicable: list.length - na,
+    complete: list.length > 0 && pending.length === 0,
+  };
+}
+
+function formatRequirementNameList(labels, limit = 3) {
+  const visible = labels.slice(0, limit);
+  const remaining = labels.length - visible.length;
+  return `${visible.join(", ")}${remaining > 0 ? ` y ${remaining} más` : ""}`;
+}
+
+function requirementCountsText(summary) {
+  const pending = summary.pending.length;
+  return [
+    `${pending} pendiente${pending === 1 ? "" : "s"}`,
+    `${summary.fulfilled} cumplido${summary.fulfilled === 1 ? "" : "s"}`,
+    `${summary.na} no aplica`,
+  ].join(" · ");
+}
+
+function requirementSummaryTotal(summary) {
+  const pending = (summary.pending || []).length;
+  return pending + (summary.fulfilled_count || 0) + (summary.na_count || 0);
+}
+
+function documentationLabelFromSummary(summary) {
+  const pending = summary.pending || [];
+  const total = requirementSummaryTotal(summary);
+  if (!total) return "Sin requisitos registrados";
+  return pending.length
+    ? `Documentación incompleta (${pending.length} pendiente${pending.length === 1 ? "" : "s"})`
+    : "Documentación completa";
+}
+
+// Texto compacto de procedencia: documentación, requisitos pendientes y origen.
+// Se usa como "title" para una vista rapida al pasar el cursor, sin abrir el detalle.
 function learnerSummaryText(item) {
   const sources = item.data_sources || [];
   const summary = item.requirements_summary || {};
   const pending = summary.pending || [];
+  const total = item.requirements_total ?? requirementSummaryTotal(summary);
   return [
+    `Documentación: ${documentationLabelFromSummary(summary)}`,
     `Origen: ${sources.length ? sources.join(" · ") : "Desconocido"}`,
     `Motivo: ${item.non_certification_reason || "Sin motivo"}`,
     pending.length
       ? `Requisitos pendientes: ${pending.join(", ")}`
-      : "Sin requisitos pendientes",
+      : total === 0
+        ? "Sin requisitos registrados"
+        : "Sin requisitos pendientes",
   ].join("\n");
 }
 
@@ -569,19 +1022,25 @@ function renderLearnerSummaryBlock(item) {
   const sources = item.data_sources || [];
   const summary = item.requirements_summary || {};
   const pending = summary.pending || [];
+  const total = item.requirements_total ?? requirementSummaryTotal(summary);
   const wrapper = document.createElement("div");
   wrapper.className = "learner-summary";
   const rows = [
-    ["Origen", sources.length ? sources.join(" · ") : "Desconocido"],
-    ["Motivo de no certificación", item.non_certification_reason || "Sin motivo"],
+    ["Documentación", documentationLabelFromSummary(summary)],
     [
       "Requisitos pendientes",
-      pending.length ? pending.join(", ") : "Ninguno",
+      pending.length
+        ? `${pending.length}: ${formatRequirementNameList(pending, 5)}`
+        : total === 0
+          ? "Sin requisitos registrados"
+          : "Ninguno",
     ],
     [
       "Cumplidos / No aplica",
       `${summary.fulfilled_count || 0} / ${summary.na_count || 0}`,
     ],
+    ["Origen", sources.length ? sources.join(" · ") : "Desconocido"],
+    ["Motivo de no certificación", item.non_certification_reason || "Sin motivo"],
   ];
   rows.forEach(([label, value]) => {
     const term = document.createElement("dt");
@@ -593,9 +1052,20 @@ function renderLearnerSummaryBlock(item) {
   return wrapper;
 }
 
+function updateRequirementsPanelSubtitle(summary) {
+  if (!learnerRequirementsSubtitle) return;
+  learnerRequirementsSubtitle.textContent = summary.total
+    ? requirementCountsText(summary)
+    : "Sin requisitos registrados.";
+}
+
 function renderOriginCell(item, row) {
   const cell = document.createElement("td");
-  cell.className = "origin-cell";
+  cell.className = "origin-cell-wrapper";
+  // El flex debe ir en un div interno: aplicar display:flex al td lo saca del
+  // layout de tabla y rompe la linea inferior de la fila.
+  const content = document.createElement("div");
+  content.className = "origin-cell";
   const sources = item.data_sources || [];
   const label = document.createElement("span");
   label.className = "origin-label";
@@ -603,14 +1073,16 @@ function renderOriginCell(item, row) {
   const info = document.createElement("button");
   info.type = "button";
   info.className = "info-button";
-  info.textContent = "Info";
+  info.textContent = "Resumen";
+  info.title = "Ver resumen de origen y requisitos del aprendiz";
   info.setAttribute("aria-expanded", "false");
-  info.setAttribute("aria-label", `Resumen del aprendiz ${item.name}`);
+  info.setAttribute("aria-label", `Resumen de origen y requisitos de ${item.name}`);
   info.addEventListener("click", (event) => {
     event.stopPropagation();
     toggleLearnerSummary(row, item, info);
   });
-  cell.append(label, info);
+  content.append(label, info);
+  cell.appendChild(content);
   return cell;
 }
 
@@ -640,10 +1112,117 @@ function toggleLearnerSummary(row, item, button) {
   button.setAttribute("aria-expanded", "true");
 }
 
+// El listado debe responder "cuántos y cuáles faltan" sin abrir la ficha.
+function renderPendingRequirementsCell(item) {
+  const cell = document.createElement("td");
+  cell.className = "pending-requirements-cell";
+  const summary = item.requirements_summary || {};
+  const pending = summary.pending || [];
+  const total = item.requirements_total ?? requirementSummaryTotal(summary);
+
+  if (!pending.length) {
+    const none = document.createElement("span");
+    none.className = "pending-none";
+    if (total === 0) {
+      // Sin matriz cargada: no es lo mismo que una matriz completa sin faltantes.
+      none.classList.add("is-missing");
+      none.textContent = "Sin requisitos registrados";
+      none.title = "Este aprendiz no tiene requisitos asociados en el sistema.";
+      cell.title = "Sin requisitos registrados";
+    } else {
+      none.textContent = "Ninguno";
+      none.title = "Sin requisitos pendientes";
+      cell.title = "Sin requisitos pendientes";
+    }
+    cell.appendChild(none);
+    return cell;
+  }
+
+  cell.classList.add("has-pending");
+  const count = document.createElement("span");
+  count.className = "pending-count-badge";
+  count.textContent = pending.length;
+  count.setAttribute(
+    "aria-label",
+    `${pending.length} requisito${pending.length === 1 ? "" : "s"} pendiente${pending.length === 1 ? "" : "s"}`,
+  );
+
+  const names = document.createElement("span");
+  names.className = "pending-requirement-names";
+  names.textContent = formatRequirementNameList(pending, 2);
+
+  cell.append(count, names);
+  cell.title = `Requisitos pendientes: ${pending.join(", ")}`;
+
+  // El resumen corto no debe obligar a abrir la ficha para ver el resto. El
+  // botón es focusable y aria-expanded anuncia el estado del listado completo.
+  if (pending.length > 2) {
+    const panelId = `pending-details-${item.id}`;
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "pending-toggle";
+    toggle.textContent = "Ver pendientes";
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute("aria-controls", panelId);
+
+    const panel = document.createElement("ul");
+    panel.className = "pending-list";
+    panel.id = panelId;
+    panel.hidden = true;
+    pending.forEach((label) => {
+      const itemLabel = document.createElement("li");
+      itemLabel.textContent = label;
+      panel.appendChild(itemLabel);
+    });
+
+    const setExpanded = (expanded) => {
+      toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+      toggle.textContent = expanded ? "Ocultar pendientes" : "Ver pendientes";
+      toggle.setAttribute(
+        "aria-label",
+        `${expanded ? "Ocultar" : "Ver"} los ${pending.length} requisitos pendientes de ${item.name}`,
+      );
+      panel.hidden = !expanded;
+    };
+    setExpanded(false);
+
+    toggle.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setExpanded(toggle.getAttribute("aria-expanded") !== "true");
+    });
+
+    cell.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || toggle.getAttribute("aria-expanded") !== "true") {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setExpanded(false);
+      toggle.focus();
+    });
+
+    cell.addEventListener("focusout", (event) => {
+      if (
+        toggle.getAttribute("aria-expanded") === "true" &&
+        !cell.contains(event.relatedTarget)
+      ) {
+        setExpanded(false);
+      }
+    });
+
+    cell.append(toggle, panel);
+  }
+
+  return cell;
+}
+
 function renderLearnerRow(item) {
   const row = document.createElement("tr");
   row.title = learnerSummaryText(item);
+  const pending = (item.requirements_summary || {}).pending || [];
+  row.classList.toggle("has-pending", pending.length > 0);
   const nameCell = document.createElement("td");
+  nameCell.className = "learner-name-cell";
   nameCell.textContent = item.name;
   row.appendChild(nameCell);
   [item.identification, item.program || "Sin programa", item.group_code || "Sin ficha"]
@@ -654,16 +1233,14 @@ function renderLearnerRow(item) {
     });
   row.appendChild(renderStatusCell(item.certification_status));
   row.appendChild(renderOriginCell(item, row));
-  const pendingCell = document.createElement("td");
-  // Conteo real de requisitos en Pendiente; sin requisitos se muestra "—" en
-  // lugar de inventar un numero.
-  pendingCell.textContent = item.pending_count ? item.pending_count : "—";
-  row.appendChild(pendingCell);
+  row.appendChild(renderPendingRequirementsCell(item));
   const detailCell = document.createElement("td");
+  detailCell.className = "detail-cell";
   const button = document.createElement("button");
   button.type = "button";
   button.className = "detail-button";
   button.textContent = "Ver detalles";
+  button.setAttribute("aria-label", `Ver detalles de ${item.name}`);
   button.addEventListener("click", (event) => {
     event.stopPropagation();
     loadLearnerDetail(item.id);
@@ -722,28 +1299,53 @@ function renderRequirementOptions(types) {
   updateRequirementFilterUI();
 }
 
-function renderLearnerEmptyState() {
-  const searchTerm = learnerSearch.value.trim();
-  const selectedStatus = learnerStatus.value;
-  const selectedRequirement = selectedMissingRequirements();
-  const requirementLabels = selectedRequirement.map(
-    (value) => requirementLabelsByValue.get(value) || value,
+function learnerFiltersActive() {
+  return Boolean(
+    learnerSearch.value.trim() ||
+      learnerStatus.value ||
+      selectedMissingRequirements().length ||
+      learnerDrilldown?.reasons.length ||
+      learnerDrilldown?.actNumber
   );
-  let message = "Aun no hay aprendices cargados. Confirma una importacion DF14A para empezar.";
-  if (searchTerm && selectedStatus) {
-    message = `No se encontro ningun aprendiz que coincida con "${searchTerm}" y tenga el estado "${selectedStatus}".`;
-  } else if (searchTerm) {
-    message = `No se encontro ningun aprendiz que coincida con "${searchTerm}".`;
-  } else if (selectedStatus) {
-    message = `No se encontro ningun aprendiz con el estado "${selectedStatus}".`;
-  }
-  if (selectedRequirement.length) {
-    message += ` No hay aprendices con alguno de los requisitos "${requirementLabels.join(", ")}" en estado Pendiente.`;
-  }
+}
+
+function clearLearnerFilters() {
+  learnerSearch.value = "";
+  learnerStatus.value = "";
+  setSelectedMissingRequirements([]);
+  learnerDrilldown = null;
+  learnerPendingStatus = "";
+  renderDrilldownBanner();
+  learnerPageNumber = 1;
+  loadLearners();
+}
+
+function renderLearnerEmptyState() {
   const row = document.createElement("tr");
   const cell = document.createElement("td");
   cell.colSpan = 8;
-  cell.textContent = message;
+  cell.className = "learners-empty-cell";
+
+  const message = document.createElement("p");
+  message.className = "learners-empty-message";
+
+  if (learnerFiltersActive()) {
+    message.textContent = "No hay aprendices con estos filtros.";
+    const hint = document.createElement("p");
+    hint.className = "learners-empty-hint";
+    hint.textContent = "Prueba con otros criterios o limpia los filtros.";
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "cancel-button";
+    clear.textContent = "Limpiar filtros";
+    clear.addEventListener("click", clearLearnerFilters);
+    cell.append(message, hint, clear);
+  } else {
+    message.textContent =
+      "Aún no hay aprendices cargados. Confirma una importación DF14A para empezar.";
+    cell.appendChild(message);
+  }
+
   row.appendChild(cell);
   learnersList.replaceChildren(row);
 }
@@ -760,24 +1362,72 @@ function setLearnerStatus(status) {
   learnerStatus.value = status;
 }
 
+function applyRequirementEditorStatus(form, status) {
+  const statusClass = requirementStatusClass(status);
+  form.className = `requirement-editor ${statusClass}`;
+  form.dataset.status = normalizeStatusText(status);
+  const badge = form.querySelector(".requirement-state-badge");
+  if (badge) {
+    badge.className = `requirement-state-badge ${statusClass}`;
+    badge.textContent = status;
+  }
+}
+
+// Mantiene el orden "pendientes primero" despues de guardar, sin reemplazar los
+// formularios (asi no se pierde el foco ni el mensaje de confirmacion).
+function sortRequirementEditors() {
+  const forms = [...learnerRequirements.querySelectorAll(".requirement-editor")];
+  forms.sort(
+    (a, b) =>
+      requirementStatusRank(a.dataset.status) - requirementStatusRank(b.dataset.status),
+  );
+  const active = document.activeElement;
+  forms.forEach((form) => learnerRequirements.appendChild(form));
+  // Mover un formulario en el DOM puede perder el foco; si el usuario estaba
+  // dentro de una fila, se restaura para no interrumpir teclado ni lectores.
+  if (active && active.isConnected && learnerRequirements.contains(active)) {
+    active.focus({ preventScroll: true });
+  }
+}
+
 function renderRequirementEditor(items) {
   learnerRequirements.replaceChildren();
   if (!items.length) {
-    learnerRequirements.innerHTML = "<p class=\"empty-detail\">No hay requisitos registrados.</p>";
+    learnerRequirements.innerHTML = "<p class=\"empty-detail\">Sin requisitos registrados.</p>";
+    updateRequirementsPanelSubtitle(summarizeRequirementItems(items));
     return;
   }
-  items.forEach((item) => {
+
+  const ordered = [...items].sort(
+    (a, b) => requirementStatusRank(a.status) - requirementStatusRank(b.status),
+  );
+  ordered.forEach((item) => {
+    const label = item.label || item.requirement_type || "Requisito";
+    const status = item.status || "Pendiente";
     const form = document.createElement("form");
     form.className = "requirement-editor";
-    form.innerHTML = `<strong>${item.label || item.requirement_type}</strong>
-      <label>Estado<select name="status">
+    form.dataset.status = normalizeStatusText(status);
+    form.innerHTML = `<div class="requirement-name"><strong></strong><span class="requirement-state-badge" aria-hidden="true"></span></div>
+      <select name="status">
         <option>Pendiente</option><option>Cumplido</option><option>No aplica</option>
-      </select></label>
-      <label>Observación<textarea name="observations" rows="2"></textarea></label>
+      </select>
+      <input type="text" name="observations" placeholder="Observación">
       <button class="primary-button" type="submit">Guardar</button>
       <span class="requirement-feedback" role="status"></span>`;
-    form.elements.status.value = item.status || "Pendiente";
-    form.elements.observations.value = item.observations || "";
+
+    form.querySelector(".requirement-name strong").textContent = label;
+    const select = form.elements.status;
+    select.setAttribute("aria-label", `Estado de ${label}`);
+    const observations = form.elements.observations;
+    observations.setAttribute("aria-label", `Observación de ${label}`);
+    form
+      .querySelector("button[type='submit']")
+      .setAttribute("aria-label", `Guardar requisito ${label}`);
+
+    applyRequirementEditorStatus(form, status);
+    select.value = status;
+    observations.value = item.observations || "";
+
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const feedback = form.querySelector(".requirement-feedback");
@@ -801,10 +1451,13 @@ function renderRequirementEditor(items) {
         item.id = result.id;
         item.status = result.status;
         item.observations = result.observations;
+        applyRequirementEditorStatus(form, result.status);
+        sortRequirementEditors();
         const detail = await readResponse(
           await fetch(`/api/learners/${window.currentLearnerId}`),
         );
         renderRequirementHistory(detail.requirement_history);
+        updateRequirementsPanelSubtitle(summarizeRequirementItems(detail.requirements));
         feedback.textContent = "Guardado.";
       } catch (error) {
         feedback.textContent = error.message;
@@ -812,6 +1465,7 @@ function renderRequirementEditor(items) {
     });
     learnerRequirements.appendChild(form);
   });
+  updateRequirementsPanelSubtitle(summarizeRequirementItems(ordered));
 }
 
 function requirementSourceLabel(source) {
@@ -849,6 +1503,17 @@ function renderRequirementHistory(items) {
   }
   const list = document.createElement("div");
   list.className = "requirement-history-list";
+
+  const header = document.createElement("div");
+  header.className = "requirement-history-header";
+  header.setAttribute("aria-hidden", "true");
+  ["Fecha", "Requisito", "Origen", "Estado"].forEach((title) => {
+    const cell = document.createElement("span");
+    cell.textContent = title;
+    header.appendChild(cell);
+  });
+  list.appendChild(header);
+
   items.forEach((event) => {
     const row = document.createElement("div");
     row.className = "requirement-history-row";
@@ -858,20 +1523,19 @@ function renderRequirementHistory(items) {
     when.dateTime = event.recorded_at || "";
     when.textContent = formatRequirementHistoryDate(event.recorded_at);
 
-    const detail = document.createElement("div");
-    detail.className = "requirement-history-detail";
-    const label = document.createElement("strong");
-    label.textContent = event.requirement_label || event.requirement_type;
+    const req = document.createElement("span");
+    req.className = "requirement-history-req";
+    req.textContent = event.requirement_label || event.requirement_type || "Requisito";
+
     const source = document.createElement("span");
     source.className = "requirement-history-source";
     source.textContent = requirementSourceLabel(event.source);
-    detail.append(label, source);
 
     const status = document.createElement("span");
     status.className = `status-chip ${requirementStatusChipVariant(event.status)}`;
     status.textContent = event.status || "Sin estado";
 
-    row.append(when, detail, status);
+    row.append(when, req, source, status);
     if (event.note) {
       const note = document.createElement("span");
       note.className = "requirement-history-note";
@@ -899,11 +1563,17 @@ async function loadLearnerDetail(learnerId) {
   learnerDetail.hidden = false;
   learnerDetailContent.hidden = true;
   learnerDetailFeedback.textContent = "Consultando...";
+  // Al entrar al detalle, el header sticky queda arriba de la ficha.
+  try {
+    const reduce = typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    learnerDetail.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+  } catch (_) {}
   try {
     const result = await readResponse(await fetch(`/api/learners/${learnerId}`));
     window.currentLearnerId = learnerId;
     const info = result.basic_info;
-    learnerDetailTitle.textContent = info.name;
+    learnerDetailTitle.textContent = info.name || "Detalle";
     fillDetailList(learnerBasicInfo, [
       ["Documento", info.identification],
       ["Programa", info.program],
@@ -920,6 +1590,7 @@ async function loadLearnerDetail(learnerId) {
       ["Correo", info.email],
       ["Teléfono", info.phone],
       ["Mes de certificación", info.certification_month],
+      ["Recibido en admon. educativa", info.administrative_receipt_date],
     ].filter(([, value]) => value);
     learnerTrackingSection.hidden = trackingEntries.length === 0;
     if (trackingEntries.length) {
@@ -945,24 +1616,45 @@ async function loadLearnerDetail(learnerId) {
     }
     learnerDetailFeedback.textContent = "";
     learnerDetailContent.hidden = false;
+    // Al abrir la ficha, el foco queda en el nombre para que el lector de
+    // pantalla anuncie el contexto sin obligar a recorrer toda la pagina.
+    try {
+      learnerDetailTitle.focus({ preventScroll: true });
+    } catch (_) {
+      learnerDetailTitle.focus();
+    }
   } catch (error) {
     learnerDetailFeedback.textContent = error.message;
   }
 }
 
 async function loadLearners() {
+  const requestId = ++learnerRequestId;
+  learnersSummary.textContent = "Consultando...";
+  learnersList.setAttribute("aria-busy", "true");
+  learnersPrev.disabled = true;
+  learnersNext.disabled = true;
   try {
+    // El estado del drill-down se aplica cuando el selector ya tiene sus
+    // opciones; hasta entonces se envia directo a la API.
+    const selectedStatus = learnerPendingStatus || learnerStatus.value;
     const params = new URLSearchParams({
       search: learnerSearch.value.trim(),
-      status: learnerStatus.value,
+      status: selectedStatus,
       page: learnerPageNumber,
       page_size: learnerPageSize,
     });
     selectedMissingRequirements().forEach((value) => {
       params.append("missing_requirement", value);
     });
+    (learnerDrilldown?.reasons || []).forEach((value) => {
+      params.append("reason", value);
+    });
+    if (learnerDrilldown?.actNumber) {
+      params.set("act_number", learnerDrilldown.actNumber);
+    }
     const result = await readResponse(await fetch(`/api/learners?${params}`));
-    const selectedStatus = learnerStatus.value;
+    if (requestId !== learnerRequestId) return;
     const statusOptions = [...result.statuses];
     if (
       (result.status_counts || []).some((item) => item.status === "Sin estado") &&
@@ -970,44 +1662,69 @@ async function loadLearners() {
     ) {
       statusOptions.push("Sin estado");
     }
+    if (
+      selectedStatus &&
+      !statusOptions.some((status) => status.toLowerCase() === selectedStatus.toLowerCase())
+    ) {
+      statusOptions.push(selectedStatus);
+    }
     learnerStatus.replaceChildren(new Option("Todos los estados", ""));
     statusOptions.forEach((status) => learnerStatus.add(new Option(status, status)));
     if (selectedStatus) setLearnerStatus(selectedStatus);
+    learnerPendingStatus = "";
     // Opciones del filtro "Requisito faltante" segun los tipos del backend.
     renderRequirementOptions(result.requirement_types);
     renderStatusChips(result.status_counts);
-    learnersSummary.textContent = learnerSummaryLabel(result);
-    learnersPage.textContent = `Pagina ${result.page} de ${Math.max(result.pages, 1)}`;
-    learnersPrev.disabled = result.page <= 1;
-    learnersNext.disabled = result.page >= result.pages;
+
     if (!result.items.length) {
+      learnersSummary.textContent =
+        result.total === 0
+          ? "0 aprendices en la consulta actual · Sin resultados"
+          : learnerSummaryLabel(result);
+      learnersPage.textContent = "Sin resultados";
       renderLearnerEmptyState();
       return;
     }
 
+    learnersSummary.textContent = learnerSummaryLabel(result);
+    learnersPage.textContent = `Página ${result.page} de ${Math.max(result.pages, 1)}`;
+    learnersPrev.disabled = result.page <= 1;
+    learnersNext.disabled = result.page >= result.pages;
     learnersList.replaceChildren(...result.items.map(renderLearnerRow));
   } catch (error) {
+    if (requestId !== learnerRequestId) return;
     learnersSummary.textContent = "No fue posible consultar SQLite";
-    learnersList.textContent = "No fue posible cargar los aprendices.";
+    learnersPage.textContent = "Sin resultados";
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 8;
+    cell.className = "learners-empty-cell";
+    cell.textContent = "No fue posible cargar los aprendices.";
+    row.appendChild(cell);
+    learnersList.replaceChildren(row);
+  } finally {
+    if (requestId === learnerRequestId) {
+      learnersList.removeAttribute("aria-busy");
+    }
   }
-
 }
 
 backToLearners.addEventListener("click", () => {
   learnerDetail.hidden = true;
   learnersFrame.hidden = false;
 });
+
+refreshLearnerDetail?.addEventListener("click", () => {
+  if (window.currentLearnerId) {
+    loadLearnerDetail(window.currentLearnerId);
+  }
+});
 learnerSearch.addEventListener("input", () => {
   learnerPageNumber = 1;
   loadLearners();
 });
-clearLearnerSearch.addEventListener("click", () => {
-  learnerSearch.value = "";
-  learnerStatus.value = "";
-  setSelectedMissingRequirements([]);
-  learnerPageNumber = 1;
-  loadLearners();
-});
+clearLearnerSearch.addEventListener("click", clearLearnerFilters);
+learnersDrilldownClear?.addEventListener("click", clearLearnerFilters);
 learnerStatus.addEventListener("change", () => {
   learnerPageNumber = 1;
   loadLearners();
@@ -1254,7 +1971,7 @@ function renderAvanceChart(metricas) {
 
 // Grafico 2: barras horizontales de causas de no certificacion. La altura del
 // panel crece con el numero de causas para que ninguna quede aplastada.
-function renderCausasChart(motivos) {
+function renderCausasChart(motivos, onSelect) {
   const canvas = document.querySelector("#indicadores-causas-chart");
   const vacio = document.querySelector("#indicadores-causas-empty");
   if (!canvas || !vacio) return;
@@ -1264,7 +1981,8 @@ function renderCausasChart(motivos) {
   const filas = motivos || [];
   if (!alternarPanelGrafico(canvas, vacio, filas.length ? "" : "Aún no hay causas registradas")) return;
 
-  canvas.parentElement.style.height = `${Math.max(260, filas.length * 34 + 40)}px`;
+  // Altura acotada: con Top 10 + "Otras" el grafico no crece sin limite.
+  canvas.parentElement.style.height = `${Math.max(240, Math.min(460, filas.length * 34 + 40))}px`;
 
   graficoCausas = new Chart(canvas.getContext("2d"), {
     type: "bar",
@@ -1297,6 +2015,14 @@ function renderCausasChart(motivos) {
             },
           },
         },
+      },
+      onClick: (event, elements) => {
+        if (!elements.length || typeof onSelect !== "function") return;
+        const fila = filas[elements[0].index];
+        if (fila) onSelect(fila);
+      },
+      onHover: (event, elements) => {
+        if (canvas) canvas.style.cursor = elements.length ? "pointer" : "default";
       },
     },
   });
@@ -1336,6 +2062,191 @@ document.querySelectorAll(".indicadores-tabs .tab-button").forEach((boton) => {
   boton.addEventListener("click", () => activarTabIndicadores(boton.dataset.tab));
 });
 
+// ---------------------------------------------------------------------------
+// Causas: normalizacion y agrupacion para presentacion.
+// El backend conserva los motivos tal como vienen en la hoja PENDIENTES (para no
+// perder trazabilidad); aqui solo se agrupan variantes de escritura seguras y se
+// limita el grafico a las principales causas. La tabla muestra todas.
+// ---------------------------------------------------------------------------
+const MOTIVO_REGLAS = [
+  {
+    label: "No anexa TyT",
+    test: /(anexa|anexo|remite|remitido|falta|pendiente).*(t\s*&\s*t|t\s*y\s*t|\btyt\b)|(t\s*&\s*t|t\s*y\s*t|\btyt\b).*(anexa|anexo|remite|remitido|falta|pendiente)/,
+  },
+  {
+    label: "No anexa documentos",
+    test: /(no\s+(anexa|anexo|remite|ha remitido|envia|envía)|sin)\s+(el\s+|los\s+|las\s+)?documentos?/,
+  },
+  { label: "Documento vencido", test: /documentos?\s+vencid|vencid\w*\s+document/ },
+  { label: "APE", test: /^ape$|\bape\b/ },
+];
+
+function normalizarMotivo(motivo) {
+  const base = String(motivo || "").trim().replace(/\s+/g, " ").toLowerCase();
+  if (!base) return "Sin causa registrada";
+  const regla = MOTIVO_REGLAS.find((item) => item.test.test(base));
+  if (regla) return regla.label;
+  return base.charAt(0).toUpperCase() + base.slice(1);
+}
+
+// Devuelve las causas normalizadas y sumadas. Con ``limite`` agrega el resto en
+// una fila "Otras causas"; sin limite devuelve el listado completo.
+function agruparMotivos(motivos, limite = null) {
+  const mapa = new Map();
+  (motivos || []).forEach((item) => {
+    const cantidad = Number(item.cantidad) || 0;
+    if (cantidad <= 0) return;
+    const label = normalizarMotivo(item.motivo);
+    const actual = mapa.get(label) || { motivo: label, cantidad: 0, variantes: [] };
+    actual.cantidad += cantidad;
+    if (item.motivo && !actual.variantes.includes(item.motivo)) {
+      actual.variantes.push(item.motivo);
+    }
+    mapa.set(label, actual);
+  });
+
+  const total = [...mapa.values()].reduce((acumulado, item) => acumulado + item.cantidad, 0);
+  const filas = [...mapa.values()]
+    .sort((a, b) => b.cantidad - a.cantidad)
+    .map((item) => ({
+      ...item,
+      porcentaje: total ? Math.round((item.cantidad / total) * 1000) / 10 : null,
+    }));
+
+  if (!limite || filas.length <= limite) {
+    return { filas, resto: null, total, agrupadas: filas.filter((f) => f.variantes.length > 1).length };
+  }
+
+  const principales = filas.slice(0, limite);
+  const restoFilas = filas.slice(limite);
+  const restoCantidad = restoFilas.reduce((acumulado, item) => acumulado + item.cantidad, 0);
+  principales.push({
+    motivo: `Otras causas (${restoFilas.length})`,
+    cantidad: restoCantidad,
+    porcentaje: total ? Math.round((restoCantidad / total) * 1000) / 10 : null,
+    variantes: restoFilas.map((item) => item.motivo),
+    agrupada: true,
+  });
+  return {
+    filas: principales,
+    resto: { count: restoFilas.length, cantidad: restoCantidad },
+    total,
+    agrupadas: filas.filter((f) => f.variantes.length > 1).length,
+  };
+}
+
+function textoAuditoriaCausas(data) {
+  const incidencias = Number(data.total_incidencias_causas) || 0;
+  const pendientes = data.total_pendientes;
+  if (pendientes === null || pendientes === undefined) {
+    return `◈ <strong>Auditoría de consistencia:</strong> hay <strong>${formatNumeroIndicador(incidencias)}</strong> incidencias de causas registradas. Cargue la hoja PENDIENTES para compararlas con el total de aprendices únicos.`;
+  }
+  const personas = Number(pendientes);
+  const diferencia = incidencias - personas;
+  let explicacion;
+  if (diferencia > 0) {
+    explicacion = `Hay <strong>${formatNumeroIndicador(diferencia)}</strong> incidencias adicionales porque una misma persona puede tener varias causas sin superar; no significa que haya más aprendices pendientes.`;
+  } else if (diferencia === 0) {
+    explicacion = "Las incidencias coinciden con las personas: cada aprendiz registra una sola causa.";
+  } else {
+    const sinMotivo = Number(data.aprendices_pendientes_sin_motivo) || 0;
+    explicacion = `Las incidencias son <strong>${formatNumeroIndicador(Math.abs(diferencia))}</strong> menos que las personas porque hay aprendices sin causa registrada en la hoja PENDIENTES${sinMotivo ? ` (${formatNumeroIndicador(sinMotivo)} sin motivo)` : ""}.`;
+  }
+  const multiples = Number(data.aprendices_con_causas_multiples) || 0;
+  const detalleMultiples = multiples
+    ? ` ${formatNumeroIndicador(multiples)} aprendices registran más de una causa.`
+    : "";
+  return `◈ <strong>Auditoría de consistencia:</strong> <strong>${formatNumeroIndicador(personas)}</strong> aprendices únicos pendientes y <strong>${formatNumeroIndicador(incidencias)}</strong> incidencias de causas. ${explicacion}${detalleMultiples}`;
+}
+
+// ---------------------------------------------------------------------------
+// Actas del periodo: columnas condicionales.
+// La hoja CERTIFICADOS solo trae el numero de acta; si el modulo Actas tiene el
+// acta registrada se completan fecha/tipo y se ofrece enlace al detalle. Si no
+// hay dato para toda una columna, se oculta en lugar de mostrar "No disponible"
+// en todas las filas.
+// ---------------------------------------------------------------------------
+function renderActasIndicadores(data, tabla, resumen, nota) {
+  const actas = Array.isArray(data.ultimas_actas) ? data.ultimas_actas : [];
+  const thFecha = document.querySelector("#indicadores-actas-date-th");
+  const thTipo = document.querySelector("#indicadores-actas-type-th");
+  const thDetalle = document.querySelector("#indicadores-actas-link-th");
+  if (!tabla) return;
+
+  const hayFilas = actas.length > 0;
+  const conFecha = actas.some((acta) => Boolean(acta.act_date));
+  const conTipo = actas.some((acta) => Boolean(acta.act_type));
+  const conDetalle = actas.some((acta) => acta.act_id !== null && acta.act_id !== undefined);
+  const ocultarFecha = !hayFilas || !conFecha;
+  const ocultarTipo = !hayFilas || !conTipo;
+  const ocultarDetalle = !hayFilas || !conDetalle;
+
+  if (thFecha) thFecha.hidden = ocultarFecha;
+  if (thTipo) thTipo.hidden = ocultarTipo;
+  if (thDetalle) thDetalle.hidden = ocultarDetalle;
+
+  if (resumen) {
+    const totalAprendices = actas.reduce((acumulado, acta) => acumulado + (Number(acta.aprendices_count) || 0), 0);
+    resumen.textContent = hayFilas
+      ? `${actas.length} actas distintas en el consolidado · ${formatNumeroIndicador(totalAprendices)} certificados asociados`
+      : "Sin actas distintas en la hoja CERTIFICADOS para el período";
+  }
+
+  if (nota) {
+    const avisos = [];
+    if (ocultarFecha && ocultarTipo) {
+      avisos.push("El consolidado solo trae el número de acta: la fecha y el tipo no vienen en la hoja CERTIFICADOS, por eso se ocultan esas columnas.");
+    } else {
+      if (ocultarFecha) avisos.push("La fecha no viene en el consolidado; se oculta la columna.");
+      if (ocultarTipo) avisos.push("El tipo no viene en el consolidado; se oculta la columna.");
+    }
+    if (conDetalle) avisos.push("Las actas registradas en el módulo Actas incluyen enlace a su detalle.");
+    nota.innerHTML = avisos.join(" ");
+    nota.hidden = !avisos.length;
+  }
+
+  if (!hayFilas) {
+    tabla.innerHTML = `<tr><td colspan="2" style="color:var(--muted)">Sin actas adicionales en la base de datos en este período.</td></tr>`;
+    return;
+  }
+
+  tabla.innerHTML = actas.map((acta) => {
+    // Drill-down P1: numero de acta -> aprendices con ese acta en el padron.
+    const celdas = [`<td><button class="drilldown-link" type="button" data-acta-number="${acta.number}" title="Ver aprendices del acta ${acta.number}">${acta.number}</button></td>`];
+    if (!ocultarFecha) celdas.push(`<td>${acta.act_date || "No disponible"}</td>`);
+    if (!ocultarTipo) celdas.push(`<td>${acta.act_type || "No disponible"}</td>`);
+    celdas.push(`<td style="color:var(--green-dark);font-weight:700">${formatNumeroIndicador(acta.aprendices_count)} asociados</td>`);
+    if (!ocultarDetalle) {
+      celdas.push(
+        acta.act_id !== null && acta.act_id !== undefined
+          ? `<td><button class="act-link-button" type="button" data-act-id="${acta.act_id}" aria-label="Ver detalle del acta ${acta.number}">Ver</button></td>`
+          : "<td>—</td>"
+      );
+    }
+    return `<tr>${celdas.join("")}</tr>`;
+  }).join("");
+
+  tabla.querySelectorAll("button[data-act-id]").forEach((boton) => {
+    boton.addEventListener("click", () => {
+      const id = Number(boton.dataset.actId);
+      if (!Number.isFinite(id)) return;
+      showView("actas");
+      if (typeof loadActDetail === "function") loadActDetail(id);
+    });
+  });
+
+  tabla.querySelectorAll("button[data-acta-number]").forEach((boton) => {
+    boton.addEventListener("click", () => {
+      const numero = boton.dataset.actaNumber;
+      if (!numero) return;
+      abrirAprendicesDesdeIndicadores({
+        label: `acta ${numero}`,
+        actNumber: numero,
+      });
+    });
+  });
+}
+
 async function loadIndicadores() {
   const kpis = document.querySelector("#indicadores-kpis");
   const avisos = document.querySelector("#indicadores-avisos");
@@ -1352,17 +2263,25 @@ async function loadIndicadores() {
   try {
     const data = await readResponse(await fetch("/api/indicadores"));
     kpis.innerHTML = `
-      <div class="panel"><div><small>META ANUAL</small><h2>${formatNumeroIndicador(data.total_meta)}</h2><small>Aprendices proyectados</small></div></div>
-      <div class="panel" style="border-left:4px solid var(--green)"><div><small style="color:var(--green-dark)">CERTIFICADOS (ENE-SEP)</small><h2 style="color:var(--green-dark)">${formatNumeroIndicador(data.total_certificados)}</h2><small>Aprendices únicos</small></div></div>
-      <div class="panel" style="border-left:4px solid #b87d00"><div><small style="color:#b87d00">PENDIENTES</small><h2 style="color:#b87d00">${formatNumeroIndicador(data.total_pendientes)}</h2><small>Aprendices únicos</small></div></div>
-      <div class="panel" style="background:var(--green-soft)"><div><small style="color:var(--green-dark)">% AVANCE</small><h2 style="color:var(--green-dark)">${formatPorcentajeIndicador(data.avance_global)}</h2>${kpiBarraProgreso(data.avance_global)}<small>Acumulado</small></div></div>
-      <div class="panel"><div><small>EFECTIVIDAD</small><h2>${formatPorcentajeIndicador(data.efectividad_global)}</h2>${kpiBarraProgreso(data.efectividad_global)}<small>Tasa de cierre</small></div></div>
+      <div class="panel"><div><small>META ANUAL INSTITUCIONAL</small><h2>${formatNumeroIndicador(data.total_meta)}</h2><small>Aprendices proyectados por la meta</small></div></div>
+      <div class="panel" style="border-left:4px solid var(--green)"><div><small style="color:var(--green-dark)">CERTIFICADOS ÚNICOS (ENE–SEP)</small><h2 style="color:var(--green-dark)">${formatNumeroIndicador(data.total_certificados)}</h2><small>Personas certificadas en el período</small></div></div>
+      <div class="panel" style="border-left:4px solid #b87d00"><div><small style="color:#b87d00">PENDIENTES ÚNICOS</small><h2 style="color:#b87d00"><button class="kpi-drilldown" type="button" data-drilldown-pendientes title="Ver aprendices pendientes en el padrón local">${formatNumeroIndicador(data.total_pendientes)}</button></h2><small>Personas con requisitos sin superar</small></div></div>
+      <div class="panel" style="background:var(--green-soft)"><div><small style="color:var(--green-dark)">% AVANCE</small><h2 style="color:var(--green-dark)">${formatPorcentajeIndicador(data.avance_global)}</h2>${kpiBarraProgreso(data.avance_global)}<small class="kpi-formula" title="Certificados únicos ÷ meta anual × 100">Fórmula: certificados ÷ meta</small></div></div>
+      <div class="panel"><div><small>EFECTIVIDAD</small><h2>${formatPorcentajeIndicador(data.efectividad_global)}</h2>${kpiBarraProgreso(data.efectividad_global)}<small class="kpi-formula" title="Certificados únicos ÷ (certificados únicos + pendientes únicos) × 100">Fórmula: certificados ÷ (certificados + pendientes)</small></div></div>
     `;
 
-    // Muestra por que algunos indicadores no se pudieron calcular (datos
-    // faltantes, registros sin clasificar, filas fuera del periodo, etc.).
-    // Se conserva toda la informacion: el panel solo queda colapsable y con un
-    // contador visible para no perder las advertencias de vista.
+    // Drill-down P0: pendientes del padron local. Los certificados del
+    // consolidado ENE-SEP no se enlazan porque el listado solo contiene el
+    // padron local (~2 mil), no las 51 mil filas del consolidado.
+    kpis.querySelector("[data-drilldown-pendientes]")?.addEventListener("click", () => {
+      abrirAprendicesDesdeIndicadores({
+        label: "Pendientes únicos",
+        status: "PENDIENTE",
+      });
+    });
+
+    // Advertencias: solo se muestran las que calcula el backend. Si el array
+    // viene vacio no se pinta ningun banner ni contador.
     if (avisos) {
       const lista = data.advertencias || [];
       if (!lista.length) {
@@ -1372,11 +2291,10 @@ async function loadIndicadores() {
         avisos.innerHTML = `
           <details class="avisos-panel">
             <summary>
-              <span class="avisos-title">Datos y advertencias</span>
+              <span class="avisos-title">Advertencias de cálculo</span>
               <span class="avisos-badge">${lista.length} ${etiqueta}</span>
               <span class="avisos-toggle">Ver detalle</span>
             </summary>
-            <p class="avisos-subtitle">${data.datos_suficientes ? "Resultados calculados con los documentos cargados." : "Aún no hay documentos suficientes para calcular los indicadores."}</p>
             <ul class="avisos-list">${lista.map((texto) => `<li>${texto}</li>`).join("")}</ul>
           </details>`;
       }
@@ -1394,52 +2312,65 @@ async function loadIndicadores() {
       </tr>
     `).join("");
 
+    const causasCompletas = agruparMotivos(data.motivos);
+    const causasGrafico = agruparMotivos(data.motivos, 10);
     if (causasTable && data.motivos) {
       if (causasSummary) {
-        causasSummary.textContent = `${data.total_incidencias_causas} incidencias de requisitos (${formatNumeroIndicador(data.total_pendientes)} aprendices únicos)`;
+        causasSummary.textContent = `${formatNumeroIndicador(data.total_incidencias_causas)} incidencias de requisitos · ${formatNumeroIndicador(data.total_pendientes)} aprendices únicos pendientes`;
       }
       if (causasCount) causasCount.textContent = formatNumeroIndicador(data.total_incidencias_causas);
-      causasTable.innerHTML = data.motivos.map(mot => `
+      causasTable.innerHTML = causasCompletas.filas.map((mot, index) => `
         <tr>
-          <td>${mot.motivo}</td>
+          <td><button class="drilldown-link" type="button" data-causa-index="${index}" title="Ver aprendices con esta causa">${mot.motivo}</button>${mot.variantes.length > 1 ? `<br><small class="causa-variantes">Agrupa: ${mot.variantes.join(", ")}</small>` : ""}</td>
           <td><strong>${mot.cantidad.toLocaleString("es-CO")}</strong></td>
           <td><span class="result-badge pending">${formatPorcentajeIndicador(mot.porcentaje)}</span></td>
         </tr>
-      `).join("");
+      `).join("") || `<tr><td colspan="3" style="color:var(--muted)">Sin causas registradas en la hoja PENDIENTES.</td></tr>`;
+      // Drill-down P0: causa normalizada -> motivos reales de la hoja PENDIENTES.
+      causasTable.querySelectorAll("button[data-causa-index]").forEach((boton) => {
+        boton.addEventListener("click", () => {
+          const fila = causasCompletas.filas[Number(boton.dataset.causaIndex)];
+          if (!fila) return;
+          abrirAprendicesDesdeIndicadores({
+            label: `causa «${fila.motivo}»`,
+            reasons: fila.variantes.length ? fila.variantes : [fila.motivo],
+          });
+        });
+      });
       if (causasNote) {
-        // Solo se calcula la diferencia cuando el total de pendientes existe;
-        // si no se cargo la hoja PENDIENTES la comparacion no tiene sentido.
-        const diferencia = data.total_pendientes === null || data.total_pendientes === undefined
-          ? null
-          : data.total_incidencias_causas - data.total_pendientes;
-        causasNote.innerHTML = `◈ <strong>Auditoría de consistencia:</strong> Se registran <strong>${formatNumeroIndicador(data.total_pendientes)}</strong> aprendices únicos pendientes y <strong>${data.total_incidencias_causas}</strong> incidencias totales de causas.`
-          + (diferencia === null
-            ? " Cargue la hoja PENDIENTES para comparar aprendices únicos contra incidencias."
-            : ` La diferencia de <strong>${diferencia}</strong> corresponde a causas múltiples por aprendiz (concurrencia de requisitos simultáneos no superados).`);
+        causasNote.innerHTML = textoAuditoriaCausas(data);
+      }
+      const notaGrafico = document.querySelector("#indicadores-causas-chart-note");
+      if (notaGrafico) {
+        const partes = [];
+        if (causasGrafico.resto) {
+          partes.push(`Se muestran las 10 causas con más incidencias; «Otras causas» agrupa ${causasGrafico.resto.count} causas con ${formatNumeroIndicador(causasGrafico.resto.cantidad)} incidencias (detalle en la tabla completa).`);
+        }
+        if (causasGrafico.agrupadas) {
+          partes.push(`${causasGrafico.agrupadas} causas agrupan variantes de escritura del mismo motivo.`);
+        }
+        notaGrafico.textContent = partes.join(" ");
+        notaGrafico.hidden = !partes.length;
       }
     }
 
     if (actasTable && data.ultimas_actas) {
-      if (actasSummary) {
-        actasSummary.textContent = `${data.ultimas_actas.length} actas en el corte (Ene - Sep 2026)`;
-      }
       if (actasCount) actasCount.textContent = data.ultimas_actas.length;
-      if (data.ultimas_actas.length > 0) {
-        actasTable.innerHTML = data.ultimas_actas.map(act => `
-          <tr>
-            <td><strong>${act.number}</strong></td>
-            <td>${act.act_date || "No disponible"}</td>
-            <td>${act.act_type || "No disponible"}</td>
-            <td style="color:var(--green-dark);font-weight:700">${act.aprendices_count} asociados</td>
-          </tr>
-        `).join("");
-      } else {
-        actasTable.innerHTML = `<tr><td colspan="4" style="color:var(--muted)">Sin actas adicionales en la base de datos en este período.</td></tr>`;
-      }
+      renderActasIndicadores(
+        data,
+        actasTable,
+        actasSummary,
+        document.querySelector("#indicadores-actas-note")
+      );
     }
     // Graficos complementarios (usan los mismos datos de las tablas de arriba).
     renderAvanceChart(data.metricas);
-    renderCausasChart(data.motivos);
+    renderCausasChart(causasGrafico.filas, (fila) => {
+      abrirAprendicesDesdeIndicadores({
+        label: `causa «${fila.motivo}»`,
+        reasons: fila.variantes && fila.variantes.length ? fila.variantes : [fila.motivo],
+      });
+    });
   } catch (err) {
     kpis.innerHTML = `<p class="error">No fue posible calcular indicadores: ${err.message}</p>`;
     // Sin datos validos no se deben dejar graficos ni contadores desactualizados.
@@ -1544,6 +2475,11 @@ removeButton.addEventListener("click", clearFile);
 cancelButton.addEventListener("click", () => { clearFile(); clearFeedback(); resetSelection(); });
 validateButton.addEventListener("click", validateFile);
 confirmButton.addEventListener("click", confirmImport);
+newImportButton.addEventListener("click", startNewImport);
+viewImportedButton.addEventListener("click", () => {
+  const target = viewImportedButton.dataset.viewTarget;
+  if (target) showView(target);
+});
 acceptMissingComplementaria.addEventListener("change", updateCoherenceState);
 resetSelection();
 loadHistory();

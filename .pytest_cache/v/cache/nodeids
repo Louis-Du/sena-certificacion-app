@@ -1,4 +1,7 @@
 [
+  "tests/test_activity.py::test_activity_with_history_and_imports",
+  "tests/test_activity.py::test_api_activity_endpoints",
+  "tests/test_activity.py::test_build_activity_heatmap_structure",
   "tests/test_acts.py::test_act_validation_errors[post-/api/acts-payload0]",
   "tests/test_acts.py::test_act_validation_errors[post-/api/acts/999/learners-payload1]",
   "tests/test_acts.py::test_act_validation_errors[post-/api/acts/999/learners-payload2]",

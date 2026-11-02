@@ -42,7 +42,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import ImportedRecord
+from app.models import Act, ImportedRecord
 from app.services import parsers
 
 # ---------------------------------------------------------------------------
@@ -336,6 +336,20 @@ def _referencia_institucional(session: Session) -> tuple[list[dict[str, Any]], s
 # ---------------------------------------------------------------------------
 
 
+def _acta_clave(value: Any) -> str:
+    """Clave tolerante para cruzar el numero de acta del consolidado con la BD.
+
+    El consolidado puede traer ``"41"`` y el modulo de actas ``"041"`` o
+    ``"Acta 41"``; se comparan sin espacios, mayusculas ni ceros a la izquierda.
+    """
+    texto = str(value or "").strip().upper()
+    if texto.startswith("ACTA "):
+        texto = texto[5:].strip()
+    if texto.isdigit():
+        return str(int(texto))
+    return texto
+
+
 def compute_indicadores_2026(session: Session) -> dict[str, Any]:
     """
     Calcula los indicadores de certificacion del 1 de enero al 30 de septiembre de 2026.
@@ -570,13 +584,35 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
     ]
 
     # ---- Actas del periodo (desde la hoja CERTIFICADOS) -------------------
-    # La hoja CERTIFICADOS solo informa el numero de acta, no su fecha ni su tipo:
-    # por eso esos campos van en ``None`` y la interfaz los muestra como
-    # "no disponibles" en lugar de inventarlos.
-    ultimas_actas = [
-        {"number": acta, "aprendices_count": cantidad, "act_date": None, "act_type": None}
-        for acta, cantidad in certificados["por_acta"].most_common(15)
-    ]
+    # La hoja CERTIFICADOS solo informa el numero de acta, no su fecha ni su tipo.
+    # Si el acta ya existe en el modulo de Actas, se completan fecha/tipo y se
+    # expone ``act_id`` para enlazar al detalle; si no, quedan en ``None`` para
+    # que la interfaz no invente datos.
+    actas_por_clave: dict[str, Act] = {}
+    if certificados["por_acta"]:
+        # La tabla de actas es pequena (registro manual/importacion); se cruza por
+        # clave tolerante para emparejar "041" del consolidado con "41" de la BD.
+        for acta_db in session.scalars(select(Act)).all():
+            clave = _acta_clave(acta_db.number)
+            if clave and clave not in actas_por_clave:
+                actas_por_clave[clave] = acta_db
+
+    ultimas_actas = []
+    for acta, cantidad in certificados["por_acta"].most_common(15):
+        acta_db = actas_por_clave.get(_acta_clave(acta))
+        ultimas_actas.append(
+            {
+                "number": acta,
+                "aprendices_count": cantidad,
+                "act_date": (
+                    acta_db.act_date.isoformat()
+                    if acta_db is not None and acta_db.act_date
+                    else None
+                ),
+                "act_type": acta_db.act_type if acta_db is not None else None,
+                "act_id": acta_db.id if acta_db is not None else None,
+            }
+        )
 
     if (
         not certificados["total_documentos"]
@@ -632,5 +668,6 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
         "complementaria_canales": complementaria["por_canal"],
         "referencia_institucional": referencia,
         "ultimas_actas": ultimas_actas,
+        "actas_con_detalle": sum(1 for acta in ultimas_actas if acta["act_id"]),
         "conflictos_certificados_pendientes": len(conflictos_cert_pend),
     }
