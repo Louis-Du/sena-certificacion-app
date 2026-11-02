@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link href="/static/styles.css?v=20261101-v16" rel="stylesheet">
+  <link href="/static/styles.css?v=20261101-v17" rel="stylesheet">
 </head>
 
 <body>
@@ -282,26 +282,30 @@
           <button id="refresh-indicadores" class="primary-button refresh-button" type="button">Actualizar</button>
         </header>
 
+        <p class="metrics-scope-note" id="indicadores-scope-note">
+          Dos universos distintos: el <strong>padrón local</strong> (registros guardados en SQLite) y el
+          <strong>consolidado ENE–SEP 2026</strong> de las actas. Los números no son comparables entre sí.
+        </p>
         <div class="metrics-grid metrics-grid-compact" id="indicadores-metrics">
           <article class="metric-card">
-            <p class="metric-label">Total aprendices</p>
+            <p class="metric-label">Total aprendices (padrón local)</p>
             <p class="metric-value" id="ind-metric-learners">—</p>
-            <small>Registrados en la base de datos</small>
+            <small>Registros en la base de datos local · no es el consolidado</small>
           </article>
           <article class="metric-card metric-card-warning">
-            <p class="metric-label">Por certificar / pendientes</p>
+            <p class="metric-label">Pendientes únicos</p>
             <p class="metric-value" id="ind-metric-por-certificar">—</p>
-            <small>Estado en aprendices o pendientes únicos</small>
+            <small>Personas con requisitos sin superar en el consolidado</small>
           </article>
           <article class="metric-card metric-card-success">
-            <p class="metric-label">Certificados</p>
+            <p class="metric-label">Certificados (ENE–SEP)</p>
             <p class="metric-value" id="ind-metric-certificados">—</p>
-            <small>En período / consolidado</small>
+            <small>Personas certificadas en el período · no aprendices en BD</small>
           </article>
           <article class="metric-card">
-            <p class="metric-label">Actas registradas</p>
+            <p class="metric-label">Actas documentales</p>
             <p class="metric-value" id="ind-metric-actas">—</p>
-            <small>Comités y actas en sistema</small>
+            <small>PDF/DOCX cargados en la app · no actas del consolidado</small>
           </article>
         </div>
 
@@ -309,31 +313,46 @@
           <div class="heatmap-header">
             <div>
               <h2 class="heatmap-title">Actividad de certificación</h2>
-              <p class="heatmap-sub">Cambios de estado e importaciones por día</p>
+              <p class="heatmap-sub" id="activity-sub">Cambios de estado e importaciones por día</p>
             </div>
-            <label class="search-field heatmap-year-field" for="heatmap-year">Año
-              <select id="heatmap-year">
-                <option value="2026" selected>2026</option>
-                <option value="2025">2025</option>
-              </select>
-            </label>
-          </div>
-          <div class="gh-heatmap-wrap">
-            <div class="gh-heatmap-months" id="heatmap-months" aria-hidden="true"></div>
-            <div class="gh-heatmap-body">
-              <div class="gh-heatmap-days" aria-hidden="true">
-                <span>Lun</span><span></span><span>Mié</span><span></span><span>Vie</span><span></span><span></span>
+            <div class="heatmap-controls">
+              <label class="search-field heatmap-year-field" for="heatmap-year">Año
+                <select id="heatmap-year">
+                  <option value="2026" selected>2026</option>
+                  <option value="2025">2025</option>
+                </select>
+              </label>
+              <div class="activity-view-toggle" id="activity-view-toggle" role="tablist" aria-label="Vista de actividad">
+                <button class="activity-view-btn is-active" type="button" role="tab" id="activity-tab-heatmap" aria-selected="true" aria-controls="activity-heatmap-panel" data-activity-view="heatmap">Heatmap</button>
+                <button class="activity-view-btn" type="button" role="tab" id="activity-tab-chart" aria-selected="false" aria-controls="activity-chart-panel" data-activity-view="chart" tabindex="-1">Gráfico</button>
               </div>
-              <div id="indicadores-heatmap" class="github-heatmap" role="img" aria-label="Mapa de actividad de certificación estilo GitHub"></div>
-            </div>
-            <div class="heatmap-legend" aria-hidden="true">
-              Menos
-              <i class="lv0"></i><i class="lv1"></i><i class="lv2"></i><i class="lv3"></i><i class="lv4"></i>
-              Más
             </div>
           </div>
-          <p class="heatmap-hint">Pasa el cursor o haz clic en un día con actividad para ver aprendices e importaciones.</p>
-          <p id="heatmap-empty" class="chart-note" hidden>No hay actividad registrada en el período seleccionado.</p>
+          <div class="activity-view-panel" id="activity-heatmap-panel" role="tabpanel" aria-labelledby="activity-tab-heatmap">
+            <div class="gh-heatmap-wrap">
+              <div class="gh-heatmap-months" id="heatmap-months" aria-hidden="true"></div>
+              <div class="gh-heatmap-body">
+                <div class="gh-heatmap-days" aria-hidden="true">
+                  <span>Lun</span><span></span><span>Mié</span><span></span><span>Vie</span><span></span><span></span>
+                </div>
+                <div id="indicadores-heatmap" class="github-heatmap" role="img" aria-label="Mapa de actividad de certificación estilo GitHub"></div>
+              </div>
+              <div class="heatmap-legend" aria-hidden="true">
+                Menos
+                <i class="lv0"></i><i class="lv1"></i><i class="lv2"></i><i class="lv3"></i><i class="lv4"></i>
+                Más
+              </div>
+            </div>
+            <p class="heatmap-hint">Pasa el cursor o haz clic en un día con actividad para ver aprendices e importaciones.</p>
+            <p id="heatmap-empty" class="chart-note" hidden>No hay actividad registrada en el período seleccionado.</p>
+          </div>
+          <div class="activity-view-panel" id="activity-chart-panel" role="tabpanel" aria-labelledby="activity-tab-chart" hidden>
+            <div class="chart-canvas-wrap activity-chart-wrap">
+              <canvas id="indicadores-activity-chart" role="img" aria-label="Eventos de actividad por día"></canvas>
+              <p class="chart-empty" id="activity-chart-empty" hidden>No hay actividad registrada en el período seleccionado.</p>
+            </div>
+            <p class="heatmap-hint" id="activity-chart-summary">Serie semanal (suma de eventos por día) · haz clic en una barra para ver el día con más actividad de esa semana.</p>
+          </div>
         </section>
 
         <div class="pill-tabs indicadores-tabs" id="indicadores-pill-tabs">
@@ -344,6 +363,10 @@
           </div>
 
           <section class="pill-panel is-active" id="panel-resumen" data-pill="resumen" role="tabpanel" aria-labelledby="tab-resumen">
+            <div class="indicadores-kpis-head">
+              <p class="eyebrow">Corte ENE–SEP 2026 · metas institucionales</p>
+              <p class="indicadores-kpis-sub">Consolidado del período. No repite el padrón local de arriba.</p>
+            </div>
             <div id="indicadores-kpis" class="indicadores-kpis-grid"></div>
             <div id="indicadores-avisos" class="indicadores-avisos"></div>
             <div class="indicadores-main indicadores-main-split">
@@ -389,11 +412,12 @@
               </div>
             </div>
             <div class="chart-canvas-wrap">
-              <canvas id="indicadores-causas-chart" role="img" aria-label="Gráfico de causas de no certificación"></canvas>
+              <canvas id="indicadores-causas-chart" role="img" aria-label="Gráfico de causas de no certificación (principales causas)"></canvas>
               <p class="chart-empty" id="indicadores-causas-empty" hidden>Aún no hay causas registradas</p>
             </div>
+            <p class="chart-note" id="indicadores-causas-chart-note" hidden></p>
             <details class="chart-details">
-              <summary>Ver tabla detallada de causas</summary>
+              <summary>Ver tabla completa de causas (incluye el resto agrupado)</summary>
               <div class="learners-table-wrap">
                 <table class="learners-data">
                   <thead><tr><th>Causa / Requisito</th><th>Incidencias</th><th>%</th></tr></thead>
@@ -407,13 +431,22 @@
           <section class="pill-panel panel tab-panel" id="panel-actas" data-pill="actas" data-tab="actas" role="tabpanel" aria-labelledby="tab-actas" hidden>
             <div class="panel-heading">
               <div>
-                <h2>Actas en el período</h2>
-                <p id="indicadores-actas-summary">Asociaciones reales de aprendices</p>
+                <h2>Actas distintas en el consolidado</h2>
+                <p id="indicadores-actas-summary">Número de acta único en la hoja CERTIFICADOS del período</p>
               </div>
             </div>
+            <p class="chart-note" id="indicadores-actas-note" hidden></p>
             <div class="learners-table-wrap">
               <table class="learners-data">
-                <thead><tr><th>Número</th><th>Fecha</th><th>Tipo</th><th>Certificados</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>Número</th>
+                    <th id="indicadores-actas-date-th">Fecha</th>
+                    <th id="indicadores-actas-type-th">Tipo</th>
+                    <th>Certificados</th>
+                    <th id="indicadores-actas-link-th">Detalle</th>
+                  </tr>
+                </thead>
                 <tbody id="indicadores-actas-table"></tbody>
               </table>
             </div>
@@ -442,7 +475,7 @@
   </div>
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="/static/app.js?v=20261101-v14"></script>
-  <script src="/static/ui-enhancements.js?v=20261030-v7"></script>
+  <script src="/static/app.js?v=20261101-v15"></script>
+  <script src="/static/ui-enhancements.js?v=20261101-v8"></script>
 </body>
 </html>
