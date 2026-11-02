@@ -962,9 +962,9 @@ function renderOriginCell(item, row) {
   info.type = "button";
   info.className = "info-button";
   info.textContent = "Resumen";
-  info.title = "Ver documentación, origen y motivo del aprendiz";
+  info.title = "Ver resumen de origen y requisitos del aprendiz";
   info.setAttribute("aria-expanded", "false");
-  info.setAttribute("aria-label", `Ver resumen de ${item.name}`);
+  info.setAttribute("aria-label", `Resumen de origen y requisitos de ${item.name}`);
   info.addEventListener("click", (event) => {
     event.stopPropagation();
     toggleLearnerSummary(row, item, info);
@@ -1052,10 +1052,6 @@ function renderPendingRequirementsCell(item) {
     toggle.textContent = "Ver pendientes";
     toggle.setAttribute("aria-expanded", "false");
     toggle.setAttribute("aria-controls", panelId);
-    toggle.setAttribute(
-      "aria-label",
-      `Ver los ${pending.length} requisitos pendientes`,
-    );
 
     const panel = document.createElement("ul");
     panel.className = "pending-list";
@@ -1067,12 +1063,39 @@ function renderPendingRequirementsCell(item) {
       panel.appendChild(itemLabel);
     });
 
+    const setExpanded = (expanded) => {
+      toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+      toggle.textContent = expanded ? "Ocultar pendientes" : "Ver pendientes";
+      toggle.setAttribute(
+        "aria-label",
+        `${expanded ? "Ocultar" : "Ver"} los ${pending.length} requisitos pendientes de ${item.name}`,
+      );
+      panel.hidden = !expanded;
+    };
+    setExpanded(false);
+
     toggle.addEventListener("click", (event) => {
       event.stopPropagation();
-      const expanded = toggle.getAttribute("aria-expanded") === "true";
-      toggle.setAttribute("aria-expanded", expanded ? "false" : "true");
-      toggle.textContent = expanded ? "Ver pendientes" : "Ocultar pendientes";
-      panel.hidden = expanded;
+      setExpanded(toggle.getAttribute("aria-expanded") !== "true");
+    });
+
+    cell.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape" || toggle.getAttribute("aria-expanded") !== "true") {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setExpanded(false);
+      toggle.focus();
+    });
+
+    cell.addEventListener("focusout", (event) => {
+      if (
+        toggle.getAttribute("aria-expanded") === "true" &&
+        !cell.contains(event.relatedTarget)
+      ) {
+        setExpanded(false);
+      }
     });
 
     cell.append(toggle, panel);
