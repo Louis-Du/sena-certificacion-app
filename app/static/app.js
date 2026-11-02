@@ -49,6 +49,9 @@ const learnerMissingRequirement = document.querySelector("#learner-missing-requi
 const learnerRequirementSummary = document.querySelector("#learner-missing-requirement-summary");
 const learnerRequirementOptions = document.querySelector("#learner-missing-requirement-options");
 const clearLearnerSearch = document.querySelector("#clear-learner-search");
+const learnersDrilldownBanner = document.querySelector("#learners-drilldown-banner");
+const learnersDrilldownText = document.querySelector("#learners-drilldown-text");
+const learnersDrilldownClear = document.querySelector("#learners-drilldown-clear");
 const learnersPrev = document.querySelector("#learners-prev");
 const learnersNext = document.querySelector("#learners-next");
 const learnersPage = document.querySelector("#learners-page");
@@ -791,6 +794,44 @@ let learnerRequestId = 0;
 const learnerPageSize = 25;
 const selectedRequirementValues = new Set();
 const requirementLabelsByValue = new Map();
+// Drill-down desde Indicadores. ``learnerDrilldown`` conserva los filtros que no
+// tienen control propio en el listado (causa y numero de acta); el estado se
+// aplica al selector y el resto de filtros sigue viviendo en sus controles.
+let learnerDrilldown = null;
+let learnerPendingStatus = "";
+
+function renderDrilldownBanner() {
+  if (!learnersDrilldownBanner) return;
+  if (!learnerDrilldown) {
+    learnersDrilldownBanner.hidden = true;
+    if (learnersDrilldownText) learnersDrilldownText.textContent = "";
+    return;
+  }
+  if (learnersDrilldownText) {
+    learnersDrilldownText.textContent = `Filtro desde Indicadores: ${learnerDrilldown.label}`;
+  }
+  learnersDrilldownBanner.hidden = false;
+}
+
+// Abre el listado con los filtros de un KPI, causa o acta de Indicadores.
+// No inventa filtros: estado, causa y numero de acta son parametros reales de
+// /api/learners; si un KPI no se puede representar en el padron local no se
+// enlaza (caso de los certificados del consolidado ENE-SEP).
+function abrirAprendicesDesdeIndicadores({ label, status = "", reasons = [], actNumber = "" }) {
+  learnerDrilldown = {
+    label: label || "Indicadores",
+    status: status || "",
+    reasons: (reasons || []).filter(Boolean),
+    actNumber: actNumber || "",
+  };
+  learnerSearch.value = "";
+  setSelectedMissingRequirements([]);
+  learnerStatus.value = "";
+  learnerPendingStatus = status || "";
+  learnerPageNumber = 1;
+  renderDrilldownBanner();
+  showView("aprendices");
+}
 
 function normalizeStatusText(status) {
   return (status || "")
@@ -1262,7 +1303,9 @@ function learnerFiltersActive() {
   return Boolean(
     learnerSearch.value.trim() ||
       learnerStatus.value ||
-      selectedMissingRequirements().length
+      selectedMissingRequirements().length ||
+      learnerDrilldown?.reasons.length ||
+      learnerDrilldown?.actNumber
   );
 }
 
@@ -1270,6 +1313,9 @@ function clearLearnerFilters() {
   learnerSearch.value = "";
   learnerStatus.value = "";
   setSelectedMissingRequirements([]);
+  learnerDrilldown = null;
+  learnerPendingStatus = "";
+  renderDrilldownBanner();
   learnerPageNumber = 1;
   loadLearners();
 }
@@ -1589,18 +1635,26 @@ async function loadLearners() {
   learnersPrev.disabled = true;
   learnersNext.disabled = true;
   try {
+    // El estado del drill-down se aplica cuando el selector ya tiene sus
+    // opciones; hasta entonces se envia directo a la API.
+    const selectedStatus = learnerPendingStatus || learnerStatus.value;
     const params = new URLSearchParams({
       search: learnerSearch.value.trim(),
-      status: learnerStatus.value,
+      status: selectedStatus,
       page: learnerPageNumber,
       page_size: learnerPageSize,
     });
     selectedMissingRequirements().forEach((value) => {
       params.append("missing_requirement", value);
     });
+    (learnerDrilldown?.reasons || []).forEach((value) => {
+      params.append("reason", value);
+    });
+    if (learnerDrilldown?.actNumber) {
+      params.set("act_number", learnerDrilldown.actNumber);
+    }
     const result = await readResponse(await fetch(`/api/learners?${params}`));
     if (requestId !== learnerRequestId) return;
-    const selectedStatus = learnerStatus.value;
     const statusOptions = [...result.statuses];
     if (
       (result.status_counts || []).some((item) => item.status === "Sin estado") &&
@@ -1608,9 +1662,16 @@ async function loadLearners() {
     ) {
       statusOptions.push("Sin estado");
     }
+    if (
+      selectedStatus &&
+      !statusOptions.some((status) => status.toLowerCase() === selectedStatus.toLowerCase())
+    ) {
+      statusOptions.push(selectedStatus);
+    }
     learnerStatus.replaceChildren(new Option("Todos los estados", ""));
     statusOptions.forEach((status) => learnerStatus.add(new Option(status, status)));
     if (selectedStatus) setLearnerStatus(selectedStatus);
+    learnerPendingStatus = "";
     // Opciones del filtro "Requisito faltante" segun los tipos del backend.
     renderRequirementOptions(result.requirement_types);
     renderStatusChips(result.status_counts);
@@ -1663,6 +1724,7 @@ learnerSearch.addEventListener("input", () => {
   loadLearners();
 });
 clearLearnerSearch.addEventListener("click", clearLearnerFilters);
+learnersDrilldownClear?.addEventListener("click", clearLearnerFilters);
 learnerStatus.addEventListener("change", () => {
   learnerPageNumber = 1;
   loadLearners();
@@ -1909,7 +1971,7 @@ function renderAvanceChart(metricas) {
 
 // Grafico 2: barras horizontales de causas de no certificacion. La altura del
 // panel crece con el numero de causas para que ninguna quede aplastada.
-function renderCausasChart(motivos) {
+function renderCausasChart(motivos, onSelect) {
   const canvas = document.querySelector("#indicadores-causas-chart");
   const vacio = document.querySelector("#indicadores-causas-empty");
   if (!canvas || !vacio) return;
@@ -1953,6 +2015,14 @@ function renderCausasChart(motivos) {
             },
           },
         },
+      },
+      onClick: (event, elements) => {
+        if (!elements.length || typeof onSelect !== "function") return;
+        const fila = filas[elements[0].index];
+        if (fila) onSelect(fila);
+      },
+      onHover: (event, elements) => {
+        if (canvas) canvas.style.cursor = elements.length ? "pointer" : "default";
       },
     },
   });
@@ -2141,7 +2211,8 @@ function renderActasIndicadores(data, tabla, resumen, nota) {
   }
 
   tabla.innerHTML = actas.map((acta) => {
-    const celdas = [`<td><strong>${acta.number}</strong></td>`];
+    // Drill-down P1: numero de acta -> aprendices con ese acta en el padron.
+    const celdas = [`<td><button class="drilldown-link" type="button" data-acta-number="${acta.number}" title="Ver aprendices del acta ${acta.number}">${acta.number}</button></td>`];
     if (!ocultarFecha) celdas.push(`<td>${acta.act_date || "No disponible"}</td>`);
     if (!ocultarTipo) celdas.push(`<td>${acta.act_type || "No disponible"}</td>`);
     celdas.push(`<td style="color:var(--green-dark);font-weight:700">${formatNumeroIndicador(acta.aprendices_count)} asociados</td>`);
@@ -2161,6 +2232,17 @@ function renderActasIndicadores(data, tabla, resumen, nota) {
       if (!Number.isFinite(id)) return;
       showView("actas");
       if (typeof loadActDetail === "function") loadActDetail(id);
+    });
+  });
+
+  tabla.querySelectorAll("button[data-acta-number]").forEach((boton) => {
+    boton.addEventListener("click", () => {
+      const numero = boton.dataset.actaNumber;
+      if (!numero) return;
+      abrirAprendicesDesdeIndicadores({
+        label: `acta ${numero}`,
+        actNumber: numero,
+      });
     });
   });
 }
@@ -2183,15 +2265,23 @@ async function loadIndicadores() {
     kpis.innerHTML = `
       <div class="panel"><div><small>META ANUAL INSTITUCIONAL</small><h2>${formatNumeroIndicador(data.total_meta)}</h2><small>Aprendices proyectados por la meta</small></div></div>
       <div class="panel" style="border-left:4px solid var(--green)"><div><small style="color:var(--green-dark)">CERTIFICADOS ÚNICOS (ENE–SEP)</small><h2 style="color:var(--green-dark)">${formatNumeroIndicador(data.total_certificados)}</h2><small>Personas certificadas en el período</small></div></div>
-      <div class="panel" style="border-left:4px solid #b87d00"><div><small style="color:#b87d00">PENDIENTES ÚNICOS</small><h2 style="color:#b87d00">${formatNumeroIndicador(data.total_pendientes)}</h2><small>Personas con requisitos sin superar</small></div></div>
+      <div class="panel" style="border-left:4px solid #b87d00"><div><small style="color:#b87d00">PENDIENTES ÚNICOS</small><h2 style="color:#b87d00"><button class="kpi-drilldown" type="button" data-drilldown-pendientes title="Ver aprendices pendientes en el padrón local">${formatNumeroIndicador(data.total_pendientes)}</button></h2><small>Personas con requisitos sin superar</small></div></div>
       <div class="panel" style="background:var(--green-soft)"><div><small style="color:var(--green-dark)">% AVANCE</small><h2 style="color:var(--green-dark)">${formatPorcentajeIndicador(data.avance_global)}</h2>${kpiBarraProgreso(data.avance_global)}<small class="kpi-formula" title="Certificados únicos ÷ meta anual × 100">Fórmula: certificados ÷ meta</small></div></div>
       <div class="panel"><div><small>EFECTIVIDAD</small><h2>${formatPorcentajeIndicador(data.efectividad_global)}</h2>${kpiBarraProgreso(data.efectividad_global)}<small class="kpi-formula" title="Certificados únicos ÷ (certificados únicos + pendientes únicos) × 100">Fórmula: certificados ÷ (certificados + pendientes)</small></div></div>
     `;
 
-    // Muestra por que algunos indicadores no se pudieron calcular (datos
-    // faltantes, registros sin clasificar, filas fuera del periodo, etc.).
-    // Se conserva toda la informacion: el panel solo queda colapsable y con un
-    // contador visible para no perder las advertencias de vista.
+    // Drill-down P0: pendientes del padron local. Los certificados del
+    // consolidado ENE-SEP no se enlazan porque el listado solo contiene el
+    // padron local (~2 mil), no las 51 mil filas del consolidado.
+    kpis.querySelector("[data-drilldown-pendientes]")?.addEventListener("click", () => {
+      abrirAprendicesDesdeIndicadores({
+        label: "Pendientes únicos",
+        status: "PENDIENTE",
+      });
+    });
+
+    // Advertencias: solo se muestran las que calcula el backend. Si el array
+    // viene vacio no se pinta ningun banner ni contador.
     if (avisos) {
       const lista = data.advertencias || [];
       if (!lista.length) {
@@ -2201,11 +2291,10 @@ async function loadIndicadores() {
         avisos.innerHTML = `
           <details class="avisos-panel">
             <summary>
-              <span class="avisos-title">Datos y advertencias</span>
+              <span class="avisos-title">Advertencias de cálculo</span>
               <span class="avisos-badge">${lista.length} ${etiqueta}</span>
               <span class="avisos-toggle">Ver detalle</span>
             </summary>
-            <p class="avisos-subtitle">${data.datos_suficientes ? "Resultados calculados con los documentos cargados." : "Aún no hay documentos suficientes para calcular los indicadores."}</p>
             <ul class="avisos-list">${lista.map((texto) => `<li>${texto}</li>`).join("")}</ul>
           </details>`;
       }
@@ -2230,13 +2319,24 @@ async function loadIndicadores() {
         causasSummary.textContent = `${formatNumeroIndicador(data.total_incidencias_causas)} incidencias de requisitos · ${formatNumeroIndicador(data.total_pendientes)} aprendices únicos pendientes`;
       }
       if (causasCount) causasCount.textContent = formatNumeroIndicador(data.total_incidencias_causas);
-      causasTable.innerHTML = causasCompletas.filas.map((mot) => `
+      causasTable.innerHTML = causasCompletas.filas.map((mot, index) => `
         <tr>
-          <td><strong>${mot.motivo}</strong>${mot.variantes.length > 1 ? `<br><small class="causa-variantes">Agrupa: ${mot.variantes.join(", ")}</small>` : ""}</td>
+          <td><button class="drilldown-link" type="button" data-causa-index="${index}" title="Ver aprendices con esta causa">${mot.motivo}</button>${mot.variantes.length > 1 ? `<br><small class="causa-variantes">Agrupa: ${mot.variantes.join(", ")}</small>` : ""}</td>
           <td><strong>${mot.cantidad.toLocaleString("es-CO")}</strong></td>
           <td><span class="result-badge pending">${formatPorcentajeIndicador(mot.porcentaje)}</span></td>
         </tr>
       `).join("") || `<tr><td colspan="3" style="color:var(--muted)">Sin causas registradas en la hoja PENDIENTES.</td></tr>`;
+      // Drill-down P0: causa normalizada -> motivos reales de la hoja PENDIENTES.
+      causasTable.querySelectorAll("button[data-causa-index]").forEach((boton) => {
+        boton.addEventListener("click", () => {
+          const fila = causasCompletas.filas[Number(boton.dataset.causaIndex)];
+          if (!fila) return;
+          abrirAprendicesDesdeIndicadores({
+            label: `causa «${fila.motivo}»`,
+            reasons: fila.variantes.length ? fila.variantes : [fila.motivo],
+          });
+        });
+      });
       if (causasNote) {
         causasNote.innerHTML = textoAuditoriaCausas(data);
       }
@@ -2265,7 +2365,12 @@ async function loadIndicadores() {
     }
     // Graficos complementarios (usan los mismos datos de las tablas de arriba).
     renderAvanceChart(data.metricas);
-    renderCausasChart(causasGrafico.filas);
+    renderCausasChart(causasGrafico.filas, (fila) => {
+      abrirAprendicesDesdeIndicadores({
+        label: `causa «${fila.motivo}»`,
+        reasons: fila.variantes && fila.variantes.length ? fila.variantes : [fila.motivo],
+      });
+    });
   } catch (err) {
     kpis.innerHTML = `<p class="error">No fue posible calcular indicadores: ${err.message}</p>`;
     // Sin datos validos no se deben dejar graficos ni contadores desactualizados.
