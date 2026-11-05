@@ -465,20 +465,45 @@ async def informes_consolidado_resumen_endpoint(
 
 @app.get("/api/informes/export")
 async def informes_export_endpoint(
+    report_type: str = Query(default="general", alias="type"),
+    format: str = Query(default="xlsx", pattern="^(xlsx|csv)$"),
     year: int | None = Query(default=None, ge=2000, le=2100),
     session: Session = Depends(get_db),
 ) -> Response:
-    """Exporta el dataset consolidado a Excel (.xlsx)."""
-    from app.services.informes import export_report_xlsx
+    """Exporta un informe estructurado en XLSX o CSV."""
+    from app.services.informes import export_report_csv, export_report_xlsx
     try:
-        content = export_report_xlsx(session, year=year)
+        if format == "csv":
+            content = export_report_csv(session, report_type=report_type, year=year)
+            media_type = "text/csv; charset=utf-8"
+            filename = f"informe_{report_type}.csv"
+        else:
+            content = export_report_xlsx(session, report_type=report_type, year=year)
+            media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            filename = (
+                "informe_certificacion_v1.xlsx"
+                if report_type == "general"
+                else f"informe_{report_type}.xlsx"
+            )
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     return Response(
         content=content,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": 'attachment; filename="informe_certificacion_v1.xlsx"'},
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.get("/api/informes/formats")
+async def informes_formats_endpoint(
+    report_type: str = Query(default="general", alias="type"),
+) -> dict:
+    from app.services.informes import REPORT_TYPES, available_report_formats
+    try:
+        formats = available_report_formats(report_type)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return {"type": report_type, "name": REPORT_TYPES[report_type], "formats": formats}
 
 # ---------------------------------------------------------------------------
 # Parche de actividad para el heatmap de la UI v2
@@ -502,4 +527,3 @@ async def activity_day(
     session: Session = Depends(get_db),
 ) -> dict:
     return learners_for_activity_date(session, day)
-

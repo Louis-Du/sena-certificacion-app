@@ -467,25 +467,25 @@
           <span class="report-option-icon" aria-hidden="true">▥</span>
           <span><strong>Informe general de indicadores</strong><small>Resumen, ejecución por categoría, certificados por mes, causas y actas.</small><em>XLSX · tablas editables</em></span>
         </button>
-        <button class="report-option is-disabled" type="button" role="radio" aria-checked="false" aria-disabled="true" data-report-type="ejecutivo">
+        <button class="report-option" type="button" role="radio" aria-checked="false" data-report-type="ejecutivo">
           <span class="report-option-icon" aria-hidden="true">◈</span>
-          <span><strong>Informe ejecutivo</strong><small>Resumen breve para lectura rápida y seguimiento directivo.</small><em>Disponible próximamente</em></span>
+          <span><strong>Informe ejecutivo</strong><small>Resumen breve para lectura rápida y seguimiento directivo.</small><em>XLSX · CSV</em></span>
         </button>
-        <button class="report-option is-disabled" type="button" role="radio" aria-checked="false" aria-disabled="true" data-report-type="aprendices">
+        <button class="report-option" type="button" role="radio" aria-checked="false" data-report-type="aprendices">
           <span class="report-option-icon" aria-hidden="true">♙</span>
-          <span><strong>Informe de aprendices</strong><small>Detalle de aprendices, estados, requisitos y actas relacionadas.</small><em>Disponible próximamente</em></span>
+          <span><strong>Informe de aprendices</strong><small>Detalle de aprendices, estados, requisitos y actas relacionadas.</small><em>XLSX · CSV</em></span>
         </button>
-        <button class="report-option is-disabled" type="button" role="radio" aria-checked="false" aria-disabled="true" data-report-type="pendientes">
+        <button class="report-option" type="button" role="radio" aria-checked="false" data-report-type="pendientes">
           <span class="report-option-icon" aria-hidden="true">!</span>
-          <span><strong>Requisitos y pendientes</strong><small>Seguimiento de requisitos que requieren atención.</small><em>Disponible próximamente</em></span>
+          <span><strong>Requisitos y pendientes</strong><small>Seguimiento de requisitos que requieren atención.</small><em>XLSX · CSV</em></span>
         </button>
-        <button class="report-option is-disabled" type="button" role="radio" aria-checked="false" aria-disabled="true" data-report-type="causas">
+        <button class="report-option" type="button" role="radio" aria-checked="false" data-report-type="causas">
           <span class="report-option-icon" aria-hidden="true">⌁</span>
-          <span><strong>Causas de pendientes</strong><small>Frecuencia de motivos e incidencias de no certificación.</small><em>Disponible próximamente</em></span>
+          <span><strong>Causas de pendientes</strong><small>Frecuencia de motivos e incidencias de no certificación.</small><em>XLSX · CSV</em></span>
         </button>
-        <button class="report-option is-disabled" type="button" role="radio" aria-checked="false" aria-disabled="true" data-report-type="actas">
+        <button class="report-option" type="button" role="radio" aria-checked="false" data-report-type="actas">
           <span class="report-option-icon" aria-hidden="true">▣</span>
-          <span><strong>Informe de actas</strong><small>Actas documentales y su relación con el consolidado.</small><em>Disponible próximamente</em></span>
+          <span><strong>Informe de actas</strong><small>Actas documentales y su relación con el consolidado.</small><em>XLSX · CSV</em></span>
         </button>
       </div>
       <div class="report-settings">
@@ -499,8 +499,14 @@
             <option value="completo">Completo</option>
           </select>
         </label>
+        <label>Formato
+          <select id="report-format">
+            <option value="xlsx">XLSX</option>
+            <option value="csv">CSV</option>
+          </select>
+        </label>
         <div class="report-format" aria-label="Formato disponible">
-          <span>Formato</span><strong>XLSX</strong><small>Hojas editables con tablas y datos del informe v1.</small>
+          <span>Contenido</span><strong>Datos consistentes</strong><small>Generado desde los servicios existentes de indicadores y modelos locales.</small>
         </div>
       </div>
       <p id="report-modal-feedback" class="report-modal-feedback" role="status"></p>

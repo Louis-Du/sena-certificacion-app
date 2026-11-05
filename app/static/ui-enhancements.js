@@ -64,6 +64,15 @@
   const reportCancel = document.getElementById("report-modal-cancel");
   const reportGenerate = document.getElementById("report-generate-button");
   const reportFeedback = document.getElementById("report-modal-feedback");
+  const reportFormat = document.getElementById("report-format");
+  let selectedReportType = "general";
+
+  function updateReportLink() {
+    if (!reportGenerate) return;
+    const format = reportFormat?.value || "xlsx";
+    reportGenerate.href = `/api/informes/export?type=${encodeURIComponent(selectedReportType)}&format=${format}`;
+    reportGenerate.download = `informe_${selectedReportType}.${format}`;
+  }
 
   function closeReportModal() {
     if (!reportModal) return;
@@ -98,8 +107,12 @@
         item.classList.toggle("is-selected", selected);
         item.setAttribute("aria-checked", String(selected));
       });
+      selectedReportType = option.dataset.reportType || "general";
+      updateReportLink();
     });
   });
+  reportFormat?.addEventListener("change", updateReportLink);
+  updateReportLink();
   reportGenerate?.addEventListener("click", () => {
     showToast("Preparando informe general en formato XLSX.", "info");
     window.setTimeout(closeReportModal, 100);

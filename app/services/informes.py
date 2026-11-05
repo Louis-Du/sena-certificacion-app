@@ -17,7 +17,7 @@ Universos
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from io import BytesIO
+from io import BytesIO, StringIO
 from typing import Any
 
 from sqlalchemy import select
@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 import pandas as pd
 
-from app.models import ImportHistory
+from app.models import Act, Learner, ImportHistory
 from app.services import indicadores
 
 
@@ -173,7 +173,128 @@ def consolidate_report_dataset_v1(session: Session, *, year: int | None = None) 
     return consolidate_report_dataset(session, year=year)
 
 
-def export_report_xlsx(session: Session, *, year: int | None = None) -> bytes:
+REPORT_TYPES = {
+    "general": "Informe general de indicadores",
+    "ejecutivo": "Informe ejecutivo",
+    "aprendices": "Informe de aprendices",
+    "pendientes": "Requisitos y pendientes",
+    "causas": "Causas de pendientes",
+    "actas": "Informe de actas",
+}
+
+
+def available_report_formats(report_type: str) -> list[str]:
+    if report_type not in REPORT_TYPES:
+        raise ValueError(f"Tipo de informe no soportado: {report_type}.")
+    return ["xlsx", "csv"]
+
+
+def report_catalog() -> list[dict[str, Any]]:
+    return [
+        {"type": report_type, "name": name, "formats": available_report_formats(report_type)}
+        for report_type, name in REPORT_TYPES.items()
+    ]
+
+
+def _report_rows(dataset: dict[str, Any], report_type: str) -> tuple[str, list[dict[str, Any]]]:
+    if report_type == "general":
+        resumen = dataset.get("resumen_ejecutivo") or {}
+        return "Resumen", [
+            {"Campo": "Periodo", "Valor": dataset.get("periodo")},
+            {"Campo": "Meta total", "Valor": resumen.get("meta_total")},
+            {"Campo": "Certificados personas", "Valor": resumen.get("certificados_personas")},
+            {"Campo": "Certificados complementaria", "Valor": resumen.get("certificados_complementaria")},
+            {"Campo": "Pendientes personas", "Valor": resumen.get("pendientes_personas")},
+            {"Campo": "Avance global %", "Valor": resumen.get("avance_global")},
+            {"Campo": "Efectividad global %", "Valor": resumen.get("efectividad_global")},
+        ]
+    if report_type == "ejecutivo":
+        resumen = dataset.get("resumen_ejecutivo") or {}
+        return "Ejecutivo", [
+            {"Indicador": "Periodo", "Valor": dataset.get("periodo")},
+            {"Indicador": "Certificados", "Valor": resumen.get("certificados_personas")},
+            {"Indicador": "Pendientes", "Valor": resumen.get("pendientes_personas")},
+            {"Indicador": "Avance %", "Valor": resumen.get("avance_global")},
+            {"Indicador": "Efectividad %", "Valor": resumen.get("efectividad_global")},
+        ]
+    if report_type == "causas":
+        causas = dataset.get("causas_no_certificacion") or {}
+        return "Causas", [
+            {"Motivo": item.get("motivo"), "Incidencias": item.get("cantidad"), "Porcentaje %": item.get("porcentaje")}
+            for item in causas.get("motivos") or []
+        ]
+    if report_type == "actas":
+        return "Actas", [
+            {
+                "Acta": item.get("number"),
+                "Certificados": item.get("aprendices_count"),
+                "Fecha": item.get("act_date"),
+                "Tipo": item.get("act_type"),
+            }
+            for item in (dataset.get("actas") or {}).get("items") or []
+        ]
+    if report_type == "aprendices":
+        return "Aprendices", [
+            {
+                "Identificacion": learner.identification,
+                "Nombre": learner.name,
+                "Programa": learner.program,
+                "Estado": learner.certification_status,
+                "Ficha": learner.group_code,
+                "Acta": learner.act_number,
+            }
+            for learner in dataset.get("_learners", [])
+        ]
+    if report_type == "pendientes":
+        return "Pendientes", [
+            {
+                "Identificacion": learner.identification,
+                "Nombre": learner.name,
+                "Programa": learner.program,
+                "Estado": learner.certification_status,
+                "Motivo": learner.non_certification_reason,
+            }
+            for learner in dataset.get("_learners", [])
+        ]
+    raise ValueError(f"Tipo de informe no soportado: {report_type}.")
+
+
+def _dataset_for_report(session: Session, report_type: str, year: int | None) -> dict[str, Any]:
+    if report_type not in REPORT_TYPES:
+        raise ValueError(f"Tipo de informe no soportado: {report_type}.")
+    dataset = consolidate_report_dataset(session, year=year)
+    if report_type in {"aprendices", "pendientes"}:
+        query = select(Learner)
+        if report_type == "pendientes":
+            query = query.where(Learner.certification_status.ilike("%pend%"))
+        dataset["_learners"] = list(session.scalars(query).all())
+    return dataset
+
+
+def export_report_csv(
+    session: Session, *, report_type: str = "general", year: int | None = None
+) -> bytes:
+    dataset = _dataset_for_report(session, report_type, year)
+    if not dataset.get("datos_suficientes") and report_type not in {"aprendices", "pendientes", "actas"}:
+        raise ValueError("No hay datos para exportar.")
+    _, rows = _report_rows(dataset, report_type)
+    columns = {
+        "general": ["Campo", "Valor"],
+        "ejecutivo": ["Indicador", "Valor"],
+        "causas": ["Motivo", "Incidencias", "Porcentaje %"],
+        "actas": ["Acta", "Certificados", "Fecha", "Tipo"],
+        "aprendices": ["Identificacion", "Nombre", "Programa", "Estado", "Ficha", "Acta"],
+        "pendientes": ["Identificacion", "Nombre", "Programa", "Estado", "Motivo"],
+    }[report_type]
+    frame = pd.DataFrame(rows, columns=columns)
+    buffer = StringIO()
+    frame.to_csv(buffer, index=False, encoding="utf-8-sig")
+    return buffer.getvalue().encode("utf-8-sig")
+
+
+def export_report_xlsx(
+    session: Session, *, year: int | None = None, report_type: str = "general"
+) -> bytes:
     """Exporta el dataset consolidado a Excel (.xlsx).
 
     Formato acordado v1:
@@ -182,11 +303,18 @@ def export_report_xlsx(session: Session, *, year: int | None = None) -> bytes:
     - Los valores ``None`` se dejan como celda vacia (sin inventar ceros).
     - Si no hay datos suficientes se lanza ``ValueError``.
     """
-    dataset = consolidate_report_dataset(session, year=year)
+    dataset = _dataset_for_report(session, report_type, year)
     if not dataset.get("datos_suficientes"):
         raise ValueError("No hay datos para exportar.")
 
     buffer = BytesIO()
+    if report_type != "general":
+        sheet, rows = _report_rows(dataset, report_type)
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+            pd.DataFrame(rows).to_excel(writer, sheet_name=sheet, index=False)
+        buffer.seek(0)
+        return buffer.getvalue()
+
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         # Resumen
         resumen = dataset.get("resumen_ejecutivo") or {}
