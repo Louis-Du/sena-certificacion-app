@@ -280,7 +280,7 @@
           <div class="topbar-text">
             <p class="eyebrow">SENA Certificación</p>
             <h1>Indicadores de certificación 2026</h1>
-            <p class="subtitle">Resumen, actividad y detalle por pestañas · Enero – Septiembre 2026</p>
+            <p class="subtitle">Resumen, certificaciones y detalle por pestañas · Enero – Septiembre 2026</p>
           </div>
           <button id="refresh-indicadores" class="primary-button refresh-button" type="button">Actualizar</button>
         </header>
@@ -315,49 +315,11 @@
         <section class="panel heatmap-panel heatmap-panel-compact">
           <div class="heatmap-header">
             <div>
-              <h2 class="heatmap-title">Actividad de certificación</h2>
-              <p class="heatmap-sub" id="activity-sub">Cambios de estado e importaciones por día</p>
-            </div>
-            <div class="heatmap-controls">
-              <label class="search-field heatmap-year-field" for="heatmap-year">Año
-                <select id="heatmap-year">
-                  <option value="2026" selected>2026</option>
-                  <option value="2025">2025</option>
-                </select>
-              </label>
-              <div class="activity-view-toggle" id="activity-view-toggle" role="tablist" aria-label="Vista de actividad">
-                <button class="activity-view-btn is-active" type="button" role="tab" id="activity-tab-heatmap" aria-selected="true" aria-controls="activity-heatmap-panel" data-activity-view="heatmap">Heatmap</button>
-                <button class="activity-view-btn" type="button" role="tab" id="activity-tab-chart" aria-selected="false" aria-controls="activity-chart-panel" data-activity-view="chart" tabindex="-1">Actividad</button>
-                <button class="activity-view-btn" type="button" role="tab" id="activity-tab-certificados" aria-selected="false" aria-controls="activity-certificados-panel" data-activity-view="certificados" tabindex="-1">Certificados/mes</button>
-              </div>
+              <h2 class="heatmap-title">Certificados por mes</h2>
+              <p class="heatmap-sub">Personas certificadas según el mes de certificación del consolidado</p>
             </div>
           </div>
-          <div class="activity-view-panel" id="activity-heatmap-panel" role="tabpanel" aria-labelledby="activity-tab-heatmap">
-            <div class="gh-heatmap-wrap">
-              <div class="gh-heatmap-months" id="heatmap-months" aria-hidden="true"></div>
-              <div class="gh-heatmap-body">
-                <div class="gh-heatmap-days" aria-hidden="true">
-                  <span>Lun</span><span></span><span>Mié</span><span></span><span>Vie</span><span></span><span></span>
-                </div>
-                <div id="indicadores-heatmap" class="github-heatmap" role="img" aria-label="Mapa de actividad de certificación estilo GitHub"></div>
-              </div>
-              <div class="heatmap-legend" aria-hidden="true">
-                Menos
-                <i class="lv0"></i><i class="lv1"></i><i class="lv2"></i><i class="lv3"></i><i class="lv4"></i>
-                Más
-              </div>
-            </div>
-            <p class="heatmap-hint">Pasa el cursor o haz clic en un día con actividad para ver aprendices e importaciones.</p>
-            <p id="heatmap-empty" class="chart-note" hidden>No hay actividad registrada en el período seleccionado.</p>
-          </div>
-          <div class="activity-view-panel" id="activity-chart-panel" role="tabpanel" aria-labelledby="activity-tab-chart" hidden>
-            <div class="chart-canvas-wrap activity-chart-wrap">
-              <canvas id="indicadores-activity-chart" role="img" aria-label="Eventos de actividad por día"></canvas>
-              <p class="chart-empty" id="activity-chart-empty" hidden>No hay actividad registrada en el período seleccionado.</p>
-            </div>
-            <p class="heatmap-hint" id="activity-chart-summary">Serie semanal (suma de eventos por día) · haz clic en una barra para ver el día con más actividad de esa semana.</p>
-          </div>
-          <div class="activity-view-panel" id="activity-certificados-panel" role="tabpanel" aria-labelledby="activity-tab-certificados" hidden>
+          <div class="activity-view-panel" id="activity-certificados-panel" role="tabpanel">
             <div class="chart-canvas-wrap activity-chart-wrap">
               <canvas id="indicadores-certificados-mes-chart" role="img" aria-label="Certificados del consolidado por mes de certificación"></canvas>
               <p class="chart-empty" id="certificados-mes-empty" hidden>No hay certificados del consolidado en el período.</p>

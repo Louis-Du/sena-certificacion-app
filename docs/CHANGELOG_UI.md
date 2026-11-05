@@ -32,9 +32,9 @@ Se completó la modernización visual integral de la aplicación web local de se
 - `MutationObserver` integrado sobre `#feedback` y formularios secundarios para proyectar mensajes relevantes como toasts sin ruido visual fijo.
 
 ### Fase 4 — Indicadores unificados, sin Dashboard aparte
-- Se eliminó la vista `#dashboard-view`: las 4 métricas ejecutivas y el heatmap viven al inicio de **Indicadores**.
+- Se eliminó la vista `#dashboard-view`: las 4 métricas ejecutivas y el gráfico mensual viven al inicio de **Indicadores**.
 - Tarjetas superiores: Total aprendices, Por certificar/pendientes, Certificados y Actas registradas.
-- Heatmap anual estilo **GitHub** con datos reales de `RequirementStatusHistory` e `ImportHistory`.
+- El gráfico de certificados por mes usa el campo `MES DE CERTIFICACIÓN` del consolidado; no usa la fecha de importación.
 - Pestañas pill **Resumen / Causas / Actas del período** para reducir el desplazamiento vertical sin ocultar información.
 
 ### Fase 5 — Rail, modal y retroalimentación
@@ -44,7 +44,7 @@ Se completó la modernización visual integral de la aplicación web local de se
 - Toasts diferenciados para información, advertencia, error y éxito.
 
 ### Fase 6 — Cierre y verificación
-- Endpoints `GET /api/activity/heatmap?year=2026` y `GET /api/activity/day/YYYY-MM-DD` documentados en `app/main.py`.
+- El gráfico mensual se valida con datos del consolidado y no depende de la fecha de importación.
 - Cache busting actualizado a `?v=20261030-v5`.
 - Verificación con navegador real (Playwright/Firefox) y suite `pytest` sin E2E.
 
@@ -58,9 +58,7 @@ Se completó la modernización visual integral de la aplicación web local de se
 | **Métrica "Por Certificar"** | **Real** | Calculado en tiempo real desde `/api/indicadores` (`total_pendientes`). |
 | **Métrica "Certificados"** | **Real** | Calculado en tiempo real desde `/api/indicadores` (`total_certificados`). |
 | **Métrica "Actas Registradas"** | **Real** | Conteo exacto desde `/api/acts` (`items.length`). |
-| **Fechas con actividad en el Heatmap** | **Real** | Cada celda cuenta cambios de requisitos (`RequirementStatusHistory.recorded_at`) e importaciones confirmadas (`ImportHistory.imported_at`). |
-| **Detalle de un día del Heatmap** | **Real** | `GET /api/activity/day/YYYY-MM-DD` devuelve aprendices e importaciones de esa fecha. |
-| **Matriz diaria del Heatmap** | **Real** | El backend genera los 365 días del año consultado; los días sin eventos quedan en nivel 0. |
+| **Certificados por mes** | **Real** | Consulta `/api/indicadores/certificados-por-mes` y agrupa por `MES DE CERTIFICACIÓN` del consolidado vigente. |
 | **Carga y Validación de Archivos** | **Real** | Endpoint `/api/files/validate` y `/api/imports/{id}/confirm`. |
 | **Listado y Filtros de Aprendices** | **Real** | Endpoint `/api/learners` con paginación, filtros de estado y búsqueda. |
 | **Detalle de Aprendiz** | **Real** | Endpoint `/api/learners/{id}` con requisitos y trazabilidad. |
@@ -72,8 +70,7 @@ Se completó la modernización visual integral de la aplicación web local de se
 ## 4. Archivos Modificados en el Cierre
 
 - `app/static/index.html`: rail con iconos SVG, indicadores unificados, modal de revisión, barra de progreso global y cache busting `v5`.
-- `app/static/styles.css`: sistema visual, chips, rail, modal, heatmap, pestañas pill, KPIs y ajustes responsivos.
-- `app/static/ui-enhancements.js`: toasts, modal, progreso, heatmap real con tooltip, pestañas, navegación y ajuste de gráficos.
-- `app/services/activity.py`: agregación del heatmap y detalle diario.
-- `app/main.py`: documentación y validación del parámetro `year` en los endpoints de actividad.
+- `app/static/styles.css`: sistema visual, chips, rail, modal, gráfico mensual, pestañas pill, KPIs y ajustes responsivos.
+- `app/static/ui-enhancements.js`: toasts, modal, progreso, gráfico mensual, pestañas, navegación y ajuste de gráficos.
+- `app/services/activity.py`: servicios de actividad conservados para compatibilidad de API.
 - `docs/CHANGELOG_UI.md`: documentación formal de la arquitectura visual y matriz de datos.
