@@ -35,7 +35,7 @@ def test_certificados_por_mes_usa_la_fuente_del_consolidado(page, app_url):
     page.get_by_role("button", name="Exportar informe").click()
     page.wait_for_selector("#report-modal.is-open")
     assert page.get_by_text("Informe general de indicadores").is_visible()
-    assert page.get_by_text("XLSX · tablas editables").is_visible()
+    assert page.get_by_text("PDF · XLSX · CSV").first.is_visible()
     assert page.get_by_role("link", name="Generar informe").is_visible()
     page.get_by_role("button", name="Cancelar").last.click()
     page.wait_for_selector("#report-modal[aria-hidden='true']", state="attached")

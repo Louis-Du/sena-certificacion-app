@@ -24,6 +24,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.chart import BarChart, Reference
+from openpyxl.chart.label import DataLabelList
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 
 from app.models import Act, Learner, ImportHistory
 from app.services import indicadores
@@ -186,7 +191,7 @@ REPORT_TYPES = {
 def available_report_formats(report_type: str) -> list[str]:
     if report_type not in REPORT_TYPES:
         raise ValueError(f"Tipo de informe no soportado: {report_type}.")
-    return ["xlsx", "csv"]
+    return ["pdf", "xlsx", "csv"]
 
 
 def report_catalog() -> list[dict[str, Any]]:
@@ -313,9 +318,238 @@ def export_report_xlsx(
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
             pd.DataFrame(rows).to_excel(writer, sheet_name=sheet, index=False)
         buffer.seek(0)
-        return buffer.getvalue()
+        return _style_workbook(buffer.getvalue())
+    return _export_general_xlsx(dataset)
 
+
+def _export_general_xlsx(dataset: dict[str, Any]) -> bytes:
+    buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        resumen = dataset.get("resumen_ejecutivo") or {}
+        pd.DataFrame([
+            {"Campo": "Generado", "Valor": dataset.get("generated_at")},
+            {"Campo": "Periodo", "Valor": dataset.get("periodo")},
+            {"Campo": "Inicio", "Valor": dataset.get("periodo_inicio")},
+            {"Campo": "Fin", "Valor": dataset.get("periodo_fin")},
+            {"Campo": "Fuente", "Valor": dataset.get("source")},
+            {"Campo": "Lote vigente (import_id)", "Valor": dataset.get("import_id")},
+            {"Campo": "Archivo", "Valor": dataset.get("file_name")},
+            {"Campo": "Meta total", "Valor": resumen.get("meta_total")},
+            {"Campo": "Certificados personas", "Valor": resumen.get("certificados_personas")},
+            {"Campo": "Certificados complementaria", "Valor": resumen.get("certificados_complementaria")},
+            {"Campo": "Pendientes personas", "Valor": resumen.get("pendientes_personas")},
+            {"Campo": "Avance global %", "Valor": resumen.get("avance_global")},
+            {"Campo": "Efectividad global %", "Valor": resumen.get("efectividad_global")},
+            {"Campo": "Brecha total", "Valor": resumen.get("brecha_total")},
+        ]).to_excel(writer, sheet_name="Resumen", index=False)
+        categories = [
+            {
+                "Categoria": item.get("category_label") or item.get("category"),
+                "Clave": item.get("category"),
+                "Universo": item.get("universo"),
+                "Meta": item.get("meta"),
+                "Certificados": item.get("certificados"),
+                "Pendientes": item.get("pendientes"),
+                "Avance %": item.get("avance"),
+                "Brecha": item.get("brecha"),
+                "Efectividad %": item.get("efectividad"),
+            }
+            for item in dataset.get("desglose_por_categoria") or []
+        ]
+        pd.DataFrame(categories, columns=["Categoria", "Clave", "Universo", "Meta", "Certificados", "Pendientes", "Avance %", "Brecha", "Efectividad %"]).to_excel(writer, sheet_name="Categorias", index=False)
+        months = [{"Mes": item.get("etiqueta") or item.get("mes"), "Certificados": item.get("certificados")} for item in (dataset.get("certificados_por_mes") or {}).get("meses", [])]
+        pd.DataFrame(months, columns=["Mes", "Certificados"]).to_excel(writer, sheet_name="CertificadosPorMes", index=False)
+        causes = [{"Motivo": item.get("motivo"), "Cantidad": item.get("cantidad"), "Porcentaje %": item.get("porcentaje")} for item in (dataset.get("causas_no_certificacion") or {}).get("motivos", [])]
+        pd.DataFrame(causes or [{"Motivo": None, "Cantidad": None, "Porcentaje %": None}]).to_excel(writer, sheet_name="Causas", index=False)
+        acts = [{"Acta": item.get("number"), "Aprendices": item.get("aprendices_count"), "Fecha": item.get("act_date"), "Tipo": item.get("act_type")} for item in (dataset.get("actas") or {}).get("items", [])]
+        pd.DataFrame(acts or [{"Acta": None, "Aprendices": None, "Fecha": None, "Tipo": None}]).to_excel(writer, sheet_name="Actas", index=False)
+        warnings = [{"Advertencia": value} for value in dataset.get("advertencias") or []]
+        pd.DataFrame(warnings or [{"Advertencia": None}]).to_excel(writer, sheet_name="Advertencias", index=False)
+    buffer.seek(0)
+    return _style_workbook(buffer.getvalue())
+
+
+def _style_workbook(content: bytes) -> bytes:
+        workbook = load_workbook(BytesIO(content))
+        dark_green = "115E59"
+        medium_green = "0F766E"
+        light_green = "CCFBF1"
+        light_gray = "F8FAFC"
+        border = Border(bottom=Side(style="thin", color="CBD5E1"))
+
+        for worksheet in workbook.worksheets:
+            worksheet.freeze_panes = "A2"
+            worksheet.auto_filter.ref = worksheet.dimensions
+            worksheet.sheet_view.showGridLines = False
+            for cell in worksheet[1]:
+                cell.font = Font(bold=True, color="FFFFFF")
+                cell.fill = PatternFill("solid", fgColor=dark_green)
+                cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                cell.border = border
+            for row in worksheet.iter_rows(min_row=2):
+                for cell in row:
+                    cell.alignment = Alignment(vertical="top", wrap_text=True)
+                    if cell.row % 2 == 0:
+                        cell.fill = PatternFill("solid", fgColor=light_gray)
+            worksheet.row_dimensions[1].height = 30
+            for column_cells in worksheet.columns:
+                length = max(len(str(cell.value or "")) for cell in column_cells)
+                worksheet.column_dimensions[get_column_letter(column_cells[0].column)].width = min(
+                    max(length + 2, 12), 42
+                )
+
+        summary = workbook["Resumen"] if "Resumen" in workbook.sheetnames else workbook.active
+        summary["D1"] = "Panel visual"
+        summary["D1"].font = Font(bold=True, color="FFFFFF")
+        summary["D1"].fill = PatternFill("solid", fgColor=medium_green)
+        summary["D2"] = "Indicadores del consolidado institucional"
+        summary["D2"].font = Font(italic=True, color=dark_green)
+        if "Categorias" in workbook.sheetnames:
+            chart = BarChart()
+            chart.type = "bar"
+            chart.style = 10
+            chart.title = "Avance por categoría"
+            chart.y_axis.title = "Categoría"
+            chart.x_axis.title = "Porcentaje"
+            chart.height = 7
+            chart.width = 13
+            values = Reference(workbook["Categorias"], min_col=7, min_row=1, max_row=workbook["Categorias"].max_row)
+            labels = Reference(workbook["Categorias"], min_col=1, min_row=2, max_row=workbook["Categorias"].max_row)
+            chart.add_data(values, titles_from_data=True)
+            chart.set_categories(labels)
+            chart.dataLabels = DataLabelList()
+            chart.dataLabels.showVal = True
+            summary.add_chart(chart, "D4")
+        if "CertificadosPorMes" in workbook.sheetnames:
+            chart = BarChart()
+            chart.type = "col"
+            chart.style = 10
+            chart.title = "Certificados por mes"
+            chart.y_axis.title = "Personas"
+            chart.height = 7
+            chart.width = 13
+            values = Reference(workbook["CertificadosPorMes"], min_col=2, min_row=1, max_row=workbook["CertificadosPorMes"].max_row)
+            labels = Reference(workbook["CertificadosPorMes"], min_col=1, min_row=2, max_row=workbook["CertificadosPorMes"].max_row)
+            chart.add_data(values, titles_from_data=True)
+            chart.set_categories(labels)
+            chart.dataLabels = DataLabelList()
+            chart.dataLabels.showVal = True
+            summary.add_chart(chart, "D19")
+
+        output = BytesIO()
+        workbook.save(output)
+        return output.getvalue()
+
+
+def export_report_pdf(
+        session: Session, *, report_type: str = "general", year: int | None = None
+) -> bytes:
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER, TA_LEFT
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import (
+            PageBreak,
+            Paragraph,
+            SimpleDocTemplate,
+            Spacer,
+            Table,
+            TableStyle,
+        )
+
+        dataset = _dataset_for_report(session, report_type, year)
+        if not dataset.get("datos_suficientes") and report_type not in {"aprendices", "pendientes", "actas"}:
+            raise ValueError("No hay datos para exportar.")
+        title = REPORT_TYPES[report_type]
+        styles = getSampleStyleSheet()
+        styles.add(ParagraphStyle(name="ReportTitle", parent=styles["Title"], fontName="Helvetica-Bold", fontSize=24, leading=29, textColor=colors.HexColor("#115E59"), alignment=TA_CENTER, spaceAfter=12))
+        styles.add(ParagraphStyle(name="ReportSubtitle", parent=styles["Normal"], fontSize=11, leading=15, textColor=colors.HexColor("#475569"), alignment=TA_CENTER, spaceAfter=24))
+        styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=15, leading=19, textColor=colors.HexColor("#115E59"), spaceBefore=8, spaceAfter=8))
+        styles.add(ParagraphStyle(name="Note", parent=styles["Normal"], fontSize=8.5, leading=11, textColor=colors.HexColor("#475569")))
+        story = [
+            Spacer(1, 28 * mm),
+            Paragraph("SENA Certificación", styles["ReportSubtitle"]),
+            Paragraph(title, styles["ReportTitle"]),
+            Paragraph(f"Informe administrativo · {dataset.get('periodo') or 'Periodo no disponible'}", styles["ReportSubtitle"]),
+            Paragraph(f"Generado el {dataset.get('generated_at', '')[:10]}", styles["ReportSubtitle"]),
+            PageBreak(),
+        ]
+
+        def table(headers: list[str], rows: list[list[Any]]) -> Table:
+            formatted = [[str(value) if value is not None else "No calculable" for value in row] for row in rows]
+            result = Table([headers, *formatted], repeatRows=1, hAlign="LEFT")
+            result.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#115E59")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ]))
+            return result
+
+        if report_type in {"general", "ejecutivo"}:
+            resumen = dataset.get("resumen_ejecutivo") or {}
+            story += [Paragraph("Resumen ejecutivo", styles["Section"])]
+            story += [table(["Indicador local/institucional", "Valor"], [
+                ["Aprendices en padrón local", "Se consulta en la base local"],
+                ["Pendientes únicos", resumen.get("pendientes_personas")],
+                ["Personas certificadas", resumen.get("certificados_personas")],
+                ["Formación complementaria", resumen.get("certificados_complementaria")],
+                ["Meta institucional", resumen.get("meta_total")],
+                ["Avance global %", resumen.get("avance_global")],
+                ["Efectividad de personas %", resumen.get("efectividad_global")],
+            ])]
+            story += [Spacer(1, 12), Paragraph("Ejecución por categoría", styles["Section"])]
+            story += [table(["Categoría", "Meta", "Certificados", "Pendientes", "Avance %", "Brecha", "Efectividad %"], [
+                [item.get("category_label"), item.get("meta"), item.get("certificados"), item.get("pendientes"), item.get("avance"), item.get("brecha"), item.get("efectividad")]
+                for item in dataset.get("desglose_por_categoria") or []
+            ])]
+            story += [PageBreak(), Paragraph("Certificados por mes", styles["Section"])]
+            story += [table(["Mes", "Personas certificadas"], [
+                [item.get("etiqueta"), item.get("certificados")]
+                for item in (dataset.get("certificados_por_mes") or {}).get("meses", [])
+            ])]
+            story += [Spacer(1, 12), Paragraph("Causas de pendientes", styles["Section"])]
+            story += [table(["Causa", "Incidencias", "Porcentaje %"], [
+                [item.get("motivo"), item.get("cantidad"), item.get("porcentaje")]
+                for item in (dataset.get("causas_no_certificacion") or {}).get("motivos", [])
+            ])]
+            story += [PageBreak(), Paragraph("Metodología y fuentes", styles["Section"])]
+            story += [Paragraph(
+                "Los indicadores institucionales reutilizan CERTIFICADOS, PENDIENTES, "
+                "COMPLEMENTARIA y META del consolidado vigente. El padrón local y las "
+                "actas se presentan por separado. Las personas se deduplican por documento; "
+                "las incidencias de causas pueden superar el número de personas únicas.",
+                styles["Note"],
+            )]
+        else:
+            sheet, rows = _report_rows(dataset, report_type)
+            story += [Paragraph(sheet, styles["Section"])]
+            headers = list(rows[0].keys()) if rows else ["Resultado"]
+            story += [table(headers, [[row.get(header) for header in headers] for row in rows])]
+
+        def footer(canvas, document):
+            canvas.saveState()
+            canvas.setStrokeColor(colors.HexColor("#CBD5E1"))
+            canvas.line(18 * mm, 14 * mm, 192 * mm, 14 * mm)
+            canvas.setFont("Helvetica", 8)
+            canvas.setFillColor(colors.HexColor("#64748B"))
+            canvas.drawString(18 * mm, 9 * mm, f"SENA Certificación · {dataset.get('periodo') or 'Periodo no disponible'}")
+            canvas.drawRightString(192 * mm, 9 * mm, f"Página {document.page}")
+            canvas.restoreState()
+
+        output = BytesIO()
+        document = SimpleDocTemplate(output, pagesize=A4, rightMargin=18 * mm, leftMargin=18 * mm, topMargin=18 * mm, bottomMargin=20 * mm, title=title)
+        document.build(story, onFirstPage=footer, onLaterPages=footer)
+        return output.getvalue()
+
+        """
+        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         # Resumen
         resumen = dataset.get("resumen_ejecutivo") or {}
         filas_resumen = [
@@ -420,4 +654,5 @@ def export_report_xlsx(
         )
 
     buffer.seek(0)
-    return buffer.getvalue()
+    return _style_workbook(buffer.getvalue())
+        """
