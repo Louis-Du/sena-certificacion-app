@@ -426,6 +426,42 @@ async def certificados_por_mes_endpoint(session: Session = Depends(get_db)) -> d
     from app.services.indicadores import compute_certificados_por_mes
     return compute_certificados_por_mes(session)
 
+
+@app.get("/api/informes/consolidado")
+async def informes_consolidado_endpoint(
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    session: Session = Depends(get_db),
+) -> dict:
+    """Dataset consolidado de informe v1 desde el lote vigente de ACTAS 2026.
+
+    Reutiliza el motor de indicadores (B1-B5). No escribe en BD. Si no hay
+    lote vigente responde de forma segura con totales vacios/null.
+    """
+    from app.services.informes import consolidate_report_dataset
+    return consolidate_report_dataset(session, year=year)
+
+
+@app.get("/api/informes/consolidado/resumen")
+async def informes_consolidado_resumen_endpoint(
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    session: Session = Depends(get_db),
+) -> dict:
+    """Metadatos + KPIs del dataset consolidado (version liviana)."""
+    from app.services.informes import consolidate_report_dataset
+    data = consolidate_report_dataset(session, year=year)
+    return {
+        "generated_at": data["generated_at"],
+        "periodo": data["periodo"],
+        "periodo_inicio": data["periodo_inicio"],
+        "periodo_fin": data["periodo_fin"],
+        "source": data["source"],
+        "import_id": data["import_id"],
+        "file_name": data["file_name"],
+        "advertencias": data["advertencias"],
+        "datos_suficientes": data["datos_suficientes"],
+        "resumen_ejecutivo": data["resumen_ejecutivo"],
+    }
+
 # ---------------------------------------------------------------------------
 # Parche de actividad para el heatmap de la UI v2
 # ---------------------------------------------------------------------------
