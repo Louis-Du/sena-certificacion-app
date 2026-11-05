@@ -540,17 +540,17 @@
     tooltip.innerHTML = html;
   }
 
-  /* ---------------- Actividad: heatmap + gráfico (misma fuente) ---------------- */
+  /* ---------------- Certificados del consolidado por mes ---------------- */
   let activityData = null;
   let activityYear = 2026;
   let activityChart = null;
-  let activityView = "heatmap";
+  let activityView = "certificados";
   let certificadosMesData = null;
   let certificadosMesChart = null;
   const ACTIVITY_VIEW_KEY = "indicadores-actividad-vista";
 
   function normalizeActivityView(value) {
-    return ["chart", "certificados"].includes(value) ? value : "heatmap";
+    return "certificados";
   }
 
   function readStoredActivityView() {
@@ -949,26 +949,14 @@
 
   async function loadActivity(year) {
     activityYear = Number(year) || 2026;
-    const [data, certificadosMes] = await Promise.all([
-      safeJson(`/api/activity/heatmap?year=${encodeURIComponent(activityYear)}`),
-      safeJson("/api/indicadores/certificados-por-mes"),
-    ]);
-    activityData = data;
-    certificadosMesData = certificadosMes;
-    renderHeatmap(data, activityYear);
-    if (activityChart) {
-      activityChart.destroy();
-      activityChart = null;
-    }
+    const certificadosMes = await safeJson("/api/indicadores/certificados-por-mes");
     if (certificadosMesChart) {
       certificadosMesChart.destroy();
       certificadosMesChart = null;
     }
-    updateActivitySummary(data, activityYear);
     updateCertificadosMesSummary(certificadosMes);
-    setActivityView(activityView, {
-      render: activityView === "chart" || activityView === "certificados",
-    });
+    certificadosMesData = certificadosMes;
+    setActivityView("certificados", { render: true });
     scheduleChartPadding();
   }
 
