@@ -195,6 +195,7 @@ def test_export_xlsx_con_datos(client):
     response = client.get("/api/informes/export")
     assert response.status_code == 200
     assert "spreadsheetml" in response.headers["content-type"]
+    assert "informe_certificacion_v1.xlsx" in response.headers["content-disposition"]
 
     import io
     import pandas as pd

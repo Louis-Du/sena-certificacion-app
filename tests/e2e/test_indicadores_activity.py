@@ -32,6 +32,7 @@ def test_certificados_por_mes_usa_la_fuente_del_consolidado(page, app_url):
     _importar_actas(page, app_url)
     _abrir_indicadores(page)
 
+    assert page.locator('a[href="/api/informes/export"]').is_visible()
     assert page.locator("#activity-tab-heatmap").count() == 0
     assert page.locator("#activity-tab-chart").count() == 0
     assert page.locator("#activity-tab-certificados").count() == 0

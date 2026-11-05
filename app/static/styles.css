@@ -2398,7 +2398,20 @@ a {
   white-space: nowrap;
 }
 
-.topbar > .refresh-button {
+.topbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.topbar-actions .cancel-button,
+.topbar-actions .primary-button {
+  white-space: nowrap;
+}
+
+.topbar > .refresh-button,
+.topbar-actions > .refresh-button {
   margin-left: auto;
 }
 
