@@ -94,6 +94,7 @@ def _apply_conflict_resolutions(session: Session, resolutions: dict[str, str]) -
     for learner in learners:
         status = resolutions[learner.identification]
         learner.certification_status = status
+        learner.conflict_resolution = status
         note = f"Conflicto resuelto: {_CONFLICT_STATUS_LABELS[status]}"
         current = (learner.tracking_notes or "").strip()
         if note not in current:
@@ -303,6 +304,7 @@ def confirm_import(
         history = ImportHistory(
             file_name=staged.file_name,
             information_type=TYPE_LABELS.get(staged.information_type, staged.information_type),
+            source_type=staged.information_type,
             records_count=len(final_records),
             new_records=new_records,
             updated_records=updated_records,
@@ -600,6 +602,7 @@ _EVIDENCE_FIELDS = (
     "documento_identidad",
     "saber_tyt",
     "ape",
+    "carnet",
     "certificado_empresa",
 )
 

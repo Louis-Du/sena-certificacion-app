@@ -54,6 +54,11 @@ def _upgrade_sqlite_schema(bind: Engine | None = None) -> None:
     # `learners` puede no existir en esquemas muy antiguos; en ese caso se omite su
     # migracion (create_all ya la habra creado con las columnas al dia).
     learner_columns = _table_columns(inspector, "learners") if inspector.has_table("learners") else set()
+    imported_columns = (
+        _table_columns(inspector, "imported_records")
+        if inspector.has_table("imported_records")
+        else set()
+    )
     migrations = {
         "error_count": (
             "error_count",
@@ -63,6 +68,13 @@ def _upgrade_sqlite_schema(bind: Engine | None = None) -> None:
         "user_name": (
             "user_name",
             "ALTER TABLE import_history ADD COLUMN user_name VARCHAR(150)",
+            import_history_columns,
+        ),
+        # Tipo interno de la carga. Permite identificar el lote vigente de
+        # ACTAS 2026 sin depender de la etiqueta visible del historial.
+        "source_type": (
+            "source_type",
+            "ALTER TABLE import_history ADD COLUMN source_type VARCHAR(50)",
             import_history_columns,
         ),
         "requirement_type": (
@@ -114,8 +126,38 @@ def _upgrade_sqlite_schema(bind: Engine | None = None) -> None:
             "ALTER TABLE learners ADD COLUMN data_sources TEXT",
             learner_columns,
         ),
+        # Resolucion manual de un conflicto CERTIFICADOS/PENDIENTES. Sin esta
+        # columna, las bases existentes no podrian distinguir una resolucion
+        # explicita de un estado asignado automaticamente por la importacion.
+        "conflict_resolution": (
+            "conflict_resolution",
+            "ALTER TABLE learners ADD COLUMN conflict_resolution VARCHAR(30)",
+            learner_columns,
+        ),
+        # Fechas del aprendiz que ya existian en el modelo pero no estaban en la
+        # migracion. En bases antiguas su ausencia hacia que todo quedara "Sin
+        # fecha"; se agregan de forma compatible hacia adelante.
+        "termination_date": (
+            "termination_date",
+            "ALTER TABLE learners ADD COLUMN termination_date DATE",
+            learner_columns,
+        ),
+        "start_date": (
+            "start_date",
+            "ALTER TABLE learners ADD COLUMN start_date DATE",
+            learner_columns,
+        ),
     }
     with target.begin() as connection:
         for column, (_, statement, existing_columns) in migrations.items():
             if existing_columns and column not in existing_columns:
                 connection.execute(text(statement))
+        # Backfill para bases creadas antes de ``source_type``: el historial
+        # guardaba la etiqueta visible del tipo ACTAS completo.
+        connection.execute(
+            text(
+                "UPDATE import_history SET source_type = 'actas_completo' "
+                "WHERE source_type IS NULL AND information_type = :label"
+            ),
+            {"label": "Excel institucional (ACTAS 2026)"},
+        )

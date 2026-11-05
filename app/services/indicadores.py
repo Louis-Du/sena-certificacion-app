@@ -42,7 +42,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Act, ImportedRecord
+from app.models import Act, ImportHistory, ImportedRecord, Learner
 from app.services import parsers
 
 # ---------------------------------------------------------------------------
@@ -68,6 +68,32 @@ MESES_DEL_PERIODO = {
     "septiembre",
 }
 
+# Orden y etiqueta visible de los meses del corte. Se usan para el grafico de
+# certificados por mes y para no depender del orden en que lleguen las filas.
+MESES_ORDEN: tuple[tuple[str, str], ...] = (
+    ("enero", "Enero"),
+    ("febrero", "Febrero"),
+    ("marzo", "Marzo"),
+    ("abril", "Abril"),
+    ("mayo", "Mayo"),
+    ("junio", "Junio"),
+    ("julio", "Julio"),
+    ("agosto", "Agosto"),
+    ("septiembre", "Septiembre"),
+)
+
+# Tipos internos que forman el consolidado institucional ACTAS 2026. El lote
+# vigente se identifica por ``ImportHistory.source_type == 'actas_completo'``.
+CONSOLIDATED_SOURCE_TYPE = "actas_completo"
+CONSOLIDATED_INFORMATION_TYPES = frozenset(
+    {"certificados", "pendientes", "complementaria", "meta"}
+)
+
+# Categorias que representan PERSONAS con certificacion titulada. La formacion
+# complementaria es un universo distinto (certificados agregados, no personas) y
+# se mantiene fuera de la efectividad global.
+CATEGORIAS_PERSONAS = frozenset({"superior", "tecnica", "articulacion"})
+
 # Categorias misionales que se reportan.
 # Formato: (clave interna, etiqueta visible, nota sobre como NO sumarla dos veces).
 CATEGORIAS: tuple[tuple[str, str, str | None], ...] = (
@@ -91,30 +117,78 @@ CANALES_COMPLEMENTARIA = ("presencial", "virtual", "campesena", "fullpopular")
 # ---------------------------------------------------------------------------
 
 
-def _cargar_registros(session: Session, information_type: str) -> list[dict[str, Any]]:
+def _lote_vigente(session: Session) -> int | None:
+    """Id del ultimo lote exitoso de ACTAS 2026 (snapshot vigente).
+
+    La reimportacion de ACTAS 2026 no borra lotes anteriores: los deja como
+    historicos. El calculo de indicadores SOLO lee el ultimo lote confirmado de
+    tipo ``actas_completo``. Si la base viene de una version anterior sin
+    ``source_type``, se usa la etiqueta visible historica como respaldo.
+    """
+    from app.services.validation import TYPE_LABELS
+
+    return session.scalar(
+        select(ImportHistory.id)
+        .where(
+            ImportHistory.status == "completed",
+            (
+                (ImportHistory.source_type == CONSOLIDATED_SOURCE_TYPE)
+                | (
+                    (ImportHistory.source_type.is_(None))
+                    & (ImportHistory.information_type == TYPE_LABELS[CONSOLIDATED_SOURCE_TYPE])
+                )
+            ),
+        )
+        .order_by(ImportHistory.id.desc())
+        .limit(1)
+    )
+
+
+def _cargar_registros(
+    session: Session,
+    information_type: str,
+    batch_id: int | None = None,
+) -> list[dict[str, Any]]:
     """
     Recupera de SQLite los registros importados de un tipo de informacion.
 
-    Parametros
-    ----------
-    session:
-        Sesion activa de SQLAlchemy.
-    information_type:
-        Tipo interno del dato ("certificados", "pendientes", "meta", ...).
-
-    Devuelve
-    --------
-    list[dict]
-        Un diccionario por registro. Si un ``payload`` estuviera corrupto se
-        omite (no se detiene el calculo por un solo registro malo).
+    Si ``batch_id`` se entrega, solo devuelve las filas del lote vigente y las
+    actualizaciones posteriores hechas por fuentes alternativas (por ejemplo el
+    CSV que corrige un certificado ya existente). Los lotes ANTERIORES quedan
+    historicos y se excluyen; por eso se usa ``import_id >= batch_id`` y no una
+    union de todo el historial.
+    Si no, mantiene compatibilidad con datos sembrados o cargas antiguas: usa el
+    ultimo lote que contenga ese tipo, en lugar de unir todos los historicos.
+    
+    Un ``payload`` corrupto se omite para no detener el calculo por una fila mala.
     """
+    if batch_id is not None:
+        limite_inferior = batch_id
+    else:
+        limite_inferior = session.scalar(
+            select(ImportedRecord.import_id)
+            .where(ImportedRecord.information_type == information_type)
+            .order_by(ImportedRecord.id.desc())
+            .limit(1)
+        )
+        if limite_inferior is None:
+            return []
+
     filas = session.scalars(
         select(ImportedRecord)
-        .where(ImportedRecord.information_type == information_type)
+        .where(
+            ImportedRecord.information_type == information_type,
+            ImportedRecord.import_id >= limite_inferior,
+        )
         .order_by(ImportedRecord.id.asc())
     ).all()
     registros: list[dict[str, Any]] = []
+    # Defensa ante filas duplicadas por clave: conserva la version mas reciente
+    # (mayor id) para no sumar dos veces la misma persona/periodo.
+    unicas: dict[str, ImportedRecord] = {}
     for fila in filas:
+        unicas[fila.record_key or str(fila.id)] = fila
+    for fila in sorted(unicas.values(), key=lambda item: item.id):
         try:
             contenido = json.loads(fila.payload)
         except (TypeError, ValueError):
@@ -124,20 +198,26 @@ def _cargar_registros(session: Session, information_type: str) -> list[dict[str,
     return registros
 
 
-def _metas_institucionales(session: Session) -> tuple[dict[str, int], str | None]:
+def _metas_institucionales(
+    session: Session, batch_id: int | None = None
+) -> tuple[dict[str, int], str | None]:
     """
     Obtiene las metas anuales desde las fuentes documentales (nunca del codigo).
 
     Prioridad:
-      1. Hoja META de ``ACTAS 2026.xlsx`` (fuente principal de metas).
-      2. Tabla de referencia del informe de gestion en Word (respaldo documental).
+      1. Hoja META del LOTE VIGENTE de ``ACTAS 2026.xlsx`` (fuente principal).
+      2. Solo si no hay lote vigente, la tabla de referencia del informe de
+         gestion en Word (respaldo documental).
 
-    Devuelve ``(metas, fuente)``. ``metas`` usa claves internas
-    ("superior", "tecnica", "articulacion", "complementaria"). Si no hay ninguna
-    fuente disponible, devuelve ``({}, None)``: es preferible informar que falta
-    la meta antes que inventarla.
+    Dentro del lote se elige UNA sola fila META (la ultima), nunca se suman dos.
+    Si la meta esta incompleta se devuelve lo que exista y el llamador expone la
+    advertencia; las categorias sin meta quedan en ``None``, no en cero.
+
+    Devuelve ``(metas, fuente)`` con claves internas ("superior", "tecnica",
+    "articulacion", "complementaria"). Si no hay fuente, ``({}, None)``.
     """
-    for registro in _cargar_registros(session, "meta"):
+    registros_meta = _cargar_registros(session, "meta", batch_id)
+    for registro in reversed(registros_meta):
         metas = {
             clave: valor
             for clave, valor in registro.items()
@@ -147,7 +227,11 @@ def _metas_institucionales(session: Session) -> tuple[dict[str, int], str | None
         if metas:
             return metas, "ACTAS 2026.xlsx (hoja META)"
 
-    # Respaldo: la tabla de referencia del Word trae meta por indicador.
+    # El lote vigente manda: si existe pero no trae META, no se rescata una meta
+    # vieja de otro lote (seria mezclar snapshots). Solo sin lote se usa el Word.
+    if batch_id is not None:
+        return {}, None
+
     metas: dict[str, int] = {}
     for fila in _cargar_registros(session, "informe"):
         clave = fila.get("categoria")
@@ -212,8 +296,9 @@ def _resumen_hoja_actas(
     vistos: set[str] = set()
 
     for registro in registros:
-        # 1) Solo cuentan las filas con el estado esperado.
-        if parsers.normalize_text(registro.get("estado")) != estado_valido:
+        # 1) Solo cuentan las filas con el estado esperado. Se aceptan las
+        # variantes documentadas en parsers (Certificado/CERTIFICADOS/etc.).
+        if parsers.normalize_certification_status(registro.get("estado")) != estado_valido:
             continue
 
         # 2) Filtro de periodo (solo aplica a certificados).
@@ -272,16 +357,16 @@ def _resumen_hoja_actas(
     }
 
 
-def _resumen_complementaria(session: Session) -> dict[str, Any]:
+def _resumen_complementaria(
+    session: Session, batch_id: int | None = None
+) -> dict[str, Any]:
     """
     Suma los certificados de formacion complementaria por canal dentro del periodo.
 
     La hoja COMPLEMENTARIA no lista personas: cada fila informa una fecha y
-    cuantos certificados se expidieron en un canal (presencial, virtual,
-    campesena o full popular). Por eso aqui se SUMAN cantidades y no se intenta
-    deduplicar aprendices: la fuente no trae numero de documento.
-
-    Las filas sin fecha no se pueden ubicar en el periodo y se informan aparte.
+    cuantos certificados se expidieron en un canal. Por eso aqui se SUMAN
+    cantidades y NO se mezclan con el conteo de personas ni con la efectividad.
+    Solo se lee el lote vigente (o el ultimo lote del tipo si no hay snapshot).
     """
     por_canal: dict[str, int] = {canal: 0 for canal in CANALES_COMPLEMENTARIA}
     por_canal["otro"] = 0
@@ -289,7 +374,7 @@ def _resumen_complementaria(session: Session) -> dict[str, Any]:
     sin_fecha = 0
     fuera_de_periodo = 0
 
-    registros = _cargar_registros(session, "complementaria")
+    registros = _cargar_registros(session, "complementaria", batch_id)
     for registro in registros:
         cantidad = registro.get("cantidad")
         if not isinstance(cantidad, int):
@@ -350,24 +435,220 @@ def _acta_clave(value: Any) -> str:
     return texto
 
 
+def _documento(registro: dict[str, Any]) -> str | None:
+    """Documento normalizado de una fila del consolidado."""
+    return parsers.clean_identification(registro.get("numero de documento"))
+
+
+def _es_certificado_vigente(registro: dict[str, Any]) -> bool:
+    """Fila contable como certificado: estado valido y mes dentro del corte."""
+    return (
+        parsers.normalize_certification_status(registro.get("estado")) == "certificados"
+        and parsers.normalize_text(registro.get("mes de certificacion"))
+        in MESES_DEL_PERIODO
+    )
+
+
+def _es_pendiente_vigente(registro: dict[str, Any]) -> bool:
+    """Fila contable como pendiente: estado valido (sin fecha de certificacion)."""
+    return parsers.normalize_certification_status(registro.get("estado")) == "pendiente"
+
+
+def _resoluciones_conflicto(
+    session: Session, documentos: set[str]
+) -> dict[str, str]:
+    """Resoluciones manuales guardadas en el aprendiz para documentos en conflicto.
+
+    La fuente de verdad es ``Learner.conflict_resolution``. Para bases anteriores
+    se reconoce ademas la nota historica "Conflicto resuelto: ..." que escribia
+    la importacion, de modo que una resolucion previa no se pierde.
+    """
+    if not documentos:
+        return {}
+    learners = session.scalars(
+        select(Learner).where(Learner.identification.in_(documentos))
+    ).all()
+    resoluciones: dict[str, str] = {}
+    for learner in learners:
+        estado = parsers.normalize_certification_status(
+            getattr(learner, "conflict_resolution", None)
+        )
+        if estado not in {"certificados", "pendiente"}:
+            notas = learner.tracking_notes or ""
+            if "Conflicto resuelto: Certificado" in notas:
+                estado = "certificados"
+            elif "Conflicto resuelto: Pendiente" in notas:
+                estado = "pendiente"
+        if estado in {"certificados", "pendiente"}:
+            resoluciones[learner.identification] = estado
+    return resoluciones
+
+
+def _separar_conflictos(
+    session: Session,
+    registros_certificados: list[dict[str, Any]],
+    registros_pendientes: list[dict[str, Any]],
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    set[str],
+    dict[str, str],
+]:
+    """Aplica la regla unica de verdad cuando un documento esta en ambas hojas.
+
+    Regla (B3):
+      * Resolucion "CERTIFICADOS" -> cuenta como certificado y se descarta del
+        universo de pendientes.
+      * Resolucion "PENDIENTE" -> cuenta como pendiente y se descarta del
+        universo de certificados.
+      * Sin resolucion -> se excluye de AMBOS universos y se informa en
+        advertencias. Nunca se suma dos veces a la misma persona.
+
+    La deteccion usa solo filas que efectivamente contarian (estado valido y,
+    para certificados, mes dentro del periodo). Un certificado fuera de periodo
+    no convierte en conflicto a un pendiente vigente.
+    """
+    documentos_certificados = {
+        documento
+        for registro in registros_certificados
+        if _es_certificado_vigente(registro)
+        if (documento := _documento(registro))
+    }
+    documentos_pendientes = {
+        documento
+        for registro in registros_pendientes
+        if _es_pendiente_vigente(registro)
+        if (documento := _documento(registro))
+    }
+    conflictos = documentos_certificados & documentos_pendientes
+    resoluciones = _resoluciones_conflicto(session, conflictos)
+
+    certificados_filtrados: list[dict[str, Any]] = []
+    for registro in registros_certificados:
+        documento = _documento(registro)
+        if documento in conflictos and resoluciones.get(documento) != "certificados":
+            continue
+        certificados_filtrados.append(registro)
+
+    pendientes_filtrados: list[dict[str, Any]] = []
+    for registro in registros_pendientes:
+        documento = _documento(registro)
+        if documento in conflictos and resoluciones.get(documento) != "pendiente":
+            continue
+        pendientes_filtrados.append(registro)
+
+    return certificados_filtrados, pendientes_filtrados, conflictos, resoluciones
+
+
+def compute_certificados_por_mes(
+    session: Session, batch_id: int | None = None
+) -> dict[str, Any]:
+    """Certificados del CONSOLIDADO agrupados por mes de certificacion.
+
+    No usa ``Learner.certification_month`` ni la fecha de importacion: lee las
+    filas CERTIFICADOS del lote vigente de ACTAS 2026 y cuenta personas unicas
+    por el mes declarado en la hoja. Solo se incluyen los meses del corte
+    Ene-Sep 2026; lo que queda fuera se informa aparte y no infla el total.
+    """
+    lote = batch_id if batch_id is not None else _lote_vigente(session)
+    registros_certificados = _cargar_registros(session, "certificados", lote)
+    registros_pendientes = _cargar_registros(session, "pendientes", lote)
+    certificados, _, conflictos, resoluciones = _separar_conflictos(
+        session, registros_certificados, registros_pendientes
+    )
+
+    por_mes = {mes: 0 for mes, _ in MESES_ORDEN}
+    vistos: set[str] = set()
+    fuera_de_periodo = 0
+    sin_mes = 0
+    sin_documento = 0
+
+    for registro in certificados:
+        if parsers.normalize_certification_status(registro.get("estado")) != "certificados":
+            continue
+        documento = _documento(registro)
+        if not documento:
+            sin_documento += 1
+            continue
+        mes = parsers.normalize_text(registro.get("mes de certificacion"))
+        if not mes:
+            sin_mes += 1
+            continue
+        if mes not in MESES_DEL_PERIODO:
+            fuera_de_periodo += 1
+            continue
+        if documento in vistos:
+            continue
+        vistos.add(documento)
+        por_mes[mes] += 1
+
+    meses = [
+        {"mes": mes, "etiqueta": etiqueta, "certificados": por_mes[mes]}
+        for mes, etiqueta in MESES_ORDEN
+    ]
+    sin_resolver = conflictos - set(resoluciones)
+    return {
+        "periodo": PERIODO_LABEL,
+        "periodo_inicio": PERIODO_INICIO,
+        "periodo_fin": PERIODO_FIN,
+        "universo": "consolidado",
+        "fuente": "ACTAS 2026 · hoja CERTIFICADOS (lote vigente)",
+        "lote_id": lote,
+        "meses": meses,
+        "total": sum(por_mes.values()),
+        "documentos_unicos": len(vistos),
+        "fuera_de_periodo": fuera_de_periodo,
+        "sin_mes": sin_mes,
+        "sin_documento": sin_documento,
+        "conflictos_sin_resolver": len(sin_resolver),
+    }
+
+
+
 def compute_indicadores_2026(session: Session) -> dict[str, Any]:
     """
     Calcula los indicadores de certificacion del 1 de enero al 30 de septiembre de 2026.
 
-    Todos los valores salen de los registros importados desde las fuentes
-    documentales. Si un dato no se puede calcular, se devuelve ``None`` (no cero)
-    y se agrega una advertencia en ``advertencias`` para que la interfaz pueda
-    distinguir "no hay datos" de "el valor es cero".
+    Universos separados (no se mezclan sin etiqueta)
+    ------------------------------------------------
+    * **Personas / titulada**: filas de CERTIFICADOS y PENDIENTES del lote
+      vigente de ACTAS 2026, en las categorias superior, tecnica y articulacion.
+    * **Formacion complementaria**: agregados de la hoja COMPLEMENTARIA. No son
+      personas y no entran en la efectividad global.
 
-    Formul formulas usadas:
-      * % Avance    = certificados / meta * 100
-      * Brecha      = max(0, meta - certificados)
-      * Efectividad = certificados / (certificados + pendientes) * 100
+    Reglas exactas
+    --------------
+    * ``% Avance`` por categoria = certificados / meta * 100 (la complementaria
+      usa sus propios certificados agregados y su propia meta).
+    * ``Brecha`` = max(0, meta - certificados).
+    * ``Efectividad global`` = ``certificados_personas / (certificados_personas +
+      pendientes_personas) * 100``. Si falta PENDIENTES o no hay denominador,
+      devuelve ``None`` y se advierte; nunca usa complementaria como denominador.
+    * Conflicto CERTIFICADOS/PENDIENTES: si el usuario lo resolvio se respeta;
+      si sigue sin resolver, la persona se excluye de ambos universos y se
+      lista en advertencias. Nunca cuenta dos veces.
+
+    Solo se lee el lote vigente (ultimo ``actas_completo`` confirmado). Los lotes
+    anteriores quedan historicos y no entran al calculo. Si no existe lote, se
+    conserva compatibilidad con registros sembrados/cargas antiguas usando el
+    ultimo import que contenga cada tipo.
+
+    Si un dato no se puede calcular se devuelve ``None`` (no cero) y se agrega
+    una advertencia en ``advertencias`` para distinguir "no hay datos" de "cero".
     """
-    metas, fuente_metas = _metas_institucionales(session)
+    lote_id = _lote_vigente(session)
+    metas, fuente_metas = _metas_institucionales(session, lote_id)
 
-    registros_certificados = _cargar_registros(session, "certificados")
-    registros_pendientes = _cargar_registros(session, "pendientes")
+    registros_certificados = _cargar_registros(session, "certificados", lote_id)
+    registros_pendientes = _cargar_registros(session, "pendientes", lote_id)
+
+    # B3: resolver el conflicto antes de contar, no solo avisar en la UI.
+    (
+        registros_certificados,
+        registros_pendientes,
+        conflictos_cert_pend,
+        resoluciones_conflicto,
+    ) = _separar_conflictos(session, registros_certificados, registros_pendientes)
 
     certificados = _resumen_hoja_actas(
         registros_certificados,
@@ -385,7 +666,7 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
     # aprendices siguen pendientes. En ese caso se informa ``None`` (no se puede
     # calcular) en lugar de mostrar 0, que haria parecer que no hay pendientes.
     pendientes_disponibles = bool(registros_pendientes)
-    complementaria = _resumen_complementaria(session)
+    complementaria = _resumen_complementaria(session, lote_id)
     referencia, fecha_corte = _referencia_institucional(session)
 
     advertencias: list[str] = []
@@ -395,6 +676,8 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
     metas_faltantes: list[str] = []
     total_meta = 0
     total_certificados = 0
+    total_certificados_personas = 0
+    total_certificados_complementaria = 0
     total_pendientes = 0
     pendientes_completos = True
 
@@ -436,6 +719,10 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
             )
 
         total_certificados += certificados_categoria
+        if clave in CATEGORIAS_PERSONAS:
+            total_certificados_personas += certificados_categoria
+        elif clave == "complementaria":
+            total_certificados_complementaria += certificados_categoria
         if meta is not None:
             total_meta += meta
         if pendientes_categoria is None:
@@ -447,6 +734,9 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
             {
                 "category": clave,
                 "category_label": etiqueta,
+                "universo": (
+                    "personas" if clave in CATEGORIAS_PERSONAS else "complementaria"
+                ),
                 "nota_doble_conteo": nota,
                 "meta": meta,
                 "certificados": certificados_categoria,
@@ -477,6 +767,11 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
         advertencias.append(
             "No se encontro la meta de: " + ", ".join(metas_faltantes) + "."
         )
+    if lote_id is not None and fuente_metas is None:
+        advertencias.append(
+            "El lote vigente de ACTAS 2026 no trae una fila META reconocible: "
+            "no se puede calcular el avance sobre la meta institucional."
+        )
     if not pendientes_disponibles:
         advertencias.append(
             "No se ha cargado la hoja PENDIENTES: no se puede calcular el total de "
@@ -486,6 +781,29 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
         advertencias.append(
             "El total de pendientes NO incluye Formacion Complementaria: la hoja "
             "COMPLEMENTARIA no lista aprendices pendientes individuales."
+        )
+
+    # ---- Conflictos CERTIFICADOS/PENDIENTES (B3) -------------------------
+    # El conteo ya se hizo sobre las listas filtradas. Aqui solo se informa que
+    # decision se aplico a cada documento para que el numero sea contrastable.
+    conflictos_sin_resolver = conflictos_cert_pend - set(resoluciones_conflicto)
+    if conflictos_cert_pend:
+        advertencias.append(
+            f"Inconsistencia de coherencia: {len(conflictos_cert_pend)} aprendiz(ces) figuran "
+            "simultáneamente como certificados y pendientes. No se cuentan dos veces: "
+            "se aplica la resolución guardada y lo no resuelto se excluye de ambos totales."
+        )
+    if conflictos_sin_resolver:
+        advertencias.append(
+            f"{len(conflictos_sin_resolver)} conflicto(s) sin resolver se excluyeron de "
+            "certificados y pendientes (documentos: "
+            + ", ".join(sorted(conflictos_sin_resolver))
+            + ")."
+        )
+    if resoluciones_conflicto:
+        advertencias.append(
+            f"Se aplicaron {len(resoluciones_conflicto)} resolución(es) manuales de "
+            "conflicto al cálculo de indicadores."
         )
 
     # ---- Totales globales -------------------------------------------------
@@ -500,12 +818,15 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
     # Sin la hoja PENDIENTES el total queda SIN CALCULAR (None), no en cero.
     total_pendientes_valor: int | None = total_pendientes if pendientes_disponibles else None
 
-    # Efectividad global: se calcula con los pendientes que SI se pudieron contar.
+    # Efectividad global SOLO sobre personas/titulada. La complementaria es otro
+    # universo y no puede ser denominador de esta razon.
     candidatos_global: int | None = (
-        total_certificados + total_pendientes if pendientes_disponibles else None
+        total_certificados_personas + total_pendientes
+        if pendientes_disponibles
+        else None
     )
     efectividad_global: float | None = (
-        round((total_certificados / candidatos_global) * 100, 1)
+        round((total_certificados_personas / candidatos_global) * 100, 1)
         if candidatos_global
         else None
     )
@@ -540,34 +861,9 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
             f"{complementaria['sin_fecha']} registros de complementaria sin fecha no se pudieron ubicar en el periodo."
         )
 
-    # ---- Coherencia cruzada: Certificados vs. Pendientes ----
-    cert_pares = {
-        (
-            parsers.clean_identification(r.get("numero de documento")),
-            parsers.clean_identification(r.get("ficha")),
-        )
-        for r in registros_certificados
-        if parsers.normalize_text(r.get("estado")) == "certificados"
-        and parsers.normalize_text(r.get("mes de certificacion")) in MESES_DEL_PERIODO
-    }
-    cert_pares = {(d, f) for d, f in cert_pares if d is not None and f is not None}
-
-    pend_pares = {
-        (
-            parsers.clean_identification(r.get("numero de documento")),
-            parsers.clean_identification(r.get("ficha")),
-        )
-        for r in registros_pendientes
-        if parsers.normalize_text(r.get("estado")) == "pendiente"
-    }
-    pend_pares = {(d, f) for d, f in pend_pares if d is not None and f is not None}
-
-    conflictos_cert_pend = cert_pares & pend_pares
-    if conflictos_cert_pend:
-        advertencias.append(
-            f"Inconsistencia de coherencia: {len(conflictos_cert_pend)} aprendiz(ces) figuran "
-            "simultáneamente como certificados y pendientes para la misma ficha."
-        )
+    # ---- Coherencia cruzada: ya resuelta antes de contar (B3) -------------
+    # No se vuelve a calcular aqui: ``conflictos_cert_pend`` y
+    # ``resoluciones_conflicto`` vienen del filtro aplicado a los totales.
 
     # ---- Motivos de no certificacion --------------------------------------
     motivos_incidencias = pendientes["motivos"]
@@ -643,24 +939,41 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
         "datos_suficientes": datos_suficientes,
         "advertencias": advertencias,
         "warning": " | ".join(advertencias) if advertencias else None,
+        "lote_vigente_id": lote_id,
+        "lote_vigente_alcance": (
+            "consolidado ACTAS 2026 (último lote confirmado)"
+            if lote_id is not None
+            else "compatibilidad: último import por tipo (sin lote actas_completo)"
+        ),
         "total_meta": total_meta_valor,
+        # ``total_certificados`` conserva el total de todas las categorias
+        # (personas + complementaria) para el avance global contra la meta.
+        # Para efectividad y lectura de personas use los campos explicitos.
         "total_certificados": total_certificados,
+        "total_certificados_alcance": "personas + formacion complementaria",
+        "certificados_personas": total_certificados_personas,
+        "total_certificados_personas": total_certificados_personas,
+        "certificados_complementaria": total_certificados_complementaria,
         "total_pendientes": total_pendientes_valor,
+        "pendientes_personas": total_pendientes_valor,
         "total_pendientes_completo": pendientes_disponibles and pendientes_completos,
         "total_incidencias_causas": total_incidencias,
         "aprendices_con_causas_multiples": pendientes["documentos_con_varios_motivos"],
         "aprendices_pendientes_sin_motivo": pendientes["documentos_sin_motivo"],
         "avance_global": avance_global,
         "efectividad_global": efectividad_global,
+        "universo_efectividad": "personas titulada (sin formacion complementaria)",
         "formula_avance_global": {
             "numerador": total_certificados,
             "denominador": total_meta_valor,
-            "formula": "total_certificados / total_meta_anual * 100",
+            "formula": "total_certificados (personas + complementaria) / total_meta_anual * 100",
         },
         "formula_efectividad_global": {
-            "numerador": total_certificados,
+            "numerador": total_certificados_personas,
             "denominador": candidatos_global,
-            "formula": "total_certificados / (total_certificados + total_pendientes) * 100",
+            "formula": (
+                "certificados_personas / (certificados_personas + pendientes_personas) * 100"
+            ),
         },
         "sin_clasificar": sin_clasificar,
         "metricas": metricas,
@@ -670,4 +983,13 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
         "ultimas_actas": ultimas_actas,
         "actas_con_detalle": sum(1 for acta in ultimas_actas if acta["act_id"]),
         "conflictos_certificados_pendientes": len(conflictos_cert_pend),
+        "conflictos": {
+            "detectados": len(conflictos_cert_pend),
+            "resueltos": len(resoluciones_conflicto),
+            "sin_resolver": len(conflictos_sin_resolver),
+            "documentos_sin_resolver": sorted(conflictos_sin_resolver),
+        },
+        # B5: el mismo corte mensual que expone el endpoint dedicado, desde el
+        # consolidado vigente y no desde el padron local.
+        "certificados_por_mes": compute_certificados_por_mes(session, lote_id),
     }
