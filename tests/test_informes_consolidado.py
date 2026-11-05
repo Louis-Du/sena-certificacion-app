@@ -184,3 +184,31 @@ def test_endpoint_sin_lote_seguro(client):
     data = response.json()
     assert any("Sin consolidado vigente" in a for a in data["advertencias"]) or data["advertencias"]
     assert data["resumen_ejecutivo"]["total_meta"] is None
+
+
+def test_export_xlsx_con_datos(client):
+    from tests.test_informes_consolidado import _seed as seed_helper
+    with client.session_factory() as session:
+        seed_helper(session, "certificados", [_certificado("1", "TECNÓLOGO", "JUNIO")])
+        seed_helper(session, "meta", [_meta(superior=100)])
+
+    response = client.get("/api/informes/export")
+    assert response.status_code == 200
+    assert "spreadsheetml" in response.headers["content-type"]
+
+    import io
+    import pandas as pd
+
+    xls = pd.ExcelFile(io.BytesIO(response.content))
+    assert set(xls.sheet_names) == {"Resumen", "Categorias", "CertificadosPorMes", "Causas", "Actas", "Advertencias"}
+    categorias = pd.read_excel(xls, "Categorias")
+    assert "Categoria" in categorias.columns
+    assert len(categorias) >= 1
+    resumen = pd.read_excel(xls, "Resumen")
+    assert "Campo" in resumen.columns and "Valor" in resumen.columns
+
+
+def test_export_xlsx_sin_datos(client):
+    response = client.get("/api/informes/export")
+    assert response.status_code == 404
+    assert "No hay datos" in response.json()["detail"]
