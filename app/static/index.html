@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link href="/static/styles.css?v=20261101-v18" rel="stylesheet">
+  <link href="/static/styles.css?v=20261105-v19" rel="stylesheet">
 </head>
 
 <body>
@@ -283,7 +283,7 @@
             <p class="subtitle">Resumen, certificaciones y detalle por pestañas · Enero – Septiembre 2026</p>
           </div>
           <div class="topbar-actions">
-            <a class="cancel-button" href="/api/informes/export" download="informe_certificacion_v1.xlsx">Descargar informe</a>
+            <button id="export-report-button" class="primary-button report-export-button" type="button">Exportar informe</button>
             <button id="refresh-indicadores" class="primary-button refresh-button" type="button">Actualizar</button>
           </div>
         </header>
@@ -450,9 +450,69 @@
       </div>
     </div>
   </div>
+  <div id="report-modal" class="modal-root" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="report-modal-title">
+    <div class="modal-backdrop" data-close-report-modal></div>
+    <div class="modal-dialog report-dialog" tabindex="-1">
+      <button id="report-modal-close" class="modal-close" type="button" aria-label="Cerrar generación de informe">×</button>
+      <div class="report-modal-header">
+        <span class="report-modal-icon" aria-hidden="true">▤</span>
+        <div>
+          <p class="eyebrow">Informes y exportaciones</p>
+          <h2 id="report-modal-title">¿Qué informe deseas generar?</h2>
+          <p>Selecciona el alcance y el formato disponible para preparar un documento consistente con los indicadores.</p>
+        </div>
+      </div>
+      <div class="report-options" role="radiogroup" aria-label="Tipo de informe">
+        <button class="report-option is-selected" type="button" role="radio" aria-checked="true" data-report-type="general">
+          <span class="report-option-icon" aria-hidden="true">▥</span>
+          <span><strong>Informe general de indicadores</strong><small>Resumen, ejecución por categoría, certificados por mes, causas y actas.</small><em>XLSX · tablas editables</em></span>
+        </button>
+        <button class="report-option is-disabled" type="button" role="radio" aria-checked="false" aria-disabled="true" data-report-type="ejecutivo">
+          <span class="report-option-icon" aria-hidden="true">◈</span>
+          <span><strong>Informe ejecutivo</strong><small>Resumen breve para lectura rápida y seguimiento directivo.</small><em>Disponible próximamente</em></span>
+        </button>
+        <button class="report-option is-disabled" type="button" role="radio" aria-checked="false" aria-disabled="true" data-report-type="aprendices">
+          <span class="report-option-icon" aria-hidden="true">♙</span>
+          <span><strong>Informe de aprendices</strong><small>Detalle de aprendices, estados, requisitos y actas relacionadas.</small><em>Disponible próximamente</em></span>
+        </button>
+        <button class="report-option is-disabled" type="button" role="radio" aria-checked="false" aria-disabled="true" data-report-type="pendientes">
+          <span class="report-option-icon" aria-hidden="true">!</span>
+          <span><strong>Requisitos y pendientes</strong><small>Seguimiento de requisitos que requieren atención.</small><em>Disponible próximamente</em></span>
+        </button>
+        <button class="report-option is-disabled" type="button" role="radio" aria-checked="false" aria-disabled="true" data-report-type="causas">
+          <span class="report-option-icon" aria-hidden="true">⌁</span>
+          <span><strong>Causas de pendientes</strong><small>Frecuencia de motivos e incidencias de no certificación.</small><em>Disponible próximamente</em></span>
+        </button>
+        <button class="report-option is-disabled" type="button" role="radio" aria-checked="false" aria-disabled="true" data-report-type="actas">
+          <span class="report-option-icon" aria-hidden="true">▣</span>
+          <span><strong>Informe de actas</strong><small>Actas documentales y su relación con el consolidado.</small><em>Disponible próximamente</em></span>
+        </button>
+      </div>
+      <div class="report-settings">
+        <label>Alcance
+          <select id="report-scope">
+            <option value="consolidado">Consolidado general</option>
+          </select>
+        </label>
+        <label>Detalle
+          <select id="report-detail">
+            <option value="completo">Completo</option>
+          </select>
+        </label>
+        <div class="report-format" aria-label="Formato disponible">
+          <span>Formato</span><strong>XLSX</strong><small>Hojas editables con tablas y datos del informe v1.</small>
+        </div>
+      </div>
+      <p id="report-modal-feedback" class="report-modal-feedback" role="status"></p>
+      <div class="report-modal-actions">
+        <button id="report-modal-cancel" class="cancel-button" type="button">Cancelar</button>
+        <a id="report-generate-button" class="primary-button" href="/api/informes/export" download="informe_certificacion_v1.xlsx">Generar informe</a>
+      </div>
+    </div>
+  </div>
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="/static/app.js?v=20261101-v16"></script>
-  <script src="/static/ui-enhancements.js?v=20261101-v8"></script>
+  <script src="/static/app.js?v=20261105-v17"></script>
+  <script src="/static/ui-enhancements.js?v=20261105-v9"></script>
 </body>
 </html>
