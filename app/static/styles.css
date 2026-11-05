@@ -1350,6 +1350,34 @@ a {
 .learners-list-table td:nth-child(8) {
   min-width: 124px;
   white-space: nowrap;
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--surface);
+  box-shadow: -8px 0 12px rgba(15, 23, 42, 0.06);
+}
+
+.learners-list-table th:nth-child(8) {
+  background: #f8fafc;
+  z-index: 2;
+}
+
+.learners-list-table tbody tr:hover td:nth-child(8) {
+  background: #f8fafc;
+}
+
+.learner-name-link {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.learner-name-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 3px;
 }
 
 .learners-data th {
@@ -3299,23 +3327,13 @@ a {
 }
 
 /* ---------- Ficha de detalle del aprendiz ---------- */
-/*
-  Desktop (mockup):
-  [ Identificación ] [ Seguimiento ] [ Requisitos (row-span 2) ]
-  [ Origen (span 2)                ] [                         ]
-  [ Historial (span 3)                                         ]
-*/
-/* Fila 3 (1fr) es un "relleno": absorbe la altura sobrante de la tarjeta de
-   requisitos (que abarca 3 filas) para que Origen quede pegado a Identificación
-   y Seguimiento. El espacio vertical lo da el margin-bottom de cada tarjeta. */
 .learner-detail-layout {
   display: grid;
   grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr) minmax(380px, 1.7fr);
-  grid-template-rows: auto auto 1fr auto;
+  grid-template-rows: auto auto auto;
   grid-template-areas:
     "id      tracking  requirements"
     "sources sources   requirements"
-    ".       .         requirements"
     "history history   history";
   column-gap: 16px;
   row-gap: 0;
@@ -3333,7 +3351,6 @@ a {
   grid-template-areas:
     "id      id        requirements"
     "sources sources   requirements"
-    ".       .         requirements"
     "history history   history";
 }
 
@@ -3402,13 +3419,154 @@ a {
   line-height: 1.35;
 }
 
-/* Requisitos: filas compactas. Una sola línea cuando la tarjeta es ancha;
-   si no, el nombre pasa arriba y los controles quedan en la línea siguiente. */
+/* Requisitos: el compacto es un tablero de estado; el expandido conserva el editor. */
 .learner-card-requirements {
   container: reqcard / inline-size;
 }
 
+.requirements-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.requirements-panel-header h3 {
+  margin: 0 0 4px;
+  font-size: var(--text-md);
+  font-weight: 750;
+}
+
+.requirements-panel-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.requirements-panel-header button {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 7px 12px;
+  white-space: nowrap;
+  box-shadow: none;
+}
+
+.requirements-compact {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #d5e5e2;
+  border-radius: 12px;
+  background: #f0fdfa;
+}
+
+.requirements-compact[hidden],
+.requirements-expanded[hidden] {
+  display: none;
+}
+
+.requirements-summary-section {
+  display: grid;
+  gap: 6px;
+}
+
+.requirements-summary-section > strong {
+  color: var(--ink-soft);
+  font-size: var(--text-xs);
+}
+
+.requirements-summary-section.is-pending > strong {
+  color: #92400e;
+}
+
+.requirements-summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.requirements-summary-chip,
+.requirements-summary-more {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-weight: 650;
+}
+
+.requirements-summary-chip {
+  background: #fff;
+  border: 1px solid var(--line-strong);
+}
+
+.requirements-summary-section.is-pending .requirements-summary-chip {
+  background: var(--warning-soft);
+  border-color: #f0c36d;
+  color: #92400e;
+}
+
+.requirements-summary-section.is-fulfilled .requirements-summary-chip {
+  background: var(--success-soft);
+  border-color: #a7f3d0;
+  color: #065f46;
+}
+
+.requirements-summary-section.is-na .requirements-summary-chip {
+  color: var(--muted);
+}
+
+.requirements-summary-section.is-info > strong,
+.requirements-summary-section.is-info .requirements-summary-empty {
+  color: var(--muted);
+}
+
+.requirements-summary-more,
+.requirements-summary-empty {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.requirements-expanded {
+  padding-top: 2px;
+}
+
 .requirements-editor {
+  display: grid;
+  gap: 6px;
+}
+
+.requirement-category {
+  display: grid;
+  gap: 7px;
+}
+
+.requirement-category + .requirement-category {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.requirement-category-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+  font-weight: 750;
+}
+
+.requirement-category-count {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.requirement-category-items {
   display: grid;
   gap: 6px;
 }
@@ -3602,7 +3760,7 @@ a {
   .learner-detail-layout,
   .learner-detail-layout:has(#learner-tracking-section[hidden]) {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-    grid-template-rows: auto auto 1fr auto;
+    grid-template-rows: auto auto auto;
     grid-template-areas:
       "id        requirements"
       "tracking  requirements"
@@ -3611,7 +3769,7 @@ a {
   }
 
   .learner-detail-layout:has(#learner-tracking-section[hidden]) {
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto auto;
     grid-template-areas:
       "id       requirements"
       "sources  requirements"

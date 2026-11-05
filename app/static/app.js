@@ -69,6 +69,9 @@ const learnerTracking = document.querySelector("#learner-tracking");
 const learnerSourcesSection = document.querySelector("#learner-sources-section");
 const learnerSources = document.querySelector("#learner-sources");
 const learnerRequirements = document.querySelector("#learner-requirements");
+const learnerRequirementsCompact = document.querySelector("#learner-requirements-compact");
+const learnerRequirementsExpanded = document.querySelector("#learner-requirements-expanded");
+const toggleRequirements = document.querySelector("#toggle-requirements");
 const learnerRequirementsSubtitle = document.querySelector("#learner-requirements-subtitle");
 const learnerRequirementHistory = document.querySelector("#learner-requirement-history");
 const learnerMoreData = document.querySelector("#learner-more-data");
@@ -932,7 +935,8 @@ function requirementStatusRank(status) {
   if (normalized === "pendiente") return 0;
   if (normalized === "cumplido") return 1;
   if (normalized === "no aplica") return 2;
-  return 3;
+  if (normalized === "sin informacion") return 3;
+  return 4;
 }
 
 function requirementStatusClass(status) {
@@ -940,29 +944,81 @@ function requirementStatusClass(status) {
   if (normalized === "pendiente") return "is-pending";
   if (normalized === "cumplido") return "is-fulfilled";
   if (normalized === "no aplica") return "is-na";
+  if (normalized === "sin informacion") return "is-info";
   return "is-other";
+}
+
+const requirementCategoryOrder = ["Paz y salvos", "Documentación del aprendiz", "Otros"];
+const requirementCategoryAliases = {
+  biblioteca: "Paz y salvos",
+  "paz y salvo biblioteca": "Paz y salvos",
+  bienestar: "Paz y salvos",
+  almacen: "Paz y salvos",
+  "paz y salvo almacen": "Paz y salvos",
+  "documento de identidad": "Documentación del aprendiz",
+  "documento de identidad vigente": "Documentación del aprendiz",
+  identidad: "Documentación del aprendiz",
+  "saber tyt": "Documentación del aprendiz",
+  "t y t": "Documentación del aprendiz",
+  "t&t": "Documentación del aprendiz",
+  ape: "Documentación del aprendiz",
+  "inscripcion ape": "Documentación del aprendiz",
+  "etapa productiva": "Documentación del aprendiz",
+  "formato de evaluacion de la etapa productiva": "Documentación del aprendiz",
+  "certificado de la empresa": "Documentación del aprendiz",
+};
+
+function requirementCategory(item) {
+  const values = [item.label, item.requirement_type].filter(Boolean);
+  for (const value of values) {
+    const normalized = normalizeStatusText(value).replace(/\s+/g, " ");
+    if (requirementCategoryAliases[normalized]) {
+      return requirementCategoryAliases[normalized];
+    }
+  }
+  return "Otros";
+}
+
+function requirementCategorySummary(items) {
+  const summary = summarizeRequirementItems(items);
+  return [
+    `${summary.pending.length} pendiente${summary.pending.length === 1 ? "" : "s"}`,
+    `${summary.fulfilled} cumplido${summary.fulfilled === 1 ? "" : "s"}`,
+    `${summary.na} no aplica`,
+    `${summary.info} sin información`,
+  ].join(" · ");
 }
 
 function summarizeRequirementItems(items) {
   const list = items || [];
   const pending = [];
+  const fulfilledNames = [];
+  const naNames = [];
   let fulfilled = 0;
   let na = 0;
+  let info = 0;
   list.forEach((item) => {
     const normalized = normalizeStatusText(item.status);
     if (normalized === "pendiente") {
       pending.push(item.label || item.requirement_type || "Requisito");
     } else if (normalized === "cumplido") {
       fulfilled += 1;
+      fulfilledNames.push(item.label || item.requirement_type || "Requisito");
     } else if (normalized === "no aplica") {
       na += 1;
+      naNames.push(item.label || item.requirement_type || "Requisito");
+    } else if (normalized === "sin informacion") {
+      info += 1;
     }
   });
   return {
     total: list.length,
     pending,
     fulfilled,
+    fulfilledNames,
     na,
+    naNames,
+    info,
     applicable: list.length - na,
     complete: list.length > 0 && pending.length === 0,
   };
@@ -980,10 +1036,12 @@ function requirementCountsText(summary) {
     `${pending} pendiente${pending === 1 ? "" : "s"}`,
     `${summary.fulfilled} cumplido${summary.fulfilled === 1 ? "" : "s"}`,
     `${summary.na} no aplica`,
+    `${summary.info} sin información`,
   ].join(" · ");
 }
 
 function requirementSummaryTotal(summary) {
+  if (Number.isFinite(Number(summary.total))) return Number(summary.total);
   const pending = (summary.pending || []).length;
   return pending + (summary.fulfilled_count || 0) + (summary.na_count || 0);
 }
@@ -1057,6 +1115,77 @@ function updateRequirementsPanelSubtitle(summary) {
   learnerRequirementsSubtitle.textContent = summary.total
     ? requirementCountsText(summary)
     : "Sin requisitos registrados.";
+}
+
+function renderRequirementSummary(items) {
+  if (!learnerRequirementsCompact) return;
+  const summary = summarizeRequirementItems(items);
+  learnerRequirementsCompact.replaceChildren();
+  if (!summary.total) {
+    const empty = document.createElement("p");
+    empty.className = "empty-detail";
+    empty.textContent = "Sin requisitos registrados.";
+    learnerRequirementsCompact.appendChild(empty);
+    return;
+  }
+
+  const sections = [
+    {
+      label: "Qué falta",
+      names: summary.pending,
+      empty: "Ninguno pendiente",
+      className: "is-pending",
+    },
+    {
+      label: "Cumplidos",
+      names: summary.fulfilledNames,
+      empty: "Ninguno cumplido",
+      className: "is-fulfilled",
+    },
+    {
+      label: "No aplica",
+      names: summary.naNames,
+      empty: "Ninguno",
+      className: "is-na",
+    },
+    {
+      label: "Sin información",
+      names: [],
+      empty: summary.info ? `${summary.info} sin información` : "Ninguno",
+      className: "is-info",
+    },
+  ];
+  sections.forEach(({label, names, empty, className}) => {
+    const section = document.createElement("section");
+    section.className = `requirements-summary-section ${className}`;
+    const heading = document.createElement("strong");
+    heading.textContent = label;
+    section.appendChild(heading);
+    if (!names.length) {
+      const message = document.createElement("span");
+      message.className = "requirements-summary-empty";
+      message.textContent = empty;
+      section.appendChild(message);
+    } else {
+      const namesList = document.createElement("div");
+      namesList.className = "requirements-summary-chips";
+      const visibleNames = names.slice(0, 5);
+      visibleNames.forEach((name) => {
+        const chip = document.createElement("span");
+        chip.className = "requirements-summary-chip";
+        chip.textContent = name;
+        namesList.appendChild(chip);
+      });
+      if (names.length > visibleNames.length) {
+        const remaining = document.createElement("span");
+        remaining.className = "requirements-summary-more";
+        remaining.textContent = `y ${names.length - visibleNames.length} más`;
+        namesList.appendChild(remaining);
+      }
+      section.appendChild(namesList);
+    }
+    learnerRequirementsCompact.appendChild(section);
+  });
 }
 
 function renderOriginCell(item, row) {
@@ -1223,7 +1352,17 @@ function renderLearnerRow(item) {
   row.classList.toggle("has-pending", pending.length > 0);
   const nameCell = document.createElement("td");
   nameCell.className = "learner-name-cell";
-  nameCell.textContent = item.name;
+  const nameLink = document.createElement("a");
+  nameLink.className = "learner-name-link";
+  nameLink.href = "#aprendices";
+  nameLink.textContent = item.name;
+  nameLink.setAttribute("aria-label", `Ver detalles de ${item.name}`);
+  nameLink.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    loadLearnerDetail(item.id);
+  });
+  nameCell.appendChild(nameLink);
   row.appendChild(nameCell);
   [item.identification, item.program || "Sin programa", item.group_code || "Sin ficha"]
     .forEach((value) => {
@@ -1376,13 +1515,16 @@ function applyRequirementEditorStatus(form, status) {
 // Mantiene el orden "pendientes primero" despues de guardar, sin reemplazar los
 // formularios (asi no se pierde el foco ni el mensaje de confirmacion).
 function sortRequirementEditors() {
-  const forms = [...learnerRequirements.querySelectorAll(".requirement-editor")];
-  forms.sort(
-    (a, b) =>
-      requirementStatusRank(a.dataset.status) - requirementStatusRank(b.dataset.status),
-  );
   const active = document.activeElement;
-  forms.forEach((form) => learnerRequirements.appendChild(form));
+  learnerRequirements.querySelectorAll(".requirement-category-items").forEach((group) => {
+    const forms = [...group.querySelectorAll(".requirement-editor")];
+    forms
+      .sort(
+        (a, b) =>
+          requirementStatusRank(a.dataset.status) - requirementStatusRank(b.dataset.status),
+      )
+      .forEach((form) => group.appendChild(form));
+  });
   // Mover un formulario en el DOM puede perder el foco; si el usuario estaba
   // dentro de una fila, se restaura para no interrumpir teclado ni lectores.
   if (active && active.isConnected && learnerRequirements.contains(active)) {
@@ -1390,26 +1532,57 @@ function sortRequirementEditors() {
   }
 }
 
+function updateRequirementCategoryCounts() {
+  learnerRequirements.querySelectorAll(".requirement-category").forEach((section) => {
+    const statuses = [...section.querySelectorAll(".requirement-editor")].map(
+      (form) => form.dataset.status,
+    );
+    const items = statuses.map((status) => ({status}));
+    const count = section.querySelector(".requirement-category-count");
+    if (count) count.textContent = requirementCategorySummary(items);
+  });
+}
+
 function renderRequirementEditor(items) {
   learnerRequirements.replaceChildren();
   if (!items.length) {
     learnerRequirements.innerHTML = "<p class=\"empty-detail\">Sin requisitos registrados.</p>";
-    updateRequirementsPanelSubtitle(summarizeRequirementItems(items));
     return;
   }
 
-  const ordered = [...items].sort(
-    (a, b) => requirementStatusRank(a.status) - requirementStatusRank(b.status),
+  const grouped = new Map(
+    requirementCategoryOrder.map((category) => [category, []]),
   );
-  ordered.forEach((item) => {
+  items.forEach((item) => grouped.get(requirementCategory(item)).push(item));
+  grouped.forEach((categoryItems, category) => {
+    if (!categoryItems.length) return;
+    categoryItems.sort(
+      (a, b) => requirementStatusRank(a.status) - requirementStatusRank(b.status),
+    );
+    const section = document.createElement("section");
+    section.className = "requirement-category";
+    const heading = document.createElement("h4");
+    heading.className = "requirement-category-title";
+    heading.textContent = category;
+    const count = document.createElement("span");
+    count.className = "requirement-category-count";
+    count.textContent = requirementCategorySummary(categoryItems);
+    heading.appendChild(count);
+    const group = document.createElement("div");
+    group.className = "requirement-category-items";
+    section.append(heading, group);
+    learnerRequirements.appendChild(section);
+
+    categoryItems.forEach((item) => {
     const label = item.label || item.requirement_type || "Requisito";
     const status = item.status || "Pendiente";
     const form = document.createElement("form");
     form.className = "requirement-editor";
     form.dataset.status = normalizeStatusText(status);
+    form.dataset.category = category;
     form.innerHTML = `<div class="requirement-name"><strong></strong><span class="requirement-state-badge" aria-hidden="true"></span></div>
       <select name="status">
-        <option>Pendiente</option><option>Cumplido</option><option>No aplica</option>
+        <option>Pendiente</option><option>Cumplido</option><option>No aplica</option><option>Sin información</option>
       </select>
       <input type="text" name="observations" placeholder="Observación">
       <button class="primary-button" type="submit">Guardar</button>
@@ -1453,19 +1626,44 @@ function renderRequirementEditor(items) {
         item.observations = result.observations;
         applyRequirementEditorStatus(form, result.status);
         sortRequirementEditors();
+        updateRequirementCategoryCounts();
         const detail = await readResponse(
           await fetch(`/api/learners/${window.currentLearnerId}`),
         );
         renderRequirementHistory(detail.requirement_history);
+        renderRequirementSummary(detail.requirements);
         updateRequirementsPanelSubtitle(summarizeRequirementItems(detail.requirements));
         feedback.textContent = "Guardado.";
       } catch (error) {
         feedback.textContent = error.message;
       }
     });
-    learnerRequirements.appendChild(form);
+      group.appendChild(form);
+    });
   });
-  updateRequirementsPanelSubtitle(summarizeRequirementItems(ordered));
+}
+
+function renderRequirementsPanel(items) {
+  const list = items || [];
+  const summary = summarizeRequirementItems(list);
+  renderRequirementSummary(list);
+  renderRequirementEditor(list);
+  updateRequirementsPanelSubtitle(summary);
+  if (!toggleRequirements || !learnerRequirementsExpanded) return;
+
+  const hasRequirements = summary.total > 0;
+  toggleRequirements.hidden = !hasRequirements;
+  toggleRequirements.setAttribute("aria-expanded", "false");
+  toggleRequirements.textContent = `Ver todos (${summary.total})`;
+  learnerRequirementsExpanded.hidden = true;
+  learnerRequirementsCompact.hidden = false;
+  toggleRequirements.onclick = () => {
+    const expanded = toggleRequirements.getAttribute("aria-expanded") === "true";
+    toggleRequirements.setAttribute("aria-expanded", expanded ? "false" : "true");
+    toggleRequirements.textContent = expanded ? `Ver todos (${summary.total})` : "Recoger";
+    learnerRequirementsExpanded.hidden = expanded;
+    learnerRequirementsCompact.hidden = !expanded;
+  };
 }
 
 function requirementSourceLabel(source) {
@@ -1603,7 +1801,7 @@ async function loadLearnerDetail(learnerId) {
     fillDetailList(learnerSources, [
       ["Fuente(s) de origen", sources.length ? sources.join(" · ") : "Desconocido"],
     ]);
-    renderRequirementEditor(result.requirements);
+    renderRequirementsPanel(result.requirements);
     renderRequirementHistory(result.requirement_history);
     const dates = result.dates || {};
     const extraEntries = [
@@ -2264,21 +2462,9 @@ async function loadIndicadores() {
     const data = await readResponse(await fetch("/api/indicadores"));
     kpis.innerHTML = `
       <div class="panel"><div><small>META ANUAL INSTITUCIONAL</small><h2>${formatNumeroIndicador(data.total_meta)}</h2><small>Aprendices proyectados por la meta</small></div></div>
-      <div class="panel" style="border-left:4px solid var(--green)"><div><small style="color:var(--green-dark)">CERTIFICADOS ÚNICOS (ENE–SEP)</small><h2 style="color:var(--green-dark)">${formatNumeroIndicador(data.total_certificados)}</h2><small>Personas certificadas en el período</small></div></div>
-      <div class="panel" style="border-left:4px solid #b87d00"><div><small style="color:#b87d00">PENDIENTES ÚNICOS</small><h2 style="color:#b87d00"><button class="kpi-drilldown" type="button" data-drilldown-pendientes title="Ver aprendices pendientes en el padrón local">${formatNumeroIndicador(data.total_pendientes)}</button></h2><small>Personas con requisitos sin superar</small></div></div>
       <div class="panel" style="background:var(--green-soft)"><div><small style="color:var(--green-dark)">% AVANCE</small><h2 style="color:var(--green-dark)">${formatPorcentajeIndicador(data.avance_global)}</h2>${kpiBarraProgreso(data.avance_global)}<small class="kpi-formula" title="Certificados únicos ÷ meta anual × 100">Fórmula: certificados ÷ meta</small></div></div>
       <div class="panel"><div><small>EFECTIVIDAD</small><h2>${formatPorcentajeIndicador(data.efectividad_global)}</h2>${kpiBarraProgreso(data.efectividad_global)}<small class="kpi-formula" title="Certificados únicos ÷ (certificados únicos + pendientes únicos) × 100">Fórmula: certificados ÷ (certificados + pendientes)</small></div></div>
     `;
-
-    // Drill-down P0: pendientes del padron local. Los certificados del
-    // consolidado ENE-SEP no se enlazan porque el listado solo contiene el
-    // padron local (~2 mil), no las 51 mil filas del consolidado.
-    kpis.querySelector("[data-drilldown-pendientes]")?.addEventListener("click", () => {
-      abrirAprendicesDesdeIndicadores({
-        label: "Pendientes únicos",
-        status: "PENDIENTE",
-      });
-    });
 
     // Advertencias: solo se muestran las que calcula el backend. Si el array
     // viene vacio no se pinta ningun banner ni contador.
@@ -2391,11 +2577,20 @@ viewLinks.forEach((link) => link.addEventListener("click", (event) => {
 }));
 refreshLearnersButton.addEventListener("click", loadLearners);
 
+function formatActReviewStatus(status) {
+  const labels = {
+    pending: "Pendiente",
+    reviewed: "Revisada",
+    rejected: "Rechazada",
+  };
+  return labels[String(status || "").toLowerCase()] || status || "Sin estado";
+}
+
 function renderActs(items) {
   actList.replaceChildren();
   items.forEach((item) => {
     const row = document.createElement("tr");
-    [item.number || "Sin número", item.act_date || "Sin fecha", item.act_type || "Sin tipo", item.review_status, item.learners_count].forEach((value) => {
+    [item.number || "Sin número", item.act_date || "Sin fecha", item.act_type || "Sin tipo", formatActReviewStatus(item.review_status), item.learners_count].forEach((value) => {
       const cell = document.createElement("td"); cell.textContent = value; row.appendChild(cell);
     });
     const cell = document.createElement("td"), button = document.createElement("button");
@@ -2423,7 +2618,7 @@ async function loadActDetail(id) {
   try {
     const item = await readResponse(await fetch(`/api/acts/${id}`));
     actDetailTitle.textContent = item.number || "Acta"; actBasicInfo.replaceChildren();
-    [["Número", item.number], ["Fecha", item.act_date], ["Tipo", item.act_type], ["Estado", item.review_status], ["Archivo", item.original_file], ["Observaciones", item.observations]].forEach(([label, value]) => {
+    [["Número", item.number], ["Fecha", item.act_date], ["Tipo", item.act_type], ["Estado", formatActReviewStatus(item.review_status)], ["Archivo", item.original_file], ["Observaciones", item.observations]].forEach(([label, value]) => {
       const term = document.createElement("dt"), description = document.createElement("dd"); term.textContent = label; description.textContent = value || "No disponible"; actBasicInfo.append(term, description);
     });
     renderActLearners(item.learners); actDetailContent.hidden = false; actDetailFeedback.textContent = "";
