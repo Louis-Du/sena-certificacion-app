@@ -493,6 +493,39 @@ def record_key(information_type: str, record: dict[str, Any]) -> str:
                 f"{information_type}:{doc}:{parsers.normalize_text(req)}".encode("utf-8")
             ).hexdigest()
 
+    if information_type == "meta":
+        # La hoja META es anual: la meta se identifica por periodo, NO por el
+        # contenido completo. Asi una reimportacion con cifras corregidas
+        # actualiza la meta vigente en lugar de acumular una meta nueva.
+        period = (
+            _first_present(clean, "periodo", "vigencia", "anio", "año")
+            or parsers.ACTAS_PERIOD_KEY
+        )
+        return hashlib.sha256(
+            f"meta:{parsers.normalize_text(period)}".encode("utf-8")
+        ).hexdigest()
+
+    if information_type == "complementaria":
+        # La hoja COMPLEMENTARIA es un agregado por canal y fecha. La clave de
+        # negocio es "fecha + canal"; la cantidad puede cambiar en una version
+        # corregida sin que deba crearse otra fila. Sin fecha se usa canal + fila
+        # fisica como ultimo recurso para no colisionar filas distintas.
+        fecha = _first_present(clean, "fecha")
+        fecha_clave = (
+            parsers.parse_date_value(fecha)
+            or parsers.normalize_text(fecha)
+            or ""
+        )
+        canal = parsers.normalize_text(_first_present(clean, "canal")) or "otro"
+        if fecha_clave:
+            return hashlib.sha256(
+                f"complementaria:{fecha_clave}:{canal}".encode("utf-8")
+            ).hexdigest()
+        fila = _first_present(clean, "fila")
+        return hashlib.sha256(
+            f"complementaria:sin-fecha:{canal}:{fila or ''}".encode("utf-8")
+        ).hexdigest()
+
     if information_type == "acta":
         # Llave estable por acta + documento: reimportar el mismo acta no crea
         # registros nuevos ni pierde la trazabilidad del aprendiz.

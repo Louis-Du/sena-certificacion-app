@@ -327,7 +327,8 @@
               </label>
               <div class="activity-view-toggle" id="activity-view-toggle" role="tablist" aria-label="Vista de actividad">
                 <button class="activity-view-btn is-active" type="button" role="tab" id="activity-tab-heatmap" aria-selected="true" aria-controls="activity-heatmap-panel" data-activity-view="heatmap">Heatmap</button>
-                <button class="activity-view-btn" type="button" role="tab" id="activity-tab-chart" aria-selected="false" aria-controls="activity-chart-panel" data-activity-view="chart" tabindex="-1">Gráfico</button>
+                <button class="activity-view-btn" type="button" role="tab" id="activity-tab-chart" aria-selected="false" aria-controls="activity-chart-panel" data-activity-view="chart" tabindex="-1">Actividad</button>
+                <button class="activity-view-btn" type="button" role="tab" id="activity-tab-certificados" aria-selected="false" aria-controls="activity-certificados-panel" data-activity-view="certificados" tabindex="-1">Certificados/mes</button>
               </div>
             </div>
           </div>
@@ -355,6 +356,14 @@
               <p class="chart-empty" id="activity-chart-empty" hidden>No hay actividad registrada en el período seleccionado.</p>
             </div>
             <p class="heatmap-hint" id="activity-chart-summary">Serie semanal (suma de eventos por día) · haz clic en una barra para ver el día con más actividad de esa semana.</p>
+          </div>
+          <div class="activity-view-panel" id="activity-certificados-panel" role="tabpanel" aria-labelledby="activity-tab-certificados" hidden>
+            <div class="chart-canvas-wrap activity-chart-wrap">
+              <canvas id="indicadores-certificados-mes-chart" role="img" aria-label="Certificados del consolidado por mes de certificación"></canvas>
+              <p class="chart-empty" id="certificados-mes-empty" hidden>No hay certificados del consolidado en el período.</p>
+            </div>
+            <p class="heatmap-hint" id="certificados-mes-summary">Consolidado ACTAS 2026 · hoja CERTIFICADOS · mes de certificación del lote vigente.</p>
+            <p class="chart-note" id="certificados-mes-note" hidden></p>
           </div>
         </section>
 

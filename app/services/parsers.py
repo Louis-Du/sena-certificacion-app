@@ -40,6 +40,12 @@ SS = "{urn:schemas-microsoft-com:office:spreadsheet}"
 # Hojas de datos operativos que el sistema reconoce dentro de ACTAS 2026.xlsx.
 ACTAS_SHEETS = ("CERTIFICADOS", "PENDIENTES", "COMPLEMENTARIA")
 
+# Periodo institucional que cubre el paquete ACTAS 2026. Se usa como clave
+# estable de la hoja META para que una reimportacion actualice la meta vigente
+# en lugar de acumular filas.
+ACTAS_PERIOD_YEAR = 2026
+ACTAS_PERIOD_KEY = str(ACTAS_PERIOD_YEAR)
+
 # ---------------------------------------------------------------------------
 # Normalizacion de texto (utilidades compartidas)
 # ---------------------------------------------------------------------------
@@ -116,6 +122,63 @@ def clean_act_number(value: Any) -> str | None:
     2025). Se conserva el texto sin el decimal para poder contar actas distintas.
     """
     return clean_identification(value)
+
+
+# ---------------------------------------------------------------------------
+# Normalizacion defensiva del estado de certificacion (N1)
+# ---------------------------------------------------------------------------
+# Un solo lugar para las variantes aceptadas. El consolidado ACTAS 2026 usa
+# "CERTIFICADOS" y "PENDIENTE", pero otras fuentes/versiones escriben singular,
+# plural o frases equivalentes. Solo estas variantes se interpretan como estado
+# de certificacion; cualquier otro texto se conserva sin clasificar y se informa.
+ESTADOS_CERTIFICADO = frozenset(
+    {
+        "certificado",
+        "certificados",
+        "certificada",
+        "certificadas",
+        "certificado de formacion",
+        "certificados de formacion",
+        "si",
+        "sí",
+    }
+)
+
+ESTADOS_PENDIENTE = frozenset(
+    {
+        "pendiente",
+        "pendientes",
+        "por certificar",
+        "por certificacion",
+        "no certificado",
+        "no certificada",
+        "no certificados",
+        "no certificadas",
+    }
+)
+
+
+def normalize_certification_status(value: Any) -> str:
+    """Devuelve ``"certificados"``, ``"pendiente"`` o el texto normalizado.
+
+    La lista de variantes vive en :data:`ESTADOS_CERTIFICADO` y
+    :data:`ESTADOS_PENDIENTE`. No se adivina un estado a partir de texto libre:
+    solo se aceptan las variantes documentadas y dos prefijos inequivocos
+    ("certificad..." y "por certificar..."). El resto se devuelve normalizado
+    para que el llamador pueda reportarlo como no clasificado.
+    """
+    key = normalize_text(value)
+    if not key:
+        return ""
+    if key in ESTADOS_CERTIFICADO:
+        return "certificados"
+    if key in ESTADOS_PENDIENTE:
+        return "pendiente"
+    if key.startswith("certificad"):
+        return "certificados"
+    if key.startswith("por certificar") or key.startswith("no certificad"):
+        return "pendiente"
+    return key
 
 
 def heal_fragmented_text(text: str, is_name: bool = False) -> str:
@@ -449,6 +512,10 @@ def read_meta_sheet(content: bytes, sheet_name: str = "META") -> dict[str, Any]:
         return {}
 
     resultado: dict[str, Any] = {"fila_rotulos": fila_rotulos + 1}
+    # Clave de negocio del periodo: la hoja META es anual. Se guarda para que
+    # ``record_key`` use "meta + periodo" y una reimportacion reemplace la meta
+    # vigente en lugar de crear otra fila.
+    resultado["periodo"] = ACTAS_PERIOD_KEY
     fila_valores = raw.iloc[fila_rotulos + 1] if fila_rotulos + 1 < len(raw.index) else None
     for columna, rotulo in enumerate(raw.iloc[fila_rotulos].tolist()):
         texto = normalize_text(rotulo)

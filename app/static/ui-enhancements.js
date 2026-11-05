@@ -400,11 +400,13 @@
 
     if (indicadores) {
       const cert =
+        indicadores.certificados_personas ??
         indicadores.certificados ??
         indicadores.total_certificados ??
         indicadores.resumen?.certificados ??
         indicadores.kpis?.certificados;
       const por =
+        indicadores.pendientes_personas ??
         indicadores.total_pendientes ??
         indicadores.por_certificar ??
         indicadores.total_por_certificar ??
@@ -543,11 +545,17 @@
   let activityYear = 2026;
   let activityChart = null;
   let activityView = "heatmap";
+  let certificadosMesData = null;
+  let certificadosMesChart = null;
   const ACTIVITY_VIEW_KEY = "indicadores-actividad-vista";
+
+  function normalizeActivityView(value) {
+    return ["chart", "certificados"].includes(value) ? value : "heatmap";
+  }
 
   function readStoredActivityView() {
     try {
-      return window.sessionStorage.getItem(ACTIVITY_VIEW_KEY) === "chart" ? "chart" : "heatmap";
+      return normalizeActivityView(window.sessionStorage.getItem(ACTIVITY_VIEW_KEY));
     } catch (_) {
       return "heatmap";
     }
@@ -563,7 +571,7 @@
   }
 
   function setActivityView(view, { render = true } = {}) {
-    activityView = view === "chart" ? "chart" : "heatmap";
+    activityView = normalizeActivityView(view);
     try {
       window.sessionStorage.setItem(ACTIVITY_VIEW_KEY, activityView);
     } catch (_) {
@@ -579,11 +587,16 @@
 
     const heatmapPanel = document.getElementById("activity-heatmap-panel");
     const chartPanel = document.getElementById("activity-chart-panel");
+    const certificadosPanel = document.getElementById("activity-certificados-panel");
     if (heatmapPanel) heatmapPanel.hidden = activityView !== "heatmap";
     if (chartPanel) chartPanel.hidden = activityView !== "chart";
+    if (certificadosPanel) certificadosPanel.hidden = activityView !== "certificados";
 
     if (activityView === "chart" && render && !activityChart) {
       renderActivityChart(activityData, activityYear);
+    }
+    if (activityView === "certificados" && render && !certificadosMesChart) {
+      renderCertificadosMesChart(certificadosMesData);
     }
     if (activityView === "chart" && activityChart) {
       // Chart.js mide el canvas al crearlo; si el panel estaba oculto hay que
@@ -591,6 +604,13 @@
       setTimeout(() => {
         try {
           activityChart.resize();
+        } catch (_) {}
+      }, 40);
+    }
+    if (activityView === "certificados" && certificadosMesChart) {
+      setTimeout(() => {
+        try {
+          certificadosMesChart.resize();
         } catch (_) {}
       }, 40);
     }
@@ -817,19 +837,138 @@
     });
   }
 
+  function updateCertificadosMesSummary(data) {
+    const summary = document.getElementById("certificados-mes-summary");
+    const note = document.getElementById("certificados-mes-note");
+    if (!summary) return;
+    if (!data) {
+      summary.textContent =
+        "Consolidado ACTAS 2026 · hoja CERTIFICADOS · no disponible.";
+      if (note) note.hidden = true;
+      return;
+    }
+    const total = Number(data.total) || 0;
+    const lote = data.lote_id != null ? ` · lote #${data.lote_id}` : "";
+    summary.textContent =
+      `Consolidado ACTAS 2026 · hoja CERTIFICADOS · ${total} persona(s) ` +
+      `certificada(s) en ENE–SEP 2026${lote}. No es padrón local ni fecha de importación.`;
+    if (note) {
+      const partes = [];
+      if (Number(data.fuera_de_periodo) > 0) {
+        partes.push(`${data.fuera_de_periodo} certificado(s) fuera del período no se grafican.`);
+      }
+      if (Number(data.sin_mes) > 0) {
+        partes.push(`${data.sin_mes} certificado(s) sin mes de certificación.`);
+      }
+      if (Number(data.conflictos_sin_resolver) > 0) {
+        partes.push(
+          `${data.conflictos_sin_resolver} conflicto(s) sin resolver se excluyeron del gráfico.`
+        );
+      }
+      note.textContent = partes.join(" ");
+      note.hidden = !partes.length;
+    }
+  }
+
+  function renderCertificadosMesChart(data) {
+    const canvas = document.getElementById("indicadores-certificados-mes-chart");
+    const empty = document.getElementById("certificados-mes-empty");
+    if (!canvas || !empty) return;
+
+    updateCertificadosMesSummary(data);
+
+    if (certificadosMesChart) {
+      certificadosMesChart.destroy();
+      certificadosMesChart = null;
+    }
+
+    if (typeof Chart === "undefined") {
+      canvas.hidden = true;
+      empty.hidden = false;
+      empty.textContent = "No se pudo cargar la librería de gráficos (Chart.js).";
+      return;
+    }
+
+    const meses = Array.isArray(data?.meses) ? data.meses : [];
+    const total = Number(data?.total) || 0;
+    if (!meses.length || total <= 0) {
+      canvas.hidden = true;
+      empty.hidden = false;
+      empty.textContent =
+        "No hay certificados del consolidado en ENE–SEP 2026. Cargue ACTAS 2026 o revise la hoja CERTIFICADOS.";
+      canvas.setAttribute("aria-label", "Sin certificados del consolidado en el período");
+      return;
+    }
+
+    canvas.hidden = false;
+    empty.hidden = true;
+    canvas.setAttribute(
+      "aria-label",
+      `Certificados del consolidado por mes: ${total} en ENE–SEP 2026`
+    );
+
+    certificadosMesChart = new Chart(canvas.getContext("2d"), {
+      type: "bar",
+      data: {
+        labels: meses.map((mes) => mes.etiqueta),
+        datasets: [
+          {
+            label: "Personas certificadas del consolidado",
+            data: meses.map((mes) => Number(mes.certificados) || 0),
+            backgroundColor: "rgba(15, 118, 110, 0.7)",
+            hoverBackgroundColor: "#0f766e",
+            borderWidth: 0,
+            borderRadius: 4,
+            maxBarThickness: 44,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { grid: { display: false } },
+          y: {
+            beginAtZero: true,
+            ticks: { precision: 0 },
+            title: { display: true, text: "Personas certificadas" },
+          },
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) =>
+                `${ctx.parsed.y} persona(s) certificada(s) en ${meses[ctx.dataIndex]?.etiqueta || ""}`,
+            },
+          },
+        },
+      },
+    });
+  }
+
   async function loadActivity(year) {
     activityYear = Number(year) || 2026;
-    const data = await safeJson(
-      `/api/activity/heatmap?year=${encodeURIComponent(activityYear)}`
-    );
+    const [data, certificadosMes] = await Promise.all([
+      safeJson(`/api/activity/heatmap?year=${encodeURIComponent(activityYear)}`),
+      safeJson("/api/indicadores/certificados-por-mes"),
+    ]);
     activityData = data;
+    certificadosMesData = certificadosMes;
     renderHeatmap(data, activityYear);
     if (activityChart) {
       activityChart.destroy();
       activityChart = null;
     }
+    if (certificadosMesChart) {
+      certificadosMesChart.destroy();
+      certificadosMesChart = null;
+    }
     updateActivitySummary(data, activityYear);
-    setActivityView(activityView, { render: activityView === "chart" });
+    updateCertificadosMesSummary(certificadosMes);
+    setActivityView(activityView, {
+      render: activityView === "chart" || activityView === "certificados",
+    });
     scheduleChartPadding();
   }
 
