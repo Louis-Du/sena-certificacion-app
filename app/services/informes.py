@@ -179,6 +179,7 @@ def consolidate_report_dataset_v1(session: Session, *, year: int | None = None) 
 
 
 REPORT_TYPES = {
+    "consolidado": "Informe consolidado de certificación",
     "general": "Informe general de indicadores",
     "ejecutivo": "Informe ejecutivo",
     "aprendices": "Informe de aprendices",
@@ -191,7 +192,7 @@ REPORT_TYPES = {
 def available_report_formats(report_type: str) -> list[str]:
     if report_type not in REPORT_TYPES:
         raise ValueError(f"Tipo de informe no soportado: {report_type}.")
-    return ["pdf", "xlsx", "csv"]
+    return ["pdf", "xlsx"] if report_type == "consolidado" else ["pdf", "xlsx", "csv"]
 
 
 def report_catalog() -> list[dict[str, Any]]:
@@ -268,17 +269,21 @@ def _dataset_for_report(session: Session, report_type: str, year: int | None) ->
     if report_type not in REPORT_TYPES:
         raise ValueError(f"Tipo de informe no soportado: {report_type}.")
     dataset = consolidate_report_dataset(session, year=year)
-    if report_type in {"aprendices", "pendientes"}:
+    if report_type in {"aprendices", "pendientes", "consolidado"}:
         query = select(Learner)
-        if report_type == "pendientes":
+        if report_type in {"pendientes", "consolidado"}:
             query = query.where(Learner.certification_status.ilike("%pend%"))
         dataset["_learners"] = list(session.scalars(query).all())
+        if report_type == "consolidado":
+            dataset["_all_learners"] = list(session.scalars(select(Learner)).all())
     return dataset
 
 
 def export_report_csv(
     session: Session, *, report_type: str = "general", year: int | None = None
 ) -> bytes:
+    if report_type == "consolidado":
+        raise ValueError("El informe consolidado está disponible en PDF y XLSX.")
     dataset = _dataset_for_report(session, report_type, year)
     if not dataset.get("datos_suficientes") and report_type not in {"aprendices", "pendientes", "actas"}:
         raise ValueError("No hay datos para exportar.")
@@ -308,6 +313,8 @@ def export_report_xlsx(
     - Los valores ``None`` se dejan como celda vacia (sin inventar ceros).
     - Si no hay datos suficientes se lanza ``ValueError``.
     """
+    if report_type == "consolidado":
+        return export_consolidated_xlsx(session, year=year)
     dataset = _dataset_for_report(session, report_type, year)
     if not dataset.get("datos_suficientes"):
         raise ValueError("No hay datos para exportar.")
@@ -320,6 +327,32 @@ def export_report_xlsx(
         buffer.seek(0)
         return _style_workbook(buffer.getvalue())
     return _export_general_xlsx(dataset)
+
+
+def export_consolidated_xlsx(session: Session, *, year: int | None = None) -> bytes:
+    dataset = _dataset_for_report(session, "consolidado", year)
+    if not dataset.get("datos_suficientes"):
+        raise ValueError("No hay datos para exportar.")
+    content = _export_general_xlsx(dataset)
+    workbook = load_workbook(BytesIO(content))
+    for report_type in ("ejecutivo", "aprendices", "pendientes", "causas", "actas"):
+        report_dataset = dict(dataset)
+        if report_type in {"aprendices", "pendientes"}:
+            report_dataset["_learners"] = (
+                dataset.get("_all_learners", [])
+                if report_type == "aprendices"
+                else dataset.get("_learners", [])
+            )
+        sheet, rows = _report_rows(report_dataset, report_type)
+        worksheet = workbook.create_sheet(sheet)
+        if rows:
+            headers = list(rows[0])
+            worksheet.append(headers)
+            for row in rows:
+                worksheet.append([row.get(header) for header in headers])
+    output = BytesIO()
+    workbook.save(output)
+    return _style_workbook(output.getvalue())
 
 
 def _export_general_xlsx(dataset: dict[str, Any]) -> bytes:
@@ -444,6 +477,9 @@ def _style_workbook(content: bytes) -> bytes:
 def export_report_pdf(
         session: Session, *, report_type: str = "general", year: int | None = None
 ) -> bytes:
+    if report_type == "consolidado":
+        return export_consolidated_pdf(session, year=year)
+    else:
         from reportlab.lib import colors
         from reportlab.lib.enums import TA_CENTER, TA_LEFT
         from reportlab.lib.pagesizes import A4
@@ -545,6 +581,74 @@ def export_report_pdf(
 
         output = BytesIO()
         document = SimpleDocTemplate(output, pagesize=A4, rightMargin=18 * mm, leftMargin=18 * mm, topMargin=18 * mm, bottomMargin=20 * mm, title=title)
+        document.build(story, onFirstPage=footer, onLaterPages=footer)
+        return output.getvalue()
+
+
+def export_consolidated_pdf(session: Session, *, year: int | None = None) -> bytes:
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_CENTER
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+        dataset = _dataset_for_report(session, "consolidado", year)
+        if not dataset.get("datos_suficientes"):
+            raise ValueError("No hay datos para exportar.")
+        styles = getSampleStyleSheet()
+        styles.add(ParagraphStyle(name="ConsolidatedTitle", parent=styles["Title"], fontName="Helvetica-Bold", fontSize=24, leading=29, textColor=colors.HexColor("#115E59"), alignment=TA_CENTER, spaceAfter=12))
+        styles.add(ParagraphStyle(name="ConsolidatedSubtitle", parent=styles["Normal"], fontSize=11, leading=15, textColor=colors.HexColor("#475569"), alignment=TA_CENTER, spaceAfter=20))
+        styles.add(ParagraphStyle(name="ConsolidatedSection", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=15, leading=19, textColor=colors.HexColor("#115E59"), spaceBefore=8, spaceAfter=8))
+        story = [
+            Spacer(1, 28 * mm),
+            Paragraph("SENA Certificación", styles["ConsolidatedSubtitle"]),
+            Paragraph("Informe consolidado de certificación", styles["ConsolidatedTitle"]),
+            Paragraph(f"Reúne los seis informes disponibles · {dataset.get('periodo') or 'Periodo no disponible'}", styles["ConsolidatedSubtitle"]),
+            PageBreak(),
+        ]
+
+        def add_table(title: str, rows: list[dict[str, Any]]) -> None:
+            story.append(Paragraph(title, styles["ConsolidatedSection"]))
+            if not rows:
+                story.append(Paragraph("No hay registros disponibles.", styles["ConsolidatedSubtitle"]))
+                return
+            headers = list(rows[0])
+            values = [[str(row.get(header)) if row.get(header) is not None else "No calculable" for header in headers] for row in rows]
+            table = Table([headers, *values], repeatRows=1, hAlign="LEFT")
+            table.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#115E59")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+                ("FONTSIZE", (0, 0), (-1, -1), 7),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]))
+            story.append(table)
+            story.append(Spacer(1, 10))
+
+        for index, report_type in enumerate(("general", "ejecutivo", "aprendices", "pendientes", "causas", "actas")):
+            report_dataset = dict(dataset)
+            if report_type in {"aprendices", "pendientes"}:
+                report_dataset["_learners"] = dataset.get("_all_learners", []) if report_type == "aprendices" else dataset.get("_learners", [])
+            sheet, rows = _report_rows(report_dataset, report_type)
+            if index:
+                story.append(PageBreak())
+            add_table(REPORT_TYPES[report_type], rows)
+
+        def footer(canvas, document):
+            canvas.saveState()
+            canvas.setStrokeColor(colors.HexColor("#CBD5E1"))
+            canvas.line(18 * mm, 14 * mm, 192 * mm, 14 * mm)
+            canvas.setFont("Helvetica", 8)
+            canvas.setFillColor(colors.HexColor("#64748B"))
+            canvas.drawString(18 * mm, 9 * mm, f"SENA Certificación · {dataset.get('periodo') or 'Periodo no disponible'}")
+            canvas.drawRightString(192 * mm, 9 * mm, f"Página {document.page}")
+            canvas.restoreState()
+
+        output = BytesIO()
+        document = SimpleDocTemplate(output, pagesize=A4, rightMargin=18 * mm, leftMargin=18 * mm, topMargin=18 * mm, bottomMargin=20 * mm, title="Informe consolidado de certificación")
         document.build(story, onFirstPage=footer, onLaterPages=footer)
         return output.getvalue()
 

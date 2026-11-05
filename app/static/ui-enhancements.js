@@ -69,6 +69,11 @@
 
   function updateReportLink() {
     if (!reportGenerate) return;
+    const csvOption = reportFormat?.querySelector('option[value="csv"]');
+    if (csvOption) {
+      csvOption.disabled = selectedReportType === "consolidado";
+      if (csvOption.disabled && reportFormat.value === "csv") reportFormat.value = "xlsx";
+    }
     const format = reportFormat?.value || "xlsx";
     reportGenerate.href = `/api/informes/export?type=${encodeURIComponent(selectedReportType)}&format=${format}`;
     reportGenerate.download = `informe_${selectedReportType}.${format}`;
@@ -115,7 +120,7 @@
   updateReportLink();
   reportGenerate?.addEventListener("click", () => {
     const format = reportFormat?.value || "xlsx";
-    showToast(`Preparando informe general en formato ${format.toUpperCase()}.`, "info");
+    showToast(`Preparando informe ${selectedReportType} en formato ${format.toUpperCase()}.`, "info");
     window.setTimeout(closeReportModal, 100);
   });
   document.addEventListener("keydown", (event) => {

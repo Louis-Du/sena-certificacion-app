@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+from io import BytesIO
+
+from openpyxl import load_workbook
 
 from app.models import ImportedRecord, ImportHistory
 from app.services.indicadores import compute_indicadores_2026, compute_certificados_por_mes
@@ -225,6 +228,10 @@ def test_exporta_csv_y_catalogo_de_informes(client):
     assert catalog.status_code == 200
     assert catalog.json()["formats"] == ["pdf", "xlsx", "csv"]
 
+    consolidated_catalog = client.get("/api/informes/formats?type=consolidado")
+    assert consolidated_catalog.status_code == 200
+    assert consolidated_catalog.json()["formats"] == ["pdf", "xlsx"]
+
     response = client.get("/api/informes/export?type=causas&format=csv")
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/csv")
@@ -238,3 +245,23 @@ def test_exporta_csv_y_catalogo_de_informes(client):
     assert pdf.status_code == 200
     assert pdf.headers["content-type"].startswith("application/pdf")
     assert pdf.content.startswith(b"%PDF")
+
+    consolidated_xlsx = client.get("/api/informes/export?type=consolidado&format=xlsx")
+    assert consolidated_xlsx.status_code == 200
+    assert "spreadsheetml" in consolidated_xlsx.headers["content-type"]
+    workbook = load_workbook(BytesIO(consolidated_xlsx.content), read_only=True)
+    assert {
+        "Resumen",
+        "Categorias",
+        "CertificadosPorMes",
+        "Ejecutivo",
+        "Aprendices",
+        "Pendientes",
+        "Causas",
+        "Actas",
+    } <= set(workbook.sheetnames)
+
+    consolidated_pdf = client.get("/api/informes/export?type=consolidado&format=pdf")
+    assert consolidated_pdf.status_code == 200
+    assert consolidated_pdf.headers["content-type"].startswith("application/pdf")
+    assert consolidated_pdf.content.startswith(b"%PDF")
