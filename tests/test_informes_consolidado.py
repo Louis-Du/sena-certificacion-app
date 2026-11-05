@@ -213,3 +213,23 @@ def test_export_xlsx_sin_datos(client):
     response = client.get("/api/informes/export")
     assert response.status_code == 404
     assert "No hay datos" in response.json()["detail"]
+
+
+def test_exporta_csv_y_catalogo_de_informes(client):
+    from tests.test_informes_consolidado import _seed as seed_helper
+    with client.session_factory() as session:
+        seed_helper(session, "certificados", [_certificado("1", "TECNÓLOGO", "JUNIO")])
+        seed_helper(session, "meta", [_meta(superior=100)])
+
+    catalog = client.get("/api/informes/formats?type=causas")
+    assert catalog.status_code == 200
+    assert catalog.json()["formats"] == ["xlsx", "csv"]
+
+    response = client.get("/api/informes/export?type=causas&format=csv")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "Motivo" in response.content.decode("utf-8-sig")
+
+    executive = client.get("/api/informes/export?type=ejecutivo&format=xlsx")
+    assert executive.status_code == 200
+    assert "spreadsheetml" in executive.headers["content-type"]

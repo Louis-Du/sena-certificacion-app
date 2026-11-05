@@ -31,6 +31,13 @@ Cubierto por `tests/test_informes_consolidado.py` y `tests/test_indicadores.py` 
 - Hojas: `Resumen`, `Categorias`, `CertificadosPorMes`, `Causas`, `Actas`, `Advertencias`.
 - Valores vacíos (`None`) se dejan como celda vacía (no se inventan ceros).
 - Si no hay datos suficientes, el endpoint responde 404 con mensaje claro.
+- La interfaz permite seleccionar seis tipos de informe: general, ejecutivo,
+  aprendices, requisitos y pendientes, causas de pendientes y actas.
+- Todos los tipos disponen de XLSX y CSV mediante `type` y `format`. Los
+  informes de aprendices y pendientes se obtienen del padrón local; los demás
+  reutilizan el consolidado institucional y los cálculos de indicadores.
 
 ## Fuera de alcance v1
-Plantilla visual formal, PDF, envío por correo, permisos y alertas (#45/#48/#49).
+PDF con composición editorial, gráficos nativos editables en Excel, envío por
+correo, permisos y alertas (#45/#48/#49). PDF requiere incorporar un generador
+compatible y una plantilla aprobada; no se ofrece como descarga hasta entonces.
