@@ -2460,10 +2460,15 @@ async function loadIndicadores() {
 
   try {
     const data = await readResponse(await fetch("/api/indicadores"));
+    const personasCertificadas = data.certificados_personas ?? data.total_certificados;
+    const personasPendientes = data.pendientes_personas ?? data.total_pendientes;
+    const notaComplementaria = Number(data.certificados_complementaria) > 0
+      ? ` · Excluye ${formatNumeroIndicador(data.certificados_complementaria)} certificados agregados de formación complementaria.`
+      : " · Solo personas del consolidado (titulada).";
     kpis.innerHTML = `
       <div class="panel"><div><small>META ANUAL INSTITUCIONAL</small><h2>${formatNumeroIndicador(data.total_meta)}</h2><small>Aprendices proyectados por la meta</small></div></div>
-      <div class="panel" style="background:var(--green-soft)"><div><small style="color:var(--green-dark)">% AVANCE</small><h2 style="color:var(--green-dark)">${formatPorcentajeIndicador(data.avance_global)}</h2>${kpiBarraProgreso(data.avance_global)}<small class="kpi-formula" title="Certificados únicos ÷ meta anual × 100">Fórmula: certificados ÷ meta</small></div></div>
-      <div class="panel"><div><small>EFECTIVIDAD</small><h2>${formatPorcentajeIndicador(data.efectividad_global)}</h2>${kpiBarraProgreso(data.efectividad_global)}<small class="kpi-formula" title="Certificados únicos ÷ (certificados únicos + pendientes únicos) × 100">Fórmula: certificados ÷ (certificados + pendientes)</small></div></div>
+      <div class="panel" style="background:var(--green-soft)"><div><small style="color:var(--green-dark)">% AVANCE</small><h2 style="color:var(--green-dark)">${formatPorcentajeIndicador(data.avance_global)}</h2>${kpiBarraProgreso(data.avance_global)}<small class="kpi-formula" title="Certificados de todas las categorías ÷ meta anual × 100">Fórmula: certificados ÷ meta (todas las categorías)</small></div></div>
+      <div class="panel"><div><small>EFECTIVIDAD DE PERSONAS</small><h2>${formatPorcentajeIndicador(data.efectividad_global)}</h2>${kpiBarraProgreso(data.efectividad_global)}<small class="kpi-formula" title="Certificados de personas ÷ (certificados de personas + pendientes de personas) × 100">Fórmula: ${formatNumeroIndicador(personasCertificadas)} ÷ (${formatNumeroIndicador(personasCertificadas)} + ${formatNumeroIndicador(personasPendientes)})${notaComplementaria}</small></div></div>
     `;
 
     // Advertencias: solo se muestran las que calcula el backend. Si el array

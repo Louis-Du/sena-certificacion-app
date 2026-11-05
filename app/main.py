@@ -415,6 +415,17 @@ async def indicadores_endpoint(session: Session = Depends(get_db)) -> dict:
     from app.services.indicadores import compute_indicadores_2026
     return compute_indicadores_2026(session)
 
+
+@app.get("/api/indicadores/certificados-por-mes")
+async def certificados_por_mes_endpoint(session: Session = Depends(get_db)) -> dict:
+    """Certificados por MES DE CERTIFICACION del consolidado vigente.
+
+    No usa ``Learner.certification_month`` (padron local) ni la fecha de
+    importacion. La UI debe etiquetarlo como consolidado ACTAS 2026.
+    """
+    from app.services.indicadores import compute_certificados_por_mes
+    return compute_certificados_por_mes(session)
+
 # ---------------------------------------------------------------------------
 # Parche de actividad para el heatmap de la UI v2
 # ---------------------------------------------------------------------------
