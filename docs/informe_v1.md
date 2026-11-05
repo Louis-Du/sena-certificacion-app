@@ -2,6 +2,10 @@
 
 Fuente única de datos: `GET /api/informes/consolidado` (dataset consolidado del lote vigente de ACTAS 2026). No se reimplementan fórmulas: se reutiliza el motor de indicadores (B1–B5).
 
+La interfaz de **Indicadores** permite descargar este informe mediante **Descargar
+informe**. El enlace consume `GET /api/informes/export` y genera el mismo dataset
+en formato Excel, por lo que la descarga no introduce un cálculo paralelo.
+
 ## Informes incluidos en v1
 1. **Resumen ejecutivo** (universo consolidado): meta total, certificados (personas), complementaria, pendientes, avance global, efectividad global, brecha, conflictos, fuera de período.
 2. **Desglose por categoría/nivel**: Educación Superior, Técnica Laboral, Articulación, Complementaria (meta, certificados, pendientes, avance, brecha, efectividad).
