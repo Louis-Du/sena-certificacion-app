@@ -42,12 +42,6 @@
             </span>
             <span class="nav-label">Indicadores</span>
           </a>
-          <a class="sidebar-link" href="#historial" data-view="historial" title="Historial de importaciones">
-            <span class="nav-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>
-            </span>
-            <span class="nav-label">Historial</span>
-          </a>
         </div>
       </nav>
 
@@ -173,7 +167,7 @@
         <div class="actions"><button id="cancel-button" class="cancel-button" type="button">Cancelar</button><button id="validate-button" class="primary-button" type="button" disabled>→ &nbsp; Validar información</button><button id="confirm-button" class="primary-button" type="button" hidden>✓ &nbsp; Confirmar importación</button></div>
       </section>
 
-      <aside class="side-column"><article class="panel guidance-panel"><div class="panel-heading"><div><h2>Antes de cargar</h2><p>Verifica el archivo antes de continuar</p></div></div><ul><li>Carga los archivos oficiales del proceso de certificación.</li><li>La primera fila debe contener encabezados.</li><li>La aplicación trabaja solo con los archivos que cargues; no consulta SOFIA Plus.</li><li>La importación podrá cancelarse antes de confirmar.</li></ul></article><article class="panel history-panel" id="historial"><div class="panel-heading"><div><h2>Últimas importaciones</h2><p>Se muestran las últimas 5 confirmadas en este equipo</p></div></div><div id="history-list" class="history-list"><small>Aún no hay importaciones.</small></div></article></aside>
+      <aside class="side-column"><article class="panel history-panel" id="historial"><div class="panel-heading"><div><h2>Últimas importaciones</h2><p>Se muestran las últimas 5 confirmadas en este equipo</p></div></div><div id="history-list" class="history-list"><small>Aún no hay importaciones.</small></div></article></aside>
     </div>
       </div>
       <div id="aprendices-view" class="app-view" hidden>
@@ -214,7 +208,7 @@
 
           <div class="learner-status-chips" id="learner-status-chips" role="group" aria-label="Filtrar aprendices por estado"></div>
 
-          <div class="panel-heading"><div><h2>Aprendices registrados</h2><p id="learners-summary" aria-live="polite" aria-atomic="true">Consultando SQLite...</p><small class="detail-hint">Usa <strong>Ver detalles</strong> para consultar y gestionar los requisitos del aprendiz.</small></div></div>
+          <div class="panel-heading"><div><h2>Aprendices registrados</h2><p id="learners-summary" aria-live="polite" aria-atomic="true">Consultando SQLite...</p><small class="detail-hint">Clic en el nombre o en Ver detalles para abrir la ficha.</small></div></div>
           <div class="learners-table-wrap">
             <table class="learners-data learners-list-table">
               <thead><tr><th scope="col">Nombre</th><th scope="col">Documento</th><th scope="col">Programa</th><th scope="col">Ficha</th><th scope="col">Estado</th><th scope="col">Origen</th><th scope="col">Requisitos pendientes</th><th scope="col">Detalles</th></tr></thead>
@@ -252,8 +246,14 @@
                 <dl id="learner-sources" class="detail-grid"></dl>
               </article>
               <article class="detail-section learner-card-requirements">
-                <div class="panel-heading"><div><h3>Requisitos y evidencias</h3><p id="learner-requirements-subtitle">Solo se muestran los requisitos registrados para el aprendiz.</p></div></div>
-                <div id="learner-requirements" class="requirements-editor"></div>
+                <header class="requirements-panel-header">
+                  <div><h3>Requisitos y evidencias</h3><p id="learner-requirements-subtitle">Sin requisitos registrados.</p></div>
+                  <button type="button" id="toggle-requirements" class="cancel-button" aria-expanded="false" hidden></button>
+                </header>
+                <div id="learner-requirements-compact" class="requirements-compact" data-mode="compact"></div>
+                <div id="learner-requirements-expanded" class="requirements-expanded" data-mode="expanded" hidden>
+                  <div id="learner-requirements" class="requirements-editor"></div>
+                </div>
               </article>
               <article class="detail-section learner-card-history">
                 <div class="panel-heading"><div><h3>Historial de requisitos</h3><p>Cambios de estado registrados por importación o edición manual.</p></div></div>

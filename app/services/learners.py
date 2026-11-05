@@ -253,11 +253,7 @@ def learner_result(
     pending_count = len(summary.get("pending", []))
     # Total real de requisitos registrados. Permite distinguir "sin matriz
     # cargada" (0) de "matriz completa sin pendientes" (> 0 y pending 0).
-    requirements_total = (
-        pending_count
-        + int(summary.get("fulfilled_count", 0) or 0)
-        + int(summary.get("na_count", 0) or 0)
-    )
+    requirements_total = int(summary.get("total", 0) or 0)
     return {
         "id": learner.id,
         "identification": learner.identification,
@@ -292,7 +288,13 @@ def learner_result(
 
 
 def _empty_summary() -> dict[str, Any]:
-    return {"pending": [], "fulfilled_count": 0, "na_count": 0}
+    return {
+        "pending": [],
+        "fulfilled_count": 0,
+        "na_count": 0,
+        "info_count": 0,
+        "total": 0,
+    }
 
 
 def _summary(learner_id: int, summaries: dict[int, dict[str, Any]]) -> dict[str, Any]:
@@ -315,11 +317,15 @@ def _requirements_summary(
             Requirement.learner_id,
             Requirement.requirement_type,
             Requirement.status,
-        ).where(Requirement.learner_id.in_(learner_ids))
+        ).where(
+            Requirement.learner_id.in_(learner_ids),
+            Requirement.requirement_type.in_(REQUIREMENT_TYPES),
+        )
     ).all()
     summaries: dict[int, dict[str, Any]] = {}
     for learner_id, requirement_type, status_value in rows:
         bucket = summaries.setdefault(learner_id, _empty_summary())
+        bucket["total"] += 1
         normalized = str(status_value or "").strip().lower()
         if normalized == "pendiente":
             bucket["pending"].append(
@@ -329,6 +335,8 @@ def _requirements_summary(
             bucket["fulfilled_count"] += 1
         elif normalized == "no aplica":
             bucket["na_count"] += 1
+        elif normalized == "sin información":
+            bucket["info_count"] += 1
     return summaries
 
 
