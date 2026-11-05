@@ -85,6 +85,8 @@
   "tests/test_informes_consolidado.py::test_efectividad_no_mezcla_complementaria",
   "tests/test_informes_consolidado.py::test_endpoint_consolidado",
   "tests/test_informes_consolidado.py::test_endpoint_sin_lote_seguro",
+  "tests/test_informes_consolidado.py::test_export_xlsx_con_datos",
+  "tests/test_informes_consolidado.py::test_export_xlsx_sin_datos",
   "tests/test_informes_consolidado.py::test_kpis_alineados_con_compute_indicadores",
   "tests/test_informes_consolidado.py::test_segundo_lote_usa_lote_vigente",
   "tests/test_informes_consolidado.py::test_sin_importaciones_advertencia_y_sin_cifras_inventadas",

@@ -17,10 +17,13 @@ Universos
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from io import BytesIO
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+import pandas as pd
 
 from app.models import ImportHistory
 from app.services import indicadores
@@ -168,3 +171,125 @@ def consolidate_report_dataset(session: Session, *, year: int | None = None) -> 
 # Alias por si alguien importa con nombre distinto.
 def consolidate_report_dataset_v1(session: Session, *, year: int | None = None) -> dict[str, Any]:
     return consolidate_report_dataset(session, year=year)
+
+
+def export_report_xlsx(session: Session, *, year: int | None = None) -> bytes:
+    """Exporta el dataset consolidado a Excel (.xlsx).
+
+    Formato acordado v1:
+    - Una hoja por bloque: Resumen, Categorias, CertificadosPorMes, Causas,
+      Actas, Advertencias.
+    - Los valores ``None`` se dejan como celda vacia (sin inventar ceros).
+    - Si no hay datos suficientes se lanza ``ValueError``.
+    """
+    dataset = consolidate_report_dataset(session, year=year)
+    if not dataset.get("datos_suficientes"):
+        raise ValueError("No hay datos para exportar.")
+
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        # Resumen
+        resumen = dataset.get("resumen_ejecutivo") or {}
+        filas_resumen = [
+            {"Campo": "Generado", "Valor": dataset.get("generated_at")},
+            {"Campo": "Periodo", "Valor": dataset.get("periodo")},
+            {"Campo": "Inicio", "Valor": dataset.get("periodo_inicio")},
+            {"Campo": "Fin", "Valor": dataset.get("periodo_fin")},
+            {"Campo": "Fuente", "Valor": dataset.get("source")},
+            {"Campo": "Lote vigente (import_id)", "Valor": dataset.get("import_id")},
+            {"Campo": "Archivo", "Valor": dataset.get("file_name")},
+            {"Campo": "Meta total", "Valor": resumen.get("meta_total")},
+            {"Campo": "Certificados personas", "Valor": resumen.get("certificados_personas")},
+            {"Campo": "Certificados complementaria", "Valor": resumen.get("certificados_complementaria")},
+            {"Campo": "Pendientes personas", "Valor": resumen.get("pendientes_personas")},
+            {"Campo": "Avance global %", "Valor": resumen.get("avance_global")},
+            {"Campo": "Efectividad global %", "Valor": resumen.get("efectividad_global")},
+            {"Campo": "Brecha total", "Valor": resumen.get("brecha_total")},
+        ]
+        pd.DataFrame(filas_resumen, columns=["Campo", "Valor"]).to_excel(
+            writer, sheet_name="Resumen", index=False
+        )
+
+        # Categorias
+        filas_cat = []
+        for m in dataset.get("desglose_por_categoria") or []:
+            filas_cat.append(
+                {
+                    "Categoria": m.get("category_label") or m.get("category"),
+                    "Clave": m.get("category"),
+                    "Universo": m.get("universo"),
+                    "Meta": m.get("meta"),
+                    "Certificados": m.get("certificados"),
+                    "Pendientes": m.get("pendientes"),
+                    "Avance %": m.get("avance"),
+                    "Brecha": m.get("brecha"),
+                    "Efectividad %": m.get("efectividad"),
+                }
+            )
+        pd.DataFrame(
+            filas_cat,
+            columns=[
+                "Categoria",
+                "Clave",
+                "Universo",
+                "Meta",
+                "Certificados",
+                "Pendientes",
+                "Avance %",
+                "Brecha",
+                "Efectividad %",
+            ],
+        ).to_excel(writer, sheet_name="Categorias", index=False)
+
+        # Certificados por mes
+        cpm = dataset.get("certificados_por_mes") or {}
+        filas_mes = [
+            {"Mes": m.get("etiqueta") or m.get("mes"), "Certificados": m.get("certificados")}
+            for m in (cpm.get("meses") or [])
+        ]
+        pd.DataFrame(filas_mes, columns=["Mes", "Certificados"]).to_excel(
+            writer, sheet_name="CertificadosPorMes", index=False
+        )
+
+        # Causas
+        causas = dataset.get("causas_no_certificacion") or {}
+        filas_causas = [
+            {
+                "Motivo": m.get("motivo"),
+                "Cantidad": m.get("cantidad"),
+                "Porcentaje %": m.get("porcentaje"),
+            }
+            for m in (causas.get("motivos") or [])
+        ]
+        if not filas_causas:
+            filas_causas = [{"Motivo": None, "Cantidad": None, "Porcentaje %": None}]
+        pd.DataFrame(
+            filas_causas, columns=["Motivo", "Cantidad", "Porcentaje %"]
+        ).to_excel(writer, sheet_name="Causas", index=False)
+
+        # Actas
+        filas_actas = [
+            {
+                "Acta": a.get("number"),
+                "Aprendices": a.get("aprendices_count"),
+                "Fecha": a.get("act_date"),
+                "Tipo": a.get("act_type"),
+            }
+            for a in ((dataset.get("actas") or {}).get("items") or [])
+        ]
+        if not filas_actas:
+            filas_actas = [{"Acta": None, "Aprendices": None, "Fecha": None, "Tipo": None}]
+        pd.DataFrame(
+            filas_actas, columns=["Acta", "Aprendices", "Fecha", "Tipo"]
+        ).to_excel(writer, sheet_name="Actas", index=False)
+
+        # Advertencias
+        filas_adv = [{"Advertencia": a} for a in (dataset.get("advertencias") or [])]
+        if not filas_adv:
+            filas_adv = [{"Advertencia": None}]
+        pd.DataFrame(filas_adv, columns=["Advertencia"]).to_excel(
+            writer, sheet_name="Advertencias", index=False
+        )
+
+    buffer.seek(0)
+    return buffer.getvalue()

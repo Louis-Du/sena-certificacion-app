@@ -20,5 +20,11 @@ Fuente única de datos: `GET /api/informes/consolidado` (dataset consolidado del
 ## Verificación
 Cubierto por `tests/test_informes_consolidado.py` y `tests/test_indicadores.py` (datos de prueba controlados). Endpoint responde 200 sin lote vigente (sin 500 ni cifras inventadas).
 
+## Exportación v1 (#47)
+- Formato: Excel `.xlsx` (`GET /api/informes/export`).
+- Hojas: `Resumen`, `Categorias`, `CertificadosPorMes`, `Causas`, `Actas`, `Advertencias`.
+- Valores vacíos (`None`) se dejan como celda vacía (no se inventan ceros).
+- Si no hay datos suficientes, el endpoint responde 404 con mensaje claro.
+
 ## Fuera de alcance v1
-Plantilla visual formal, PDF/Excel, envío por correo, permisos y alertas (#45/#47/#48/#49).
+Plantilla visual formal, PDF, envío por correo, permisos y alertas (#45/#48/#49).

@@ -8,7 +8,7 @@ from typing import Any
 # Importamos varias clases y funciones de FastAPI para crear la aplicación web, manejar dependencias, recibir archivos y formularios, y manejar excepciones HTTP.
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile 
 # Importamos la clase FileResponse de fastapi.responses para enviar archivos como respuesta HTTP.
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 # Importamos la clase StaticFiles de fastapi.staticfiles para servir archivos estáticos desde un directorio específico.
 from fastapi.staticfiles import StaticFiles
 # Importamos la clase BaseModel de pydantic para definir modelos de datos que se validan automáticamente.
@@ -461,6 +461,24 @@ async def informes_consolidado_resumen_endpoint(
         "datos_suficientes": data["datos_suficientes"],
         "resumen_ejecutivo": data["resumen_ejecutivo"],
     }
+
+
+@app.get("/api/informes/export")
+async def informes_export_endpoint(
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    session: Session = Depends(get_db),
+) -> Response:
+    """Exporta el dataset consolidado a Excel (.xlsx)."""
+    from app.services.informes import export_report_xlsx
+    try:
+        content = export_report_xlsx(session, year=year)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="informe_certificacion_v1.xlsx"'},
+    )
 
 # ---------------------------------------------------------------------------
 # Parche de actividad para el heatmap de la UI v2
