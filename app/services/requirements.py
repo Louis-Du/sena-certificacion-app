@@ -10,6 +10,7 @@ from app.models import Learner, Requirement, RequirementStatusHistory
 
 REQUIREMENT_TYPES = {
     # Catálogo visible y gestionable de Requisitos y evidencias (ACTAS 2026).
+    "documentation": "Documentación",
     "biblioteca": "Paz y salvo biblioteca",
     "bienestar": "Bienestar del aprendiz",
     "almacen": "Paz y salvo almacén",
@@ -17,6 +18,7 @@ REQUIREMENT_TYPES = {
     "documento_identidad": "Documento de identidad vigente",
     "saber_tyt": "Saber TyT",
     "ape": "Inscripción APE",
+    "carnet": "Destrucción de carnet",
     "certificado_empresa": "Certificado de la empresa",
 }
 REQUIREMENT_STATUSES = {"Pendiente", "Cumplido", "No aplica", "Sin información"}
@@ -302,4 +304,4 @@ def evidence_status(value: Any) -> str:
         return "Cumplido"
     if texto.replace(" ", "").replace(".", "") in {"na", "noaplica"}:
         return "No aplica"
-    return "Sin información"
+    return "Pendiente"

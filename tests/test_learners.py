@@ -475,6 +475,8 @@ def test_list_learners_exposes_sources_and_requirements_summary(client: TestClie
         "pending": ["Destrucción de carnet"],
         "fulfilled_count": 1,
         "na_count": 0,
+        "info_count": 0,
+        "total": 2,
     }
 
 

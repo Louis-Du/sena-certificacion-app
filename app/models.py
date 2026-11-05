@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -14,6 +14,10 @@ class ImportHistory(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     file_name: Mapped[str] = mapped_column(String(255))
     information_type: Mapped[str] = mapped_column(String(50))
+    # Tipo interno real de la carga ("actas_completo", "df14a", "certificados",
+    # ...). ``information_type`` conserva la etiqueta visible historica; este
+    # campo permite identificar de forma estable el lote vigente del consolidado.
+    source_type: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     imported_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -55,6 +59,11 @@ class Learner(Base):
     group_code: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     training_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     certification_status: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Decision explicita del usuario cuando un documento aparece a la vez en
+    # CERTIFICADOS y PENDIENTES del consolidado. Guarda "CERTIFICADOS" o
+    # "PENDIENTE"; None significa que el conflicto no se ha resuelto. El motor de
+    # indicadores lo usa para no contar a la misma persona en ambos universos.
+    conflict_resolution: Mapped[str | None] = mapped_column(String(30), nullable=True)
     # Motivo de no certificacion (hoja PENDIENTES de ACTAS 2026.xlsx). Es el
     # "porque" resumido del aprendiz y alimenta el indicador de causas; NO es un
     # requisito ni un estado.
