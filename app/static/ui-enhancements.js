@@ -57,6 +57,59 @@
 
   window.showToast = showToast;
 
+  /* ---------------- Generación de informes ---------------- */
+  const reportModal = document.getElementById("report-modal");
+  const reportOpen = document.getElementById("export-report-button");
+  const reportClose = document.getElementById("report-modal-close");
+  const reportCancel = document.getElementById("report-modal-cancel");
+  const reportGenerate = document.getElementById("report-generate-button");
+  const reportFeedback = document.getElementById("report-modal-feedback");
+
+  function closeReportModal() {
+    if (!reportModal) return;
+    reportModal.classList.remove("is-open");
+    reportModal.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+  }
+
+  function openReportModal() {
+    if (!reportModal) return;
+    reportModal.classList.add("is-open");
+    reportModal.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+    reportFeedback.textContent = "";
+    reportGenerate?.focus();
+  }
+
+  reportOpen?.addEventListener("click", openReportModal);
+  reportClose?.addEventListener("click", closeReportModal);
+  reportCancel?.addEventListener("click", closeReportModal);
+  reportModal?.querySelectorAll("[data-close-report-modal]").forEach((element) => {
+    element.addEventListener("click", closeReportModal);
+  });
+  reportModal?.querySelectorAll(".report-option").forEach((option) => {
+    option.addEventListener("click", () => {
+      if (option.classList.contains("is-disabled")) {
+        reportFeedback.textContent = "Este tipo de informe todavía no está disponible.";
+        return;
+      }
+      reportModal.querySelectorAll(".report-option").forEach((item) => {
+        const selected = item === option;
+        item.classList.toggle("is-selected", selected);
+        item.setAttribute("aria-checked", String(selected));
+      });
+    });
+  });
+  reportGenerate?.addEventListener("click", () => {
+    showToast("Preparando informe general en formato XLSX.", "info");
+    window.setTimeout(closeReportModal, 100);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && reportModal?.classList.contains("is-open")) {
+      closeReportModal();
+    }
+  });
+
   function observeFeedback() {
     const feedbackEl = document.getElementById("feedback");
     if (!feedbackEl) return;

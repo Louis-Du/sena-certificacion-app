@@ -45,6 +45,8 @@ Se completó la modernización visual integral de la aplicación web local de se
 
 ### Fase 6 — Cierre y verificación
 - El gráfico mensual se valida con datos del consolidado y no depende de la fecha de importación.
+- La pantalla de Indicadores incluye un modal de exportación con tarjetas de informes,
+  selección de alcance/detalle y disponibilidad explícita del informe general XLSX.
 - Cache busting actualizado a `?v=20261030-v5`.
 - Verificación con navegador real (Playwright/Firefox) y suite `pytest` sin E2E.
 

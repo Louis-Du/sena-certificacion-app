@@ -2,9 +2,11 @@
 
 Fuente única de datos: `GET /api/informes/consolidado` (dataset consolidado del lote vigente de ACTAS 2026). No se reimplementan fórmulas: se reutiliza el motor de indicadores (B1–B5).
 
-La interfaz de **Indicadores** permite descargar este informe mediante **Descargar
-informe**. El enlace consume `GET /api/informes/export` y genera el mismo dataset
-en formato Excel, por lo que la descarga no introduce un cálculo paralelo.
+La interfaz de **Indicadores** permite generar este informe mediante **Exportar
+informe**. La ventana presenta el informe general disponible y distingue las
+opciones que todavía están en preparación. El enlace XLSX consume
+`GET /api/informes/export` y genera el mismo dataset en formato Excel, por lo que
+la descarga no introduce un cálculo paralelo.
 
 ## Informes incluidos en v1
 1. **Resumen ejecutivo** (universo consolidado): meta total, certificados (personas), complementaria, pendientes, avance global, efectividad global, brecha, conflictos, fuera de período.
