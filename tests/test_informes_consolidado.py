@@ -223,7 +223,7 @@ def test_exporta_csv_y_catalogo_de_informes(client):
 
     catalog = client.get("/api/informes/formats?type=causas")
     assert catalog.status_code == 200
-    assert catalog.json()["formats"] == ["xlsx", "csv"]
+    assert catalog.json()["formats"] == ["pdf", "xlsx", "csv"]
 
     response = client.get("/api/informes/export?type=causas&format=csv")
     assert response.status_code == 200
@@ -233,3 +233,8 @@ def test_exporta_csv_y_catalogo_de_informes(client):
     executive = client.get("/api/informes/export?type=ejecutivo&format=xlsx")
     assert executive.status_code == 200
     assert "spreadsheetml" in executive.headers["content-type"]
+
+    pdf = client.get("/api/informes/export?type=general&format=pdf")
+    assert pdf.status_code == 200
+    assert pdf.headers["content-type"].startswith("application/pdf")
+    assert pdf.content.startswith(b"%PDF")

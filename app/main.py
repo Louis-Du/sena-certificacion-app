@@ -466,17 +466,21 @@ async def informes_consolidado_resumen_endpoint(
 @app.get("/api/informes/export")
 async def informes_export_endpoint(
     report_type: str = Query(default="general", alias="type"),
-    format: str = Query(default="xlsx", pattern="^(xlsx|csv)$"),
+    format: str = Query(default="xlsx", pattern="^(pdf|xlsx|csv)$"),
     year: int | None = Query(default=None, ge=2000, le=2100),
     session: Session = Depends(get_db),
 ) -> Response:
-    """Exporta un informe estructurado en XLSX o CSV."""
-    from app.services.informes import export_report_csv, export_report_xlsx
+    """Exporta un informe estructurado en PDF, XLSX o CSV."""
+    from app.services.informes import export_report_csv, export_report_pdf, export_report_xlsx
     try:
         if format == "csv":
             content = export_report_csv(session, report_type=report_type, year=year)
             media_type = "text/csv; charset=utf-8"
             filename = f"informe_{report_type}.csv"
+        elif format == "pdf":
+            content = export_report_pdf(session, report_type=report_type, year=year)
+            media_type = "application/pdf"
+            filename = f"informe_{report_type}.pdf"
         else:
             content = export_report_xlsx(session, report_type=report_type, year=year)
             media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

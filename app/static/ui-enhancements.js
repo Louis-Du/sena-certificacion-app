@@ -114,7 +114,8 @@
   reportFormat?.addEventListener("change", updateReportLink);
   updateReportLink();
   reportGenerate?.addEventListener("click", () => {
-    showToast("Preparando informe general en formato XLSX.", "info");
+    const format = reportFormat?.value || "xlsx";
+    showToast(`Preparando informe general en formato ${format.toUpperCase()}.`, "info");
     window.setTimeout(closeReportModal, 100);
   });
   document.addEventListener("keydown", (event) => {

@@ -3,9 +3,8 @@
 Fuente única de datos: `GET /api/informes/consolidado` (dataset consolidado del lote vigente de ACTAS 2026). No se reimplementan fórmulas: se reutiliza el motor de indicadores (B1–B5).
 
 La interfaz de **Indicadores** permite generar este informe mediante **Exportar
-informe**. La ventana presenta el informe general disponible y distingue las
-opciones que todavía están en preparación. El enlace XLSX consume
-`GET /api/informes/export` y genera el mismo dataset en formato Excel, por lo que
+informe**. La ventana presenta los formatos disponibles. PDF, XLSX y CSV consumen
+`GET /api/informes/export` y genera el mismo dataset en el formato solicitado, por lo que
 la descarga no introduce un cálculo paralelo.
 
 ## Informes incluidos en v1
@@ -33,11 +32,11 @@ Cubierto por `tests/test_informes_consolidado.py` y `tests/test_indicadores.py` 
 - Si no hay datos suficientes, el endpoint responde 404 con mensaje claro.
 - La interfaz permite seleccionar seis tipos de informe: general, ejecutivo,
   aprendices, requisitos y pendientes, causas de pendientes y actas.
-- Todos los tipos disponen de XLSX y CSV mediante `type` y `format`. Los
+- Todos los tipos disponen de PDF, XLSX y CSV mediante `type` y `format`. Los
   informes de aprendices y pendientes se obtienen del padrón local; los demás
   reutilizan el consolidado institucional y los cálculos de indicadores.
 
 ## Fuera de alcance v1
-PDF con composición editorial, gráficos nativos editables en Excel, envío por
-correo, permisos y alertas (#45/#48/#49). PDF requiere incorporar un generador
-compatible y una plantilla aprobada; no se ofrece como descarga hasta entonces.
+Envío por correo, permisos y alertas (#45/#48/#49). El PDF incluye portada,
+secciones, tablas, encabezado, pie y paginación; el XLSX incluye estilos,
+filtros, paneles inmovilizados y gráficos editables.
