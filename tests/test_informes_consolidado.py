@@ -108,6 +108,22 @@ def test_kpis_alineados_con_compute_indicadores(session_factory):
     assert dataset["actas"]["items"] == indicadores["ultimas_actas"]
 
 
+def test_export_causas_reutiliza_conteo_canonico_del_indicador(session_factory):
+    with session_factory() as session:
+        _seed(
+            session,
+            "pendientes",
+            [_pendiente("2", "TÉCNICO", "No anexa T&T, APE")],
+        )
+        dataset = consolidate_report_dataset(session)
+        _, rows = _report_rows(dataset, "causas")
+
+    assert {row["Motivo"]: row["Incidencias"] for row in rows} == {
+        "No anexa T&T": 1,
+        "APE": 1,
+    }
+
+
 def test_certificados_por_mes_presente_y_coherente(session_factory):
     with session_factory() as session:
         _seed(session, "certificados", [_certificado("1", "TECNÓLOGO", "JUNIO")])

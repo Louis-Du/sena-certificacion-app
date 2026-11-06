@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.models import Act, ActLearner, ImportedRecord, Learner, Requirement
 from app.services.parsers import (
     normalize_learner_name,
+    normalize_motivo_fragments,
     normalize_program_name,
     normalize_text,
     parse_date_value,
@@ -144,12 +145,17 @@ def list_learners(
         normalize_text(value) for value in reason_values if value and value.strip()
     ]
     if reason_values:
+        canonical_reasons = {
+            cause
+            for value in reason_values
+            for cause in normalize_motivo_fragments(value)
+        }
         coincidencias = [
             learner_id
             for learner_id, motivo in session.execute(
                 select(Learner.id, Learner.non_certification_reason)
             ).all()
-            if any(needle in normalize_text(motivo or "") for needle in reason_values)
+            if canonical_reasons.intersection(normalize_motivo_fragments(motivo))
         ]
         filters.append(Learner.id.in_(coincidencias))
 

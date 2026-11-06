@@ -447,19 +447,14 @@ def _canonical_cause(fragment: str) -> str:
     cleaned = normalize_text(fragment).strip(" .;")
     if not cleaned:
         return ""
+    cleaned = re.sub(r"\bt\s*&\s*t\b|\bt\s+y\s+t\b|\bt\s+yt\b|\btyt\b", "t&t", cleaned)
     cleaned = cleaned.replace("documentpos", "documentos")
-    cleaned = cleaned.replace("destruccion", "destruccion")
     cleaned = cleaned.replace("remitido remitido", "remitido")
-    cleaned = cleaned.replace("t y t", "t&t")
-    cleaned = cleaned.replace("tyt", "t&t")
     cleaned = " ".join(cleaned.split())
     mapping = {
         "no anexa t&t": "No anexa T&T",
         "no ha remitido documentos": "No ha remitido documentos",
-        "no ha remitido documentpos": "No ha remitido documentos",
-        "no ha remitido remitido documentos": "No ha remitido documentos",
         "no ha remitido documento": "No ha remitido documentos",
-        "no ha remitido remitido documento": "No ha remitido documentos",
         "no anexo documento": "No anexó documento",
         "no anexo documentos": "No anexó documento",
         "destruccion del carnet": "Destrucción del carnet",
@@ -469,6 +464,7 @@ def _canonical_cause(fragment: str) -> str:
         "documento vencido": "Documento vencido",
         "documento de identidad": "Documento de identidad",
         "ape": "APE",
+        # "No anexa APE" expresses the same missing business requirement.
         "no anexa ape": "APE",
         "sin documentos": "Sin documentos",
         "icfes bogota": "ICFES Bogotá",
@@ -479,14 +475,15 @@ def _canonical_cause(fragment: str) -> str:
 
 
 def normalize_motivo_fragments(value: Any) -> list[str]:
+    """Devuelve las causas canónicas atómicas de una celda de MOTIVO."""
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return []
-    texto = str(value)
-    raw_fragments: list[str] = []
-    for chunk in texto.replace(";", ",").split(","):
-        for sub in chunk.split(" y "):
-            for sub2 in sub.split(" Y "):
-                raw_fragments.append(sub2)
+    texto = normalize_text(value)
+    if not texto:
+        return []
+    # Normalizar las variantes de T&T antes de usar " y " como separador.
+    texto = re.sub(r"\bt\s*&\s*t\b|\bt\s+y\s+t\b|\bt\s+yt\b|\btyt\b", "t&t", texto)
+    raw_fragments = re.split(r"\s*[,;]\s*|\s+y\s+", texto, flags=re.IGNORECASE)
     result: list[str] = []
     for fragment in raw_fragments:
         canonical = _canonical_cause(fragment)
@@ -495,67 +492,21 @@ def normalize_motivo_fragments(value: Any) -> list[str]:
     return result
 
 
-def aggregate_causas(values: Any) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for value in values or []:
-        for cause in normalize_motivo_fragments(value):
-            counts[cause] = counts.get(cause, 0) + 1
-    return counts
-
-
-def _canonical_cause(fragment: str) -> str:
-    cleaned = normalize_text(fragment).strip(" .;")
-    if not cleaned:
-        return ""
-    cleaned = cleaned.replace("documentpos", "documentos")
-    cleaned = cleaned.replace("destruccion", "destruccion")
-    cleaned = cleaned.replace("remitido remitido", "remitido")
-    cleaned = cleaned.replace("t y t", "t&t")
-    cleaned = cleaned.replace("tyt", "t&t")
-    cleaned = " ".join(cleaned.split())
-    mapping = {
-        "no anexa t&t": "No anexa T&T",
-        "no ha remitido documentos": "No ha remitido documentos",
-        "no ha remitido documentpos": "No ha remitido documentos",
-        "no ha remitido remitido documentos": "No ha remitido documentos",
-        "no ha remitido documento": "No ha remitido documentos",
-        "no ha remitido remitido documento": "No ha remitido documentos",
-        "no anexo documento": "No anexó documento",
-        "no anexo documentos": "No anexó documento",
-        "destruccion del carnet": "Destrucción del carnet",
-        "carta carnet sin firma": "Carta carnet sin firma",
-        "carta carnet": "Carta carnet",
-        "documento de identidad vencido": "Documento vencido",
-        "documento vencido": "Documento vencido",
-        "documento de identidad": "Documento de identidad",
-        "ape": "APE",
-        "no anexa ape": "APE",
-        "sin documentos": "Sin documentos",
-        "icfes bogota": "ICFES Bogotá",
-    }
-    if cleaned in mapping:
-        return mapping[cleaned]
-    return cleaned.capitalize() if cleaned else ""
-
-
-def normalize_motivo_fragments(value: Any) -> list[str]:
+def split_motivos(value: Any) -> list[str]:
+    """Compatibilidad: separa motivos en texto comparable, sin canonizarlos."""
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return []
-    texto = str(value)
-    raw_fragments: list[str] = []
-    for chunk in texto.replace(";", ",").split(","):
-        for sub in chunk.split(" y "):
-            for sub2 in sub.split(" Y "):
-                raw_fragments.append(sub2)
-    result: list[str] = []
-    for fragment in raw_fragments:
-        canonical = _canonical_cause(fragment)
-        if canonical and canonical not in result:
-            result.append(canonical)
-    return result
+    texto = normalize_text(value)
+    if not texto:
+        return []
+    texto = re.sub(r"\bt\s*&\s*t\b|\bt\s+y\s+t\b|\bt\s+yt\b|\btyt\b", "t&t", texto)
+    return list(dict.fromkeys(fragment.strip(" .;") for fragment in re.split(
+        r"\s*[,;]\s*|\s+y\s+", texto, flags=re.IGNORECASE
+    ) if fragment.strip(" .;")))
 
 
 def aggregate_causas(values: Any) -> dict[str, int]:
+    """Cuenta una incidencia por cada causa canónica de cada celda."""
     counts: dict[str, int] = {}
     for value in values or []:
         for cause in normalize_motivo_fragments(value):

@@ -2261,40 +2261,15 @@ document.querySelectorAll(".indicadores-tabs .tab-button").forEach((boton) => {
 });
 
 // ---------------------------------------------------------------------------
-// Causas: normalizacion y agrupacion para presentacion.
-// El backend conserva los motivos tal como vienen en la hoja PENDIENTES (para no
-// perder trazabilidad); aqui solo se agrupan variantes de escritura seguras y se
-// limita el grafico a las principales causas. La tabla muestra todas.
+// Causas: el backend entrega etiquetas canonicas atomicas. El frontend solo
+// limita el grafico; la tabla conserva el desglose completo.
 // ---------------------------------------------------------------------------
-const MOTIVO_REGLAS = [
-  {
-    label: "No anexa TyT",
-    test: /(anexa|anexo|remite|remitido|falta|pendiente).*(t\s*&\s*t|t\s*y\s*t|\btyt\b)|(t\s*&\s*t|t\s*y\s*t|\btyt\b).*(anexa|anexo|remite|remitido|falta|pendiente)/,
-  },
-  {
-    label: "No anexa documentos",
-    test: /(no\s+(anexa|anexo|remite|ha remitido|envia|envía)|sin)\s+(el\s+|los\s+|las\s+)?documentos?/,
-  },
-  { label: "Documento vencido", test: /documentos?\s+vencid|vencid\w*\s+document/ },
-  { label: "APE", test: /^ape$|\bape\b/ },
-];
-
-function normalizarMotivo(motivo) {
-  const base = String(motivo || "").trim().replace(/\s+/g, " ").toLowerCase();
-  if (!base) return "Sin causa registrada";
-  const regla = MOTIVO_REGLAS.find((item) => item.test.test(base));
-  if (regla) return regla.label;
-  return base.charAt(0).toUpperCase() + base.slice(1);
-}
-
-// Devuelve las causas normalizadas y sumadas. Con ``limite`` agrega el resto en
-// una fila "Otras causas"; sin limite devuelve el listado completo.
 function agruparMotivos(motivos, limite = null) {
   const mapa = new Map();
   (motivos || []).forEach((item) => {
     const cantidad = Number(item.cantidad) || 0;
     if (cantidad <= 0) return;
-    const label = normalizarMotivo(item.motivo);
+    const label = item.motivo;
     const actual = mapa.get(label) || { motivo: label, cantidad: 0, variantes: [] };
     actual.cantidad += cantidad;
     if (item.motivo && !actual.variantes.includes(item.motivo)) {
@@ -2512,10 +2487,10 @@ async function loadIndicadores() {
       })),
       total: Number(data.total_incidencias_causas) || 0,
     };
-    const causasGrafico = causasCompletas;
+    const causasGrafico = agruparMotivos(data.motivos, 10);
     if (causasTable && data.motivos) {
       if (causasSummary) {
-        causasSummary.textContent = `${formatNumeroIndicador(data.total_incidencias_causas)} incidencias de requisitos · ${formatNumeroIndicador(data.total_pendientes)} aprendices únicos pendientes`;
+        causasSummary.textContent = `${formatNumeroIndicador(data.total_incidencias_causas)} incidencias · ${formatNumeroIndicador(data.total_pendientes)} aprendices únicos pendientes. Los motivos compuestos se desglosan; un aprendiz puede contar en más de una causa.`;
       }
       if (causasCount) causasCount.textContent = formatNumeroIndicador(data.total_incidencias_causas);
       causasTable.innerHTML = causasCompletas.filas.map((mot, index) => `
