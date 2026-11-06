@@ -443,35 +443,124 @@ def classify_nivel(value: Any) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def split_motivos(value: Any) -> list[str]:
-    """
-    Separa la columna MOTIVO DE NO CERTIFICACION en causas individuales.
+def _canonical_cause(fragment: str) -> str:
+    cleaned = normalize_text(fragment).strip(" .;")
+    if not cleaned:
+        return ""
+    cleaned = cleaned.replace("documentpos", "documentos")
+    cleaned = cleaned.replace("destruccion", "destruccion")
+    cleaned = cleaned.replace("remitido remitido", "remitido")
+    cleaned = cleaned.replace("t y t", "t&t")
+    cleaned = cleaned.replace("tyt", "t&t")
+    cleaned = " ".join(cleaned.split())
+    mapping = {
+        "no anexa t&t": "No anexa T&T",
+        "no ha remitido documentos": "No ha remitido documentos",
+        "no ha remitido documentpos": "No ha remitido documentos",
+        "no ha remitido remitido documentos": "No ha remitido documentos",
+        "no ha remitido documento": "No ha remitido documentos",
+        "no ha remitido remitido documento": "No ha remitido documentos",
+        "no anexo documento": "No anexó documento",
+        "no anexo documentos": "No anexó documento",
+        "destruccion del carnet": "Destrucción del carnet",
+        "carta carnet sin firma": "Carta carnet sin firma",
+        "carta carnet": "Carta carnet",
+        "documento de identidad vencido": "Documento vencido",
+        "documento vencido": "Documento vencido",
+        "documento de identidad": "Documento de identidad",
+        "ape": "APE",
+        "no anexa ape": "APE",
+        "sin documentos": "Sin documentos",
+        "icfes bogota": "ICFES Bogotá",
+    }
+    if cleaned in mapping:
+        return mapping[cleaned]
+    return cleaned.capitalize() if cleaned else ""
 
-    Una misma persona puede tener varios motivos escritos en una sola celda,
-    separados por comas (por ejemplo ``"APE, No anexa T&T"``). Cada motivo es una
-    *incidencia* distinta, aunque siga siendo *una sola persona* pendiente.
 
-    Devuelve una lista de motivos normalizados, sin elementos vacios ni
-    repetidos dentro de la misma celda.
-    """
+def normalize_motivo_fragments(value: Any) -> list[str]:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return []
     texto = str(value)
-    motivos: list[str] = []
-    for parte in texto.split(","):
-        limpio = normalize_text(parte).strip(" .;")
-        if not limpio:
-            continue
-        # Normalizacion ortografica permitida (no fusiona motivos distintos).
-        limpio = limpio.replace("documentpos", "documentos")
-        limpio = limpio.replace("destruccion", "destruccion")
-        limpio = limpio.replace("remitido remitido", "remitido")
-        limpio = limpio.replace("t y t", "t&t")
-        limpio = limpio.replace("tyt", "t&t")
-        limpio = " ".join(limpio.split())
-        if limpio and limpio not in motivos:
-            motivos.append(limpio)
-    return motivos
+    raw_fragments: list[str] = []
+    for chunk in texto.replace(";", ",").split(","):
+        for sub in chunk.split(" y "):
+            for sub2 in sub.split(" Y "):
+                raw_fragments.append(sub2)
+    result: list[str] = []
+    for fragment in raw_fragments:
+        canonical = _canonical_cause(fragment)
+        if canonical and canonical not in result:
+            result.append(canonical)
+    return result
+
+
+def aggregate_causas(values: Any) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values or []:
+        for cause in normalize_motivo_fragments(value):
+            counts[cause] = counts.get(cause, 0) + 1
+    return counts
+
+
+def _canonical_cause(fragment: str) -> str:
+    cleaned = normalize_text(fragment).strip(" .;")
+    if not cleaned:
+        return ""
+    cleaned = cleaned.replace("documentpos", "documentos")
+    cleaned = cleaned.replace("destruccion", "destruccion")
+    cleaned = cleaned.replace("remitido remitido", "remitido")
+    cleaned = cleaned.replace("t y t", "t&t")
+    cleaned = cleaned.replace("tyt", "t&t")
+    cleaned = " ".join(cleaned.split())
+    mapping = {
+        "no anexa t&t": "No anexa T&T",
+        "no ha remitido documentos": "No ha remitido documentos",
+        "no ha remitido documentpos": "No ha remitido documentos",
+        "no ha remitido remitido documentos": "No ha remitido documentos",
+        "no ha remitido documento": "No ha remitido documentos",
+        "no ha remitido remitido documento": "No ha remitido documentos",
+        "no anexo documento": "No anexó documento",
+        "no anexo documentos": "No anexó documento",
+        "destruccion del carnet": "Destrucción del carnet",
+        "carta carnet sin firma": "Carta carnet sin firma",
+        "carta carnet": "Carta carnet",
+        "documento de identidad vencido": "Documento vencido",
+        "documento vencido": "Documento vencido",
+        "documento de identidad": "Documento de identidad",
+        "ape": "APE",
+        "no anexa ape": "APE",
+        "sin documentos": "Sin documentos",
+        "icfes bogota": "ICFES Bogotá",
+    }
+    if cleaned in mapping:
+        return mapping[cleaned]
+    return cleaned.capitalize() if cleaned else ""
+
+
+def normalize_motivo_fragments(value: Any) -> list[str]:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return []
+    texto = str(value)
+    raw_fragments: list[str] = []
+    for chunk in texto.replace(";", ",").split(","):
+        for sub in chunk.split(" y "):
+            for sub2 in sub.split(" Y "):
+                raw_fragments.append(sub2)
+    result: list[str] = []
+    for fragment in raw_fragments:
+        canonical = _canonical_cause(fragment)
+        if canonical and canonical not in result:
+            result.append(canonical)
+    return result
+
+
+def aggregate_causas(values: Any) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for value in values or []:
+        for cause in normalize_motivo_fragments(value):
+            counts[cause] = counts.get(cause, 0) + 1
+    return counts
 
 
 # ---------------------------------------------------------------------------
