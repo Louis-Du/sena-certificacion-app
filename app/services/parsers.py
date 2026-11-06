@@ -460,6 +460,15 @@ def split_motivos(value: Any) -> list[str]:
     motivos: list[str] = []
     for parte in texto.split(","):
         limpio = normalize_text(parte).strip(" .;")
+        if not limpio:
+            continue
+        # Normalizacion ortografica permitida (no fusiona motivos distintos).
+        limpio = limpio.replace("documentpos", "documentos")
+        limpio = limpio.replace("destruccion", "destruccion")
+        limpio = limpio.replace("remitido remitido", "remitido")
+        limpio = limpio.replace("t y t", "t&t")
+        limpio = limpio.replace("tyt", "t&t")
+        limpio = " ".join(limpio.split())
         if limpio and limpio not in motivos:
             motivos.append(limpio)
     return motivos
