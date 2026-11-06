@@ -25,6 +25,8 @@ from app.services.parsers import (
     frame_to_records,
     list_excel_sheets,
     normalize_nivel,
+    normalize_motivo_fragments,
+    aggregate_causas,
     parse_acta_docx,
     parse_date_value,
     parse_df14a_xml,
@@ -278,6 +280,36 @@ def test_split_motivos_separates_causes_in_one_cell():
     assert split_motivos("APE, APE, ") == ["ape"]
     assert split_motivos(None) == []
     assert split_motivos(float("nan")) == []
+
+
+def test_normalize_motivo_fragments_uses_canonical_atomic_causes():
+    assert normalize_motivo_fragments(None) == []
+    assert normalize_motivo_fragments("") == []
+    assert normalize_motivo_fragments("   ") == []
+    assert normalize_motivo_fragments("No anexa T&T") == ["No anexa T&T"]
+    assert normalize_motivo_fragments("No anexa T&T, APE") == ["No anexa T&T", "APE"]
+    assert normalize_motivo_fragments("no ha remitido documentpos") == [
+        "No ha remitido documentos"
+    ]
+    assert normalize_motivo_fragments("No ha remitido remitido documento") == [
+        "No ha remitido documentos"
+    ]
+    assert normalize_motivo_fragments("Carta Carnet Sin Firma y APE") == [
+        "Carta carnet sin firma",
+        "APE",
+    ]
+    assert normalize_motivo_fragments("Documento de identidad y no anexa t&t") == [
+        "Documento de identidad",
+        "No anexa T&T",
+    ]
+    assert normalize_motivo_fragments("carta carnet") == ["Carta carnet"]
+    assert normalize_motivo_fragments("no anexa ape") == ["APE"]
+
+
+def test_aggregate_causas_counts_atoms_from_compound_cells():
+    counts = aggregate_causas(["No anexa T&T", "No anexa T&T, APE"])
+    assert counts["No anexa T&T"] == 2
+    assert counts["APE"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -737,4 +769,3 @@ def test_parse_date_value_accepts_common_actas_formats_and_rejects_invalid():
     assert parse_date_value("sin fecha") is None
     assert parse_date_value("2025") is None
     assert parse_date_value("") is None
-

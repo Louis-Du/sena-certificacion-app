@@ -335,7 +335,9 @@ def _resumen_hoja_actas(
 
         # 7) Motivos de no certificacion (una celda puede traer varios).
         if leer_motivos:
-            lista_motivos = parsers.split_motivos(registro.get("motivo de no certificacion"))
+            lista_motivos = parsers.normalize_motivo_fragments(
+                registro.get("motivo de no certificacion")
+            )
             if not lista_motivos:
                 documentos_sin_motivo += 1
             elif len(lista_motivos) > 1:
