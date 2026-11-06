@@ -40,6 +40,12 @@ Cubierto por `tests/test_informes_consolidado.py` y `tests/test_indicadores.py` 
 - El tipo `consolidado` reúne los seis informes en un único documento PDF o en
   un XLSX con hojas separadas. CSV no se ofrece para este tipo porque no admite
   múltiples informes/hojas en un solo archivo.
+- En la pantalla de indicadores, el bloque institucional muestra únicamente
+  **Certificados por mes**. Su fuente es `MES DE CERTIFICACIÓN` del consolidado;
+  la actividad local de importaciones y cambios de estado no se presenta como
+  certificación mensual.
+- Los números de acta se conservan tal como vienen de ACTAS. No se fabrican
+  fechas cuando el archivo fuente concatena el número y el año.
 
 ## Fuera de alcance v1
 Envío por correo, permisos y alertas (#45/#48/#49). El PDF incluye portada,

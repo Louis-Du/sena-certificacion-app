@@ -218,10 +218,16 @@ def _report_rows(dataset: dict[str, Any], report_type: str) -> tuple[str, list[d
         resumen = dataset.get("resumen_ejecutivo") or {}
         return "Ejecutivo", [
             {"Indicador": "Periodo", "Valor": dataset.get("periodo")},
-            {"Indicador": "Certificados", "Valor": resumen.get("certificados_personas")},
-            {"Indicador": "Pendientes", "Valor": resumen.get("pendientes_personas")},
-            {"Indicador": "Avance %", "Valor": resumen.get("avance_global")},
-            {"Indicador": "Efectividad %", "Valor": resumen.get("efectividad_global")},
+            {"Indicador": "Fuente", "Valor": dataset.get("source")},
+            {"Indicador": "Archivo del lote vigente", "Valor": dataset.get("file_name")},
+            {"Indicador": "Import ID del lote vigente", "Valor": dataset.get("import_id")},
+            {"Indicador": "Meta total", "Valor": resumen.get("meta_total")},
+            {"Indicador": "Certificados personas", "Valor": resumen.get("certificados_personas")},
+            {"Indicador": "Certificados complementaria", "Valor": resumen.get("certificados_complementaria")},
+            {"Indicador": "Pendientes personas", "Valor": resumen.get("pendientes_personas")},
+            {"Indicador": "Avance global % (incluye complementaria)", "Valor": resumen.get("avance_global")},
+            {"Indicador": "Efectividad global % (solo personas)", "Valor": resumen.get("efectividad_global")},
+            {"Indicador": "Brecha total", "Valor": resumen.get("brecha_total")},
         ]
     if report_type == "causas":
         causas = dataset.get("causas_no_certificacion") or {}
@@ -258,6 +264,7 @@ def _report_rows(dataset: dict[str, Any], report_type: str) -> tuple[str, list[d
                 "Nombre": learner.name,
                 "Programa": learner.program,
                 "Estado": learner.certification_status,
+                "Ficha": learner.group_code,
                 "Motivo": learner.non_certification_reason,
             }
             for learner in dataset.get("_learners", [])
@@ -294,7 +301,7 @@ def export_report_csv(
         "causas": ["Motivo", "Incidencias", "Porcentaje %"],
         "actas": ["Acta", "Certificados", "Fecha", "Tipo"],
         "aprendices": ["Identificacion", "Nombre", "Programa", "Estado", "Ficha", "Acta"],
-        "pendientes": ["Identificacion", "Nombre", "Programa", "Estado", "Motivo"],
+        "pendientes": ["Identificacion", "Nombre", "Programa", "Estado", "Ficha", "Motivo"],
     }[report_type]
     frame = pd.DataFrame(rows, columns=columns)
     buffer = StringIO()
@@ -335,7 +342,7 @@ def export_consolidated_xlsx(session: Session, *, year: int | None = None) -> by
         raise ValueError("No hay datos para exportar.")
     content = _export_general_xlsx(dataset)
     workbook = load_workbook(BytesIO(content))
-    for report_type in ("ejecutivo", "aprendices", "pendientes", "causas", "actas"):
+    for report_type in ("ejecutivo", "aprendices", "pendientes"):
         report_dataset = dict(dataset)
         if report_type in {"aprendices", "pendientes"}:
             report_dataset["_learners"] = (
@@ -397,6 +404,14 @@ def _export_general_xlsx(dataset: dict[str, Any]) -> bytes:
         acts = [{"Acta": item.get("number"), "Aprendices": item.get("aprendices_count"), "Fecha": item.get("act_date"), "Tipo": item.get("act_type")} for item in (dataset.get("actas") or {}).get("items", [])]
         pd.DataFrame(acts or [{"Acta": None, "Aprendices": None, "Fecha": None, "Tipo": None}]).to_excel(writer, sheet_name="Actas", index=False)
         warnings = [{"Advertencia": value} for value in dataset.get("advertencias") or []]
+        warnings.append(
+            {
+                "Advertencia": (
+                    "Los números de acta se conservan como vienen del archivo ACTAS; "
+                    "no se fabrican fechas a partir de su valor."
+                )
+            }
+        )
         pd.DataFrame(warnings or [{"Advertencia": None}]).to_excel(writer, sheet_name="Advertencias", index=False)
     buffer.seek(0)
     return _style_workbook(buffer.getvalue())
@@ -405,7 +420,6 @@ def _export_general_xlsx(dataset: dict[str, Any]) -> bytes:
 def _style_workbook(content: bytes) -> bytes:
         workbook = load_workbook(BytesIO(content))
         dark_green = "115E59"
-        medium_green = "0F766E"
         light_green = "CCFBF1"
         light_gray = "F8FAFC"
         border = Border(bottom=Side(style="thin", color="CBD5E1"))
@@ -432,18 +446,15 @@ def _style_workbook(content: bytes) -> bytes:
                 )
 
         summary = workbook["Resumen"] if "Resumen" in workbook.sheetnames else workbook.active
-        summary["D1"] = "Panel visual"
-        summary["D1"].font = Font(bold=True, color="FFFFFF")
-        summary["D1"].fill = PatternFill("solid", fgColor=medium_green)
-        summary["D2"] = "Indicadores del consolidado institucional"
-        summary["D2"].font = Font(italic=True, color=dark_green)
         if "Categorias" in workbook.sheetnames:
             chart = BarChart()
-            chart.type = "bar"
+            chart.type = "col"
             chart.style = 10
             chart.title = "Avance por categoría"
-            chart.y_axis.title = "Categoría"
-            chart.x_axis.title = "Porcentaje"
+            chart.y_axis.title = "Porcentaje"
+            chart.y_axis.scaling.min = 0
+            chart.y_axis.scaling.max = 100
+            chart.x_axis.title = "Categoría"
             chart.height = 7
             chart.width = 13
             values = Reference(workbook["Categorias"], min_col=7, min_row=1, max_row=workbook["Categorias"].max_row)
@@ -452,6 +463,14 @@ def _style_workbook(content: bytes) -> bytes:
             chart.set_categories(labels)
             chart.dataLabels = DataLabelList()
             chart.dataLabels.showVal = True
+            chart.dataLabels.showSerName = False
+            chart.dataLabels.showCatName = False
+            chart.dataLabels.showLegendKey = False
+            chart.dataLabels.showPercent = False
+            chart.dataLabels.showBubbleSize = False
+            chart.dataLabels.dLblPos = "outEnd"
+            chart.dataLabels.numFmt = '0.0" %"'
+            chart.legend = None
             summary.add_chart(chart, "D4")
         if "CertificadosPorMes" in workbook.sheetnames:
             chart = BarChart()
@@ -465,9 +484,9 @@ def _style_workbook(content: bytes) -> bytes:
             labels = Reference(workbook["CertificadosPorMes"], min_col=1, min_row=2, max_row=workbook["CertificadosPorMes"].max_row)
             chart.add_data(values, titles_from_data=True)
             chart.set_categories(labels)
-            chart.dataLabels = DataLabelList()
-            chart.dataLabels.showVal = True
-            summary.add_chart(chart, "D19")
+            chart.dataLabels = None
+            chart.legend = None
+            summary.add_chart(chart, "D20")
 
         output = BytesIO()
         workbook.save(output)
