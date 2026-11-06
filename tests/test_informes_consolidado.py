@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 from io import BytesIO
+from types import SimpleNamespace
 
 from openpyxl import load_workbook
 
 from app.models import ImportedRecord, ImportHistory
 from app.services.indicadores import compute_indicadores_2026, compute_certificados_por_mes
-from app.services.informes import consolidate_report_dataset
+from app.services.informes import _report_rows, consolidate_report_dataset
 
 
 def _seed(session, information_type, records, *, source_type=None, status="completed", file_name="prueba.xlsx"):
@@ -260,8 +261,105 @@ def test_exporta_csv_y_catalogo_de_informes(client):
         "Causas",
         "Actas",
     } <= set(workbook.sheetnames)
+    assert "Causas1" not in workbook.sheetnames
+    assert "Actas1" not in workbook.sheetnames
+    assert all(
+        "Panel visual" not in cell.value
+        for worksheet in workbook.worksheets
+        for row in worksheet.iter_rows()
+        for cell in row
+        if isinstance(cell.value, str)
+    )
 
     consolidated_pdf = client.get("/api/informes/export?type=consolidado&format=pdf")
     assert consolidated_pdf.status_code == 200
     assert consolidated_pdf.headers["content-type"].startswith("application/pdf")
     assert consolidated_pdf.content.startswith(b"%PDF")
+
+
+def test_listados_de_informes_conservan_columnas_de_negocio():
+    learner = SimpleNamespace(
+        identification="1",
+        name="Persona 1",
+        program="Programa",
+        certification_status="PENDIENTE",
+        group_code="100",
+        act_number="36",
+        non_certification_reason="Documento pendiente",
+    )
+    _, aprendiz_rows = _report_rows({"_learners": [learner]}, "aprendices")
+    _, pendiente_rows = _report_rows({"_learners": [learner]}, "pendientes")
+
+    assert list(aprendiz_rows[0]) == [
+        "Identificacion",
+        "Nombre",
+        "Programa",
+        "Estado",
+        "Ficha",
+        "Acta",
+    ]
+    assert list(pendiente_rows[0]) == [
+        "Identificacion",
+        "Nombre",
+        "Programa",
+        "Estado",
+        "Ficha",
+        "Motivo",
+    ]
+    assert pendiente_rows[0]["Motivo"] == "Documento pendiente"
+
+
+def test_informe_ejecutivo_expone_contexto_y_universos():
+    _, rows = _report_rows(
+        {
+            "periodo": "Ene-Sep 2026",
+            "source": "consolidado_lote_vigente",
+            "file_name": "ACTAS 2026.xlsx",
+            "import_id": 7,
+            "resumen_ejecutivo": {
+                "meta_total": 100,
+                "certificados_personas": 80,
+                "certificados_complementaria": 20,
+                "pendientes_personas": 10,
+                "avance_global": 100,
+                "efectividad_global": 88.9,
+                "brecha_total": 0,
+            },
+        },
+        "ejecutivo",
+    )
+    values = {row["Indicador"]: row["Valor"] for row in rows}
+    assert values["Periodo"] == "Ene-Sep 2026"
+    assert values["Fuente"] == "consolidado_lote_vigente"
+    assert values["Meta total"] == 100
+    assert values["Certificados personas"] == 80
+    assert values["Certificados complementaria"] == 20
+    assert values["Pendientes personas"] == 10
+    assert values["Brecha total"] == 0
+
+
+def test_graficos_excel_tienen_una_serie_y_etiquetas_legibles(client):
+    from openpyxl.chart.label import DataLabelList
+
+    with client.session_factory() as session:
+        _seed(session, "certificados", [_certificado("1", "TECNÓLOGO", "JUNIO")])
+        _seed(session, "meta", [_meta(superior=100)])
+
+    response = client.get("/api/informes/export")
+    workbook = load_workbook(BytesIO(response.content))
+    summary = workbook["Resumen"]
+    assert len(summary._charts) == 2
+
+    category_chart, month_chart = summary._charts
+    assert category_chart.type == "col"
+    assert category_chart.legend is None
+    assert category_chart.y_axis.scaling.min == 0
+    assert category_chart.y_axis.scaling.max == 100
+    assert len(category_chart.ser) == 1
+    assert isinstance(category_chart.dataLabels, DataLabelList)
+    assert category_chart.dataLabels.showVal
+    assert category_chart.dataLabels.showSerName is False
+    assert category_chart.dataLabels.showCatName is False
+    assert month_chart.legend is None
+    assert len(month_chart.ser) == 1
+    assert month_chart.dataLabels is None

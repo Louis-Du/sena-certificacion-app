@@ -3,7 +3,7 @@
  * - Toasts
  * - Modal de revisión / conflictos de importación
  * - Barra de progreso al validar / confirmar
- * - KPIs + heatmap real en Indicadores (hover/click con detalle)
+ * - KPIs + certificados por mes del consolidado en Indicadores
  * - Sidebar rail activo y pestañas pill
  */
 (function () {
