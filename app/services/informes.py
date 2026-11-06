@@ -253,7 +253,11 @@ def _report_rows(dataset: dict[str, Any], report_type: str) -> tuple[str, list[d
                 "Programa": learner.program,
                 "Estado": learner.certification_status,
                 "Ficha": learner.group_code,
-                "Acta": learner.act_number,
+                # El acta solo se muestra si parece un número de acta real.
+                # Nunca se copia aquí el motivo de no certificación.
+                "Acta": learner.act_number
+                if learner.act_number and any(ch.isdigit() for ch in str(learner.act_number))
+                else None,
             }
             for learner in dataset.get("_learners", [])
         ]

@@ -2503,8 +2503,16 @@ async function loadIndicadores() {
       </tr>
     `).join("");
 
-    const causasCompletas = agruparMotivos(data.motivos);
-    const causasGrafico = agruparMotivos(data.motivos, 10);
+    const causasCompletas = {
+      filas: (data.motivos || []).map((m) => ({
+        motivo: m.motivo,
+        cantidad: Number(m.cantidad) || 0,
+        porcentaje: m.porcentaje,
+        variantes: [],
+      })),
+      total: Number(data.total_incidencias_causas) || 0,
+    };
+    const causasGrafico = causasCompletas;
     if (causasTable && data.motivos) {
       if (causasSummary) {
         causasSummary.textContent = `${formatNumeroIndicador(data.total_incidencias_causas)} incidencias de requisitos · ${formatNumeroIndicador(data.total_pendientes)} aprendices únicos pendientes`;
