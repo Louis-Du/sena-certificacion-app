@@ -149,7 +149,7 @@ def _title(ws, row: int, text: str, subtitle: str, last_col: int = 12) -> int:
         font=_font(18, bold=True, color=WHITE),
         alignment=_align("left", "center"),
     )
-    ws.row_dimensions[row].height = 32
+    ws.row_dimensions[row].height = 28
     _merged(
         ws,
         row + 1,
@@ -161,7 +161,7 @@ def _title(ws, row: int, text: str, subtitle: str, last_col: int = 12) -> int:
         font=_font(9, color=GRAY),
         alignment=_align("left", "center"),
     )
-    ws.row_dimensions[row + 1].height = 22
+    ws.row_dimensions[row + 1].height = 18
     return row + 2
 
 
@@ -177,7 +177,7 @@ def _section(ws, row: int, text: str, last_col: int = 12, color: str = BLUE) -> 
         font=_font(11, bold=True, color=WHITE),
         alignment=_align("left", "center"),
     )
-    ws.row_dimensions[row].height = 22
+    ws.row_dimensions[row].height = 20
     return row + 1
 
 
@@ -280,9 +280,9 @@ def _card(
         alignment=_align("left", "top"),
         border=border,
     )
-    ws.row_dimensions[row].height = 18
-    ws.row_dimensions[row + 1].height = 30
-    ws.row_dimensions[row + 2].height = 26
+    ws.row_dimensions[row].height = 16
+    ws.row_dimensions[row + 1].height = 24
+    ws.row_dimensions[row + 2].height = 20
 
 
 def _cards(ws, row: int, items: list[dict[str, Any]], span: int = 3) -> int:
@@ -345,7 +345,7 @@ def _table(
         cell.font = _font(9, bold=True, color=WHITE)
         cell.alignment = _align("center", "center")
         cell.border = Border(bottom=Side(style="medium", color=WHITE))
-    ws.row_dimensions[header_row].height = 32
+    ws.row_dimensions[header_row].height = 24
 
     blank_columns = blank_columns or set()
     number_formats = number_formats or {}
@@ -1108,7 +1108,6 @@ def _sheet_causes(wb: Workbook, dataset: dict[str, Any]) -> None:
         kind="info",
         chars_per_line=105,
     )
-    row += 1
     row = _section(ws, row, "Indicadores de pendientes", last_col=12, color=DARK_GREEN)
     cards = [
         {
@@ -1159,7 +1158,8 @@ def _sheet_causes(wb: Workbook, dataset: dict[str, Any]) -> None:
         widths=[42, 18, 18, 18],
         number_formats={2: "#,##0", 3: '0.0"%"', 4: '0.0"%"'},
         blank_columns={2, 3, 4},
-        freeze=True,
+        freeze=False,
+        auto_filter=False,
     )
     if table_rows:
         # Fila de calidad: no es una causa, es ausencia de motivo.
@@ -1189,6 +1189,8 @@ def _sheet_causes(wb: Workbook, dataset: dict[str, Any]) -> None:
         ws.cell(row=quality_row, column=2).number_format = "#,##0"
         ws.cell(row=quality_row, column=3).number_format = '0.0"%"'
         last_row = quality_row
+    if table_rows:
+        ws.auto_filter.ref = f"A{header_row}:D{last_row}"
     row = last_row + 1
     row = _note(
         ws,
@@ -1216,7 +1218,7 @@ def _sheet_causes(wb: Workbook, dataset: dict[str, Any]) -> None:
         values_col=2,
         labels_col=1,
         header_row=header_row,
-        last_row=min(header_row + 10, last_row),
+        last_row=min(header_row + 10, header_row + len(table_rows)) if table_rows else header_row,
         title="Principales causas (personas asociadas)",
         anchor=f"F{header_row}",
         horizontal=True,
