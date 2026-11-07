@@ -37,6 +37,7 @@ from reportlab.platypus import (
     CondPageBreak,
     Flowable,
     Frame,
+    KeepTogether,
     LongTable,
     NextPageTemplate,
     PageBreak,
@@ -528,11 +529,11 @@ def _bar_drawing(
         chart.bars[0].strokeColor = color
         chart.useAbsolute = 1
         chart.barWidth = min(13, max(8, (chart.height - 18) / max(1, count) - 4))
-        # En barras horizontales las etiquetas de valor pueden superponerse con
-        # categorias largas o barras muy cortas. El dato exacto ya esta en la
-        # tabla; el grafico conserva solo la lectura visual.
-        chart.barLabelFormat = None
+        chart.barLabelFormat = "%d"
         chart.barLabelArray = None
+        chart.barLabels.fontName = FONT_BOLD
+        chart.barLabels.fontSize = 7
+        chart.barLabels.fillColor = INK
     else:
         chart = VerticalBarChart()
         chart.x = 34
@@ -880,6 +881,28 @@ def _summary_section(dataset: dict[str, Any], number: str) -> list[Flowable]:
     flowables.extend(_kpi_grid(cards))
     flowables.append(Spacer(1, 5))
 
+    quality_alerts = (dataset.get("calidad") or {}).get("alertas") or []
+    if quality_alerts:
+        flowables.append(Paragraph("Alertas de calidad", STYLE_H2))
+        flowables.append(
+            _data_table(
+                ["Severidad", "Alerta", "Universo", "Cantidad", "%"],
+                [
+                    [
+                        item.get("severidad"),
+                        item.get("titulo"),
+                        item.get("universo"),
+                        item.get("cantidad"),
+                        item.get("porcentaje"),
+                    ]
+                    for item in quality_alerts
+                ],
+                widths=[70, 230, 120, 70, 60],
+                formats={3: _num, 4: _pct},
+            )
+        )
+        flowables.append(Spacer(1, 5))
+
     # Evolucion compacta de la meta
     flowables.append(Paragraph("Lectura de la meta", STYLE_H2))
     meta = summary.get("meta_total")
@@ -1099,8 +1122,8 @@ def _monthly_section(dataset: dict[str, Any], number: str) -> list[Flowable]:
                 total_row=[
                     "Total",
                     monthly.get("total"),
-                    None,
-                    None,
+                    100.0 if monthly.get("total") is not None else None,
+                    monthly.get("total"),
                 ],
             )
         )
@@ -1130,7 +1153,7 @@ def _causes_section(dataset: dict[str, Any], number: str) -> list[Flowable]:
         {
             "title": "Personas pendientes únicas",
             "value": _num(causes.get("aprendices_pendientes_unicos")),
-            "note": "Personas clasificadas en las categorías misionales.",
+            "note": "Personas con estado Pendiente",
             "accent": AMBER,
             "background": AMBER_SOFT,
         },
@@ -1174,21 +1197,28 @@ def _causes_section(dataset: dict[str, Any], number: str) -> list[Flowable]:
         )
         flowables.append(Spacer(1, 8))
         flowables.append(Paragraph("Principales causas", STYLE_H2))
-        top = motivos[:10]
+        chart_items = [
+            (
+                item.get("motivo") or "",
+                float(item.get("personas"))
+                if isinstance(item.get("personas"), (int, float))
+                else 0.0,
+            )
+            for item in motivos
+        ]
+        if causes.get("aprendices_sin_motivo") not in (None, 0):
+            chart_items.append(
+                (
+                    "Sin motivo informado",
+                    float(causes.get("aprendices_sin_motivo")),
+                )
+            )
         flowables.append(
             _bar_drawing(
-                [
-                    (
-                        item.get("motivo") or "",
-                        float(item.get("personas"))
-                        if isinstance(item.get("personas"), (int, float))
-                        else 0.0,
-                    )
-                    for item in top
-                ],
+                chart_items,
                 horizontal=True,
                 color=AMBER,
-                height=max(150, len(top) * 23 + 34),
+                height=max(150, len(chart_items) * 23 + 34),
                 label_limit=38,
             )
         )
@@ -1252,7 +1282,7 @@ def _acts_section(dataset: dict[str, Any], number: str) -> list[Flowable]:
     if items:
         flowables.append(
             _data_table(
-                ["Acta", "Aprendices", "Fecha", "Tipo", "Registro local"],
+                ["Acta", "Aprendices", "Fecha", "Tipo", "Registro local", "Observación"],
                 [
                     [
                         item.get("number"),
@@ -1260,31 +1290,44 @@ def _acts_section(dataset: dict[str, Any], number: str) -> list[Flowable]:
                         item.get("act_date"),
                         item.get("act_type"),
                         "Sí" if item.get("act_id") is not None else "No",
+                        (
+                            "Identificador de acta inválido"
+                            if item.get("identificador_invalido")
+                            else (
+                                ""
+                                if (item.get("act_date") and item.get("act_type"))
+                                else "Fecha o tipo no disponibles en el módulo de Actas"
+                            )
+                        ),
                     ]
                     for item in items
                 ],
-                widths=[70, 70, 85, 130, 85],
+                widths=[70, 70, 85, 130, 85, 120],
                 formats={1: _num},
             )
         )
         flowables.append(Spacer(1, 8))
-        flowables.append(Paragraph("Aprendices asociados por acta (top 10)", STYLE_H2))
         top = items[:10]
         flowables.append(
-            _bar_drawing(
+            KeepTogether(
                 [
-                    (
-                        f"Acta {item.get('number')}",
-                        float(item.get("aprendices_count"))
-                        if isinstance(item.get("aprendices_count"), (int, float))
-                        else 0.0,
-                    )
-                    for item in top
-                ],
-                horizontal=True,
-                color=BLUE,
-                height=max(150, len(top) * 21 + 34),
-                label_limit=24,
+                    Paragraph("Aprendices asociados por acta (top 10)", STYLE_H2),
+                    _bar_drawing(
+                        [
+                            (
+                                f"Acta {item.get('number')}",
+                                float(item.get("aprendices_count"))
+                                if isinstance(item.get("aprendices_count"), (int, float))
+                                else 0.0,
+                            )
+                            for item in top
+                        ],
+                        horizontal=True,
+                        color=BLUE,
+                        height=max(150, len(top) * 21 + 34),
+                        label_limit=24,
+                    ),
+                ]
             )
         )
         flowables.append(Spacer(1, 5))
@@ -1346,6 +1389,24 @@ def _traceability_section(dataset: dict[str, Any], number: str) -> list[Flowable
     flowables.append(Paragraph("Exclusiones", STYLE_H2))
     for item in trace.get("exclusiones") or []:
         flowables.append(_bullet(str(item)))
+
+    resoluciones = dataset.get("resoluciones_conflicto") or {}
+    if resoluciones:
+        flowables.append(Paragraph("Resoluciones de conflictos certificado/pendiente", STYLE_H2))
+        flowables.append(
+            _data_table(
+                ["Documento", "Resolución aplicada", "Fuente"],
+                [
+                    [
+                        doc,
+                        "Certificado" if res == "certificados" else "Pendiente",
+                        "Learner.conflict_resolution (o nota histórica)",
+                    ]
+                    for doc, res in sorted(resoluciones.items())
+                ],
+                widths=[140, 120, 250],
+            )
+        )
 
     comparison = trace.get("comparacion_causas") or []
     if comparison:
