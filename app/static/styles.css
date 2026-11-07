@@ -4067,3 +4067,74 @@ a {
 .breakdown-meta {
   overflow-wrap: anywhere;
 }
+
+/* ---------- Sincronización Google Sheets en la barra superior ---------- */
+.sheets-topbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.sheets-search-panel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 0;
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transform: translateX(14px);
+  pointer-events: none;
+  transition: width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    max-width 0.38s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.25s ease, transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.sheets-search-panel.is-open {
+  width: min(560px, 52vw);
+  max-width: min(560px, 52vw);
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.sheets-search-panel input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 12px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+}
+
+.sheets-search-panel input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.sheets-toggle-button[aria-expanded="true"] {
+  background: var(--ink);
+}
+
+.upload-progress-bar.is-determinate,
+.modal-progress-bar.is-determinate {
+  width: 0;
+  animation: none;
+  transition: width 0.3s ease;
+}
+
+@media (max-width: 900px) {
+  .sheets-topbar-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .sheets-search-panel.is-open {
+    width: min(100%, 420px);
+    max-width: min(100%, 420px);
+  }
+}

@@ -614,23 +614,41 @@ async function validateFile() {
 
 async function confirmImport() {
   if (!validationId) return;
+  const isSheetsSync = Boolean(window.__sheetsSyncPending);
   confirmButton.disabled = true;
+  let stopProgress = null;
+  if (isSheetsSync) stopProgress = startImportPercentProgress();
   try {
-    const result = await readResponse(await fetch(`/api/imports/${validationId}/confirm`, {
+    const endpoint = isSheetsSync
+      ? "/api/sheets/sync/confirm"
+      : `/api/imports/${validationId}/confirm`;
+    const payload = {
+      conflict_resolutions: collectConflictResolutions(),
+      accept_missing_complementaria: acceptMissingComplementaria.checked,
+    };
+    if (isSheetsSync) payload.validation_id = validationId;
+    const response = await readResponse(await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        conflict_resolutions: collectConflictResolutions(),
-        accept_missing_complementaria: acceptMissingComplementaria.checked,
-      }),
+      body: JSON.stringify(payload),
     }));
+    const result = isSheetsSync ? (response.result || response) : response;
+    if (stopProgress) stopProgress(true);
     fileStatus.textContent = "IMPORTACION COMPLETA";
     showFeedback(`${result.message} ${result.records_count} registros procesados.`);
     confirmButton.hidden = true;
-    setImportSuccessUI(result);
+    if (isSheetsSync) {
+      window.__sheetsSyncPending = false;
+      hideReview();
+      window.SenaUI?.closeImportModal?.();
+      await loadSheetsStatus();
+    } else {
+      setImportSuccessUI(result);
+    }
     await loadHistory();
     await loadLearners();
   } catch (error) {
+    if (stopProgress) stopProgress(false);
     showFeedback(error.message, true);
   } finally {
     if (!confirmButton.hidden) updateCoherenceState();
@@ -2655,7 +2673,12 @@ fileInput.addEventListener("change", () => setFile(fileInput.files[0]));
 ["dragleave", "drop"].forEach((eventName) => dropZone.addEventListener(eventName, (event) => { event.preventDefault(); dropZone.classList.remove("dragging"); }));
 dropZone.addEventListener("drop", (event) => setFile(event.dataTransfer.files[0]));
 removeButton.addEventListener("click", clearFile);
-cancelButton.addEventListener("click", () => { clearFile(); clearFeedback(); resetSelection(); });
+cancelButton.addEventListener("click", () => {
+  window.__sheetsSyncPending = false;
+  clearFile();
+  clearFeedback();
+  resetSelection();
+});
 validateButton.addEventListener("click", validateFile);
 confirmButton.addEventListener("click", confirmImport);
 newImportButton.addEventListener("click", startNewImport);
@@ -2668,3 +2691,260 @@ resetSelection();
 loadHistory();
 loadLearners();
 showView(window.location.hash === "#aprendices" ? "aprendices" : "carga", false);
+
+
+// ---------------------------------------------------------------------------
+// Sincronización Google Sheets desde la barra superior
+// ---------------------------------------------------------------------------
+const sheetsToggleButton = document.querySelector("#sheets-toggle-button");
+const sheetsSearchPanel = document.querySelector("#sheets-search-panel");
+const sheetsUrlInput = document.querySelector("#sheets-url-input");
+const sheetsSyncButton = document.querySelector("#sheets-sync-button");
+
+const sheetsReviewModal = document.querySelector("#sheets-review-modal");
+const sheetsReviewSubtitle = document.querySelector("#sheets-review-subtitle");
+const sheetsReviewMessage = document.querySelector("#sheets-review-message");
+const sheetsReviewCheck = document.querySelector("#sheets-review-check");
+const sheetsReviewImport = document.querySelector("#sheets-review-import");
+const sheetsProgressBar = document.querySelector("#sheets-progress-bar");
+const sheetsProgressLabel = document.querySelector("#sheets-progress-label");
+const sheetsReviewCloseButton = document.querySelector("#sheets-review-close-button");
+const sheetsReviewClose = document.querySelector("#sheets-review-close");
+
+let sheetsProgressTimer = null;
+let sheetsProgressValue = 0;
+let importProgressTimer = null;
+
+function formatSheetsDate(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("es-CO", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+function setSheetsProgress(percent, label) {
+  if (sheetsProgressBar) {
+    sheetsProgressBar.classList.add("is-determinate");
+    sheetsProgressBar.style.width = `${percent}%`;
+  }
+  if (sheetsProgressLabel) sheetsProgressLabel.textContent = label || `${percent}%`;
+}
+
+function startSheetsProgress() {
+  window.clearInterval(sheetsProgressTimer);
+  sheetsProgressValue = 0;
+  setSheetsProgress(0, "Sincronizando hoja… 0%");
+  sheetsProgressTimer = window.setInterval(() => {
+    const remaining = 90 - sheetsProgressValue;
+    const step = Math.max(1, Math.round(remaining * 0.08));
+    sheetsProgressValue = Math.min(90, sheetsProgressValue + step);
+    setSheetsProgress(sheetsProgressValue, `Sincronizando hoja… ${sheetsProgressValue}%`);
+  }, 320);
+}
+
+function stopSheetsProgress(success) {
+  window.clearInterval(sheetsProgressTimer);
+  sheetsProgressTimer = null;
+  if (success) {
+    setSheetsProgress(100, "Sincronización completada · 100%");
+  }
+}
+
+function startImportPercentProgress() {
+  const progress = document.querySelector("#modal-progress");
+  const bar = document.querySelector("#modal-progress-bar");
+  const label = document.querySelector("#modal-progress-label");
+  if (progress) progress.hidden = false;
+  if (bar) {
+    bar.classList.add("is-determinate");
+    bar.style.width = "0%";
+  }
+  let value = 0;
+  const update = () => {
+    const remaining = 90 - value;
+    const step = Math.max(1, Math.round(remaining * 0.07));
+    value = Math.min(90, value + step);
+    if (bar) bar.style.width = `${value}%`;
+    if (label) label.textContent = `Importando información… ${value}%`;
+  };
+  if (label) label.textContent = "Importando información… 0%";
+  window.clearInterval(importProgressTimer);
+  importProgressTimer = window.setInterval(update, 340);
+  return (success) => {
+    window.clearInterval(importProgressTimer);
+    importProgressTimer = null;
+    if (success) {
+      if (bar) bar.style.width = "100%";
+      if (label) label.textContent = "Importación completada · 100%";
+      window.setTimeout(() => {
+        if (progress) progress.hidden = true;
+        if (bar) bar.classList.remove("is-determinate");
+      }, 700);
+    } else {
+      if (progress) progress.hidden = true;
+      if (bar) bar.classList.remove("is-determinate");
+    }
+  };
+}
+
+function openSheetsReviewModal() {
+  if (!sheetsReviewModal) return;
+  sheetsReviewModal.classList.add("is-open");
+  sheetsReviewModal.setAttribute("aria-hidden", "false");
+}
+
+function closeSheetsReviewModal() {
+  if (!sheetsReviewModal) return;
+  sheetsReviewModal.classList.remove("is-open");
+  sheetsReviewModal.setAttribute("aria-hidden", "true");
+}
+
+function setSheetsReviewState({ subtitle, message, check, importText }) {
+  if (sheetsReviewSubtitle) sheetsReviewSubtitle.textContent = subtitle;
+  if (sheetsReviewMessage) sheetsReviewMessage.textContent = message;
+  if (sheetsReviewCheck) sheetsReviewCheck.textContent = check || "";
+  if (sheetsReviewImport) sheetsReviewImport.textContent = importText || "";
+}
+
+function showSheetsPreview(data) {
+  const preview = data.preview;
+  if (!preview) return;
+  const fields = [
+    [confirmFile, preview.file_name],
+    [confirmImportable, preview.records_count],
+    [confirmNew, preview.new_records],
+    [confirmUpdated, preview.updated_records],
+    [confirmRejected, preview.rejected_records ?? 0],
+  ];
+  fields.forEach(([element, value]) => {
+    if (element) element.textContent = value;
+  });
+  confirmRejected.closest(".confirm-metric")?.classList.toggle(
+    "has-rejected",
+    Number(preview.rejected_records || 0) > 0,
+  );
+  renderPreviewBreakdown(preview);
+  renderPreviewWarnings(preview.warnings);
+  renderCoherenceConflicts(preview.coherence_conflicts || []);
+  missingComplementariaRequired = Boolean(preview.missing_complementaria);
+  if (missingComplementariaRequired) missingComplementariaSection.hidden = false;
+  updateCoherenceState();
+
+  validationId = data.validation_id;
+  window.__sheetsSyncPending = true;
+  confirmationPanel.hidden = false;
+  confirmButton.hidden = false;
+  validateButton.hidden = true;
+  cargaView.classList.add("carga-en-revision");
+  setCargaStep("confirmar");
+  window.setTimeout(() => revealValidationResult(confirmSummary), 80);
+}
+
+async function loadSheetsStatus() {
+  try {
+    const response = await fetch("/api/sheets/sync");
+    const data = await response.json();
+    if (!data.configured) return;
+    if (sheetsUrlInput && !sheetsUrlInput.value) sheetsUrlInput.value = data.url || "";
+    if (sheetsToggleButton) {
+      const state = data.enabled ? "activa" : "detenida";
+      sheetsToggleButton.title = `Sincronización Google Sheets ${state}. Última revisión: ${formatSheetsDate(data.last_check_at)}`;
+    }
+  } catch (error) {
+    // El estado no debe bloquear la carga manual de archivos.
+  }
+}
+
+async function runSheetsSync() {
+  const url = (sheetsUrlInput?.value || "").trim();
+  if (!url || !url.includes("docs.google.com")) {
+    showFeedback("Introduce un enlace válido de Google Sheets.", true);
+    if (sheetsUrlInput) sheetsUrlInput.focus();
+    return;
+  }
+  openSheetsReviewModal();
+  startSheetsProgress();
+  setSheetsReviewState({
+    subtitle: "Descargando y validando la hoja…",
+    message: "Espera mientras se revisa el contenido del documento.",
+    check: "",
+    importText: "",
+  });
+  try {
+    const response = await fetch("/api/sheets/sync/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url,
+        information_type: "actas_completo",
+        interval_seconds: 60,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "No fue posible sincronizar la hoja.");
+
+    stopSheetsProgress(true);
+    if (data.status === "ready") {
+      const preview = data.preview || {};
+      setSheetsReviewState({
+        subtitle: "Cambios detectados",
+        message: data.message || "Revisa la información antes de importar.",
+        check: `Registros importables: ${preview.records_count ?? 0}`,
+        importText: `Advertencias: ${(preview.warnings || []).length}`,
+      });
+      window.setTimeout(() => {
+        closeSheetsReviewModal();
+        showSheetsPreview(data);
+      }, 550);
+    } else {
+      setSheetsReviewState({
+        subtitle: data.status === "unchanged" ? "Sin cambios" : "No se pudo preparar la importación",
+        message: data.message || "No hay cambios para importar.",
+        check: data.config?.last_check_at ? `Última revisión: ${formatSheetsDate(data.config.last_check_at)}` : "",
+        importText: "",
+      });
+    }
+  } catch (error) {
+    stopSheetsProgress(false);
+    setSheetsProgress(100, "Error de sincronización · 100%");
+    setSheetsReviewState({
+      subtitle: "Error de sincronización",
+      message: error.message,
+      check: "",
+      importText: "",
+    });
+  }
+}
+
+if (sheetsToggleButton && sheetsSearchPanel) {
+  sheetsToggleButton.addEventListener("click", () => {
+    const isOpen = sheetsSearchPanel.classList.toggle("is-open");
+    sheetsToggleButton.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    if (isOpen) window.setTimeout(() => sheetsUrlInput?.focus(), 180);
+  });
+}
+
+if (sheetsSyncButton) sheetsSyncButton.addEventListener("click", runSheetsSync);
+if (sheetsUrlInput) {
+  sheetsUrlInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      runSheetsSync();
+    }
+  });
+}
+
+if (sheetsReviewCloseButton) sheetsReviewCloseButton.addEventListener("click", closeSheetsReviewModal);
+if (sheetsReviewClose) sheetsReviewClose.addEventListener("click", closeSheetsReviewModal);
+document.querySelectorAll("[data-close-sheets-review]").forEach((el) => {
+  el.addEventListener("click", closeSheetsReviewModal);
+});
+
+loadSheetsStatus();
