@@ -31,7 +31,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from app.models import Act, Learner, ImportHistory
-from app.services import indicadores
+from app.services import indicadores, parsers
 
 
 def _lote_file_name(session: Session, lote_id: int | None) -> str | None:
@@ -188,6 +188,90 @@ REPORT_TYPES = {
     "actas": "Informe de actas",
 }
 
+INCIDENCE_SHEET_TITLE = "IncidenciasPendientes"
+INCIDENCE_CHART_TITLE = "Aprendices por incidencia"
+INCIDENCE_NOTE = (
+    "Nota: cada aprendiz se cuenta una vez por cada incidencia que tenga, "
+    "aunque también presente otras incidencias simultáneas. Por eso las barras "
+    "no son excluyentes entre sí y un mismo aprendiz puede sumar en varias. "
+    'Ejemplo: la barra "No anexa T&T" incluye a quienes solo tienen esa '
+    'incidencia y a quienes además tienen "Documento de identidad", "APE", '
+    '"Destrucción del carnet" u otra.'
+)
+
+
+def _incidence_rows(dataset: dict[str, Any]) -> list[dict[str, Any]]:
+    """Cuenta aprendices por incidencia canónica.
+
+    Un aprendiz aporta una unidad a cada incidencia que tenga, sin excluir las
+    demás. Si el dataset no trae aprendices locales con motivo (por ejemplo, un
+    consolidado importado sin padrón local), se reutiliza el conteo canónico de
+    ``causas_no_certificacion``.
+    """
+    learners = dataset.get("_learners") or []
+    counts = parsers.aggregate_causas(
+        [getattr(learner, "non_certification_reason", None) for learner in learners]
+    )
+    if not counts:
+        motivos = (dataset.get("causas_no_certificacion") or {}).get("motivos") or []
+        counts = {
+            item["motivo"]: int(item["cantidad"])
+            for item in motivos
+            if item.get("motivo") and item.get("cantidad") is not None
+        }
+    return [
+        {"Incidencia": motivo, "Aprendices": cantidad}
+        for motivo, cantidad in sorted(
+            counts.items(), key=lambda item: (-item[1], item[0].casefold())
+        )
+    ]
+
+
+def _append_incidence_sheet(workbook, dataset: dict[str, Any]) -> None:
+    """Agrega la hoja de datos que alimenta el gráfico de incidencias."""
+    if INCIDENCE_SHEET_TITLE in workbook.sheetnames:
+        del workbook[INCIDENCE_SHEET_TITLE]
+    worksheet = workbook.create_sheet(INCIDENCE_SHEET_TITLE)
+    worksheet.append(["Incidencia", "Aprendices"])
+    for row in _incidence_rows(dataset):
+        worksheet.append([row["Incidencia"], row["Aprendices"]])
+
+
+def _with_incidence_sheet(content: bytes, dataset: dict[str, Any]) -> bytes:
+    workbook = load_workbook(BytesIO(content))
+    _append_incidence_sheet(workbook, dataset)
+    output = BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+def _add_incidence_note(target, anchor: str, chart_height: float) -> None:
+    """Escribe la nota metodológica debajo del gráfico de incidencias."""
+    anchor_row = int("".join(character for character in anchor if character.isdigit()))
+    anchor_column = target[anchor].column
+    chart_rows = int(chart_height / 0.529) + 1
+    note_row = anchor_row + chart_rows + 1
+    note_end_column = anchor_column + 11
+    target.merge_cells(
+        start_row=note_row,
+        start_column=anchor_column,
+        end_row=note_row + 3,
+        end_column=note_end_column,
+    )
+    note_cell = target.cell(row=note_row, column=anchor_column)
+    note_cell.value = INCIDENCE_NOTE
+    note_cell.font = Font(italic=True, size=10, color="92400E")
+    note_cell.fill = PatternFill("solid", fgColor="FEF3C7")
+    note_cell.alignment = Alignment(wrap_text=True, vertical="top")
+    note_cell.border = Border(
+        left=Side(style="thin", color="F59E0B"),
+        right=Side(style="thin", color="F59E0B"),
+        top=Side(style="thin", color="F59E0B"),
+        bottom=Side(style="thin", color="F59E0B"),
+    )
+    for row in range(note_row, note_row + 4):
+        target.row_dimensions[row].height = 15
+
 
 def available_report_formats(report_type: str) -> list[str]:
     if report_type not in REPORT_TYPES:
@@ -336,7 +420,10 @@ def export_report_xlsx(
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
             pd.DataFrame(rows).to_excel(writer, sheet_name=sheet, index=False)
         buffer.seek(0)
-        return _style_workbook(buffer.getvalue())
+        content = buffer.getvalue()
+        if report_type == "pendientes":
+            content = _with_incidence_sheet(content, dataset)
+        return _style_workbook(content)
     return _export_general_xlsx(dataset)
 
 
@@ -361,6 +448,7 @@ def export_consolidated_xlsx(session: Session, *, year: int | None = None) -> by
             worksheet.append(headers)
             for row in rows:
                 worksheet.append([row.get(header) for header in headers])
+    _append_incidence_sheet(workbook, dataset)
     output = BytesIO()
     workbook.save(output)
     return _style_workbook(output.getvalue())
@@ -450,6 +538,9 @@ def _style_workbook(content: bytes) -> bytes:
                 )
 
         summary = workbook["Resumen"] if "Resumen" in workbook.sheetnames else workbook.active
+        # La exportación consolidada estiliza el libro más de una vez. Se
+        # reconstruyen los gráficos para no duplicarlos en la hoja Resumen.
+        summary._charts = []
         if "Categorias" in workbook.sheetnames:
             chart = BarChart()
             chart.type = "col"
@@ -491,6 +582,57 @@ def _style_workbook(content: bytes) -> bytes:
             chart.dataLabels = None
             chart.legend = None
             summary.add_chart(chart, "D20")
+        if INCIDENCE_SHEET_TITLE in workbook.sheetnames:
+            data_sheet = workbook[INCIDENCE_SHEET_TITLE]
+            has_incidences = (
+                data_sheet.max_row >= 2
+                and data_sheet.cell(row=2, column=1).value not in (None, "")
+            )
+            if has_incidences:
+                target_name = (
+                    "Resumen"
+                    if "Resumen" in workbook.sheetnames
+                    else ("Pendientes" if "Pendientes" in workbook.sheetnames else None)
+                )
+                if target_name:
+                    target = workbook[target_name]
+                    row_count = data_sheet.max_row - 1
+                    chart_height = max(8.0, min(18.0, 2.0 + row_count * 0.62))
+                    chart = BarChart()
+                    chart.type = "bar"
+                    chart.style = 10
+                    chart.title = INCIDENCE_CHART_TITLE
+                    chart.x_axis.scaling.orientation = "maxMin"
+                    chart.y_axis.scaling.min = 0
+                    chart.height = chart_height
+                    chart.width = 17
+                    values = Reference(
+                        data_sheet,
+                        min_col=2,
+                        min_row=1,
+                        max_row=data_sheet.max_row,
+                    )
+                    labels = Reference(
+                        data_sheet,
+                        min_col=1,
+                        min_row=2,
+                        max_row=data_sheet.max_row,
+                    )
+                    chart.add_data(values, titles_from_data=True)
+                    chart.set_categories(labels)
+                    chart.dataLabels = DataLabelList()
+                    chart.dataLabels.showVal = True
+                    chart.dataLabels.showSerName = False
+                    chart.dataLabels.showCatName = False
+                    chart.dataLabels.showLegendKey = False
+                    chart.dataLabels.showPercent = False
+                    chart.dataLabels.showBubbleSize = False
+                    chart.dataLabels.dLblPos = "outEnd"
+                    chart.dataLabels.numFmt = "0"
+                    chart.legend = None
+                    anchor = "D36" if target_name == "Resumen" else "H2"
+                    target.add_chart(chart, anchor)
+                    _add_incidence_note(target, anchor, chart_height)
 
         output = BytesIO()
         workbook.save(output)

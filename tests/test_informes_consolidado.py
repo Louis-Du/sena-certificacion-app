@@ -8,9 +8,9 @@ from types import SimpleNamespace
 
 from openpyxl import load_workbook
 
-from app.models import ImportedRecord, ImportHistory
+from app.models import ImportedRecord, ImportHistory, Learner
 from app.services.indicadores import compute_indicadores_2026, compute_certificados_por_mes
-from app.services.informes import _report_rows, consolidate_report_dataset
+from app.services.informes import _incidence_rows, _report_rows, consolidate_report_dataset
 
 
 def _seed(session, information_type, records, *, source_type=None, status="completed", file_name="prueba.xlsx"):
@@ -68,6 +68,27 @@ def _meta(superior=None, tecnica=None, articulacion=None, complementaria=None):
         "complementaria": complementaria,
     }
     return {k: v for k, v in valores.items() if isinstance(v, int)}
+
+
+def _learner(document, reason, status="PENDIENTE"):
+    return Learner(
+        identification=document,
+        name=f"Persona {document}",
+        certification_status=status,
+        non_certification_reason=reason,
+    )
+
+
+def _seed_incidence_learners(session):
+    session.add_all(
+        [
+            _learner("2", "No anexa T&T, APE"),
+            _learner("3", "No anexa T&T y Documento de Identidad"),
+            _learner("4", "APE"),
+            _learner("5", "No anexa T&T, Destrucción del Carnet"),
+        ]
+    )
+    session.commit()
 
 
 def test_sin_importaciones_advertencia_y_sin_cifras_inventadas(session_factory):
@@ -379,3 +400,82 @@ def test_graficos_excel_tienen_una_serie_y_etiquetas_legibles(client):
     assert month_chart.legend is None
     assert len(month_chart.ser) == 1
     assert month_chart.dataLabels is None
+
+
+def test_export_pendientes_incluye_grafico_de_incidencias_no_excluyentes(client):
+    from openpyxl.chart.label import DataLabelList
+
+    with client.session_factory() as session:
+        _seed(session, "certificados", [_certificado("1", "TECNÓLOGO", "JUNIO")])
+        _seed(session, "meta", [_meta(superior=100)])
+        _seed_incidence_learners(session)
+
+    response = client.get("/api/informes/export?type=pendientes&format=xlsx")
+    assert response.status_code == 200
+    workbook = load_workbook(BytesIO(response.content))
+    assert {"Pendientes", "IncidenciasPendientes"} <= set(workbook.sheetnames)
+
+    data_sheet = workbook["IncidenciasPendientes"]
+    counts = {
+        row[0].value: row[1].value
+        for row in data_sheet.iter_rows(min_row=2)
+        if row[0].value
+    }
+    # Un aprendiz suma en cada incidencia que tenga, aunque tenga varias.
+    assert counts == {
+        "No anexa T&T": 3,
+        "APE": 2,
+        "Destrucción del carnet": 1,
+        "Documento de identidad": 1,
+    }
+
+    target = workbook["Pendientes"]
+    assert len(target._charts) == 1
+    chart = target._charts[0]
+    assert chart.type == "bar"
+    assert len(chart.ser) == 1
+    assert isinstance(chart.dataLabels, DataLabelList)
+    assert chart.dataLabels.showVal
+    assert any(
+        isinstance(cell.value, str) and "no son excluyentes" in cell.value
+        for row in target.iter_rows()
+        for cell in row
+    )
+
+
+def test_export_consolidado_coloca_grafico_de_incidencias_en_resumen(client):
+    with client.session_factory() as session:
+        _seed(session, "certificados", [_certificado("1", "TECNÓLOGO", "JUNIO")])
+        _seed(session, "meta", [_meta(superior=100)])
+        _seed_incidence_learners(session)
+
+    response = client.get("/api/informes/export?type=consolidado&format=xlsx")
+    assert response.status_code == 200
+    workbook = load_workbook(BytesIO(response.content))
+    assert "IncidenciasPendientes" in workbook.sheetnames
+
+    summary = workbook["Resumen"]
+    assert len(summary._charts) == 3
+    assert summary._charts[-1].type == "bar"
+    assert any(
+        isinstance(cell.value, str) and "no son excluyentes" in cell.value
+        for row in summary.iter_rows()
+        for cell in row
+    )
+
+
+def test_incidence_rows_usa_causas_cuando_no_hay_padron_local():
+    rows = _incidence_rows(
+        {
+            "causas_no_certificacion": {
+                "motivos": [
+                    {"motivo": "No anexa T&T", "cantidad": 2},
+                    {"motivo": "APE", "cantidad": 1},
+                ]
+            }
+        }
+    )
+    assert rows == [
+        {"Incidencia": "No anexa T&T", "Aprendices": 2},
+        {"Incidencia": "APE", "Aprendices": 1},
+    ]
