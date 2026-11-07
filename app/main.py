@@ -1,6 +1,7 @@
 # Importamos la clase Path del módulo pathlib para trabajar con rutas de archivos y directorios de manera más conveniente.
 from pathlib import Path 
 # Importamos el decorador asynccontextmanager del módulo contextlib para crear un contexto asíncrono que se puede usar con la declaración with.
+import asyncio
 from contextlib import asynccontextmanager 
 from datetime import date
 from typing import Any
@@ -65,7 +66,15 @@ async def lifespan(_: FastAPI):
             session.commit()
     except Exception:
         pass
+    from app.services.sheets_sync import run_background_worker
+
+    worker_task = asyncio.create_task(run_background_worker())
     yield
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(title="Sena Certificacion App", version="0.1.0", lifespan=lifespan) # El parámetro lifespan se establece en la función lifespan definida anteriormente el cual inicializa la base de datos al iniciar la aplicación.
@@ -105,6 +114,25 @@ class ConflictResolutionRequest(BaseModel):
     status: str
 
 class ConfirmImportRequest(BaseModel):
+    conflict_resolutions: list[ConflictResolutionRequest] = []
+    accept_missing_complementaria: bool = False
+
+class SheetSyncCreateRequest(BaseModel):
+    url: str
+    information_type: str = "actas_completo"
+    interval_seconds: int = 60
+    enabled: bool = True
+
+class SheetSyncPatchRequest(BaseModel):
+    enabled: bool
+
+class SheetSyncPreviewRequest(BaseModel):
+    url: str | None = None
+    information_type: str = "actas_completo"
+    interval_seconds: int = 60
+
+class SheetSyncConfirmRequest(BaseModel):
+    validation_id: str
     conflict_resolutions: list[ConflictResolutionRequest] = []
     accept_missing_complementaria: bool = False
 
@@ -508,6 +536,123 @@ async def informes_formats_endpoint(
     except ValueError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     return {"type": report_type, "name": REPORT_TYPES[report_type], "formats": formats}
+
+# ---------------------------------------------------------------------------
+# Sincronizacion automatica desde Google Sheets
+# ---------------------------------------------------------------------------
+@app.get("/api/sheets/sync")
+async def sheets_sync_status_endpoint(session: Session = Depends(get_db)) -> dict:
+    from app.services.sheets_sync import get_config, config_to_status
+
+    return config_to_status(get_config(session))
+
+
+@app.post("/api/sheets/sync")
+async def sheets_sync_create_endpoint(
+    request: SheetSyncCreateRequest,
+    session: Session = Depends(get_db),
+) -> dict:
+    from app.services.sheets_sync import save_config, config_to_status
+
+    try:
+        config = save_config(
+            session,
+            request.url,
+            request.information_type,
+            request.interval_seconds,
+            request.enabled,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return config_to_status(config)
+
+
+@app.patch("/api/sheets/sync")
+async def sheets_sync_patch_endpoint(
+    request: SheetSyncPatchRequest,
+    session: Session = Depends(get_db),
+) -> dict:
+    from app.services.sheets_sync import update_enabled, config_to_status
+
+    config = update_enabled(session, request.enabled)
+    if config is None:
+        raise HTTPException(status_code=404, detail="No hay configuracion de sincronizacion.")
+    return config_to_status(config)
+
+
+@app.post("/api/sheets/sync/run")
+async def sheets_sync_run_endpoint(session: Session = Depends(get_db)) -> dict:
+    from app.services.sheets_sync import run_sync, get_config, config_to_status
+
+    config = get_config(session)
+    if config is None:
+        raise HTTPException(status_code=404, detail="No hay configuracion de sincronizacion.")
+    try:
+        config = run_sync(session)
+    except Exception as error:  # noqa: BLE001
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        config = get_config(session)
+        if config is None:
+            raise HTTPException(status_code=500, detail=str(error)) from error
+        if config.last_status != "error":
+            config.last_status = "error"
+            config.last_message = str(error)
+            try:
+                session.commit()
+            except Exception:
+                session.rollback()
+    return config_to_status(config)
+
+
+@app.post("/api/sheets/sync/preview")
+async def sheets_sync_preview_endpoint(
+    request: SheetSyncPreviewRequest,
+    session: Session = Depends(get_db),
+) -> dict:
+    from app.services.sheets_sync import prepare_sync
+
+    try:
+        return prepare_sync(
+            session,
+            request.url,
+            request.information_type,
+            request.interval_seconds,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/sheets/sync/confirm")
+async def sheets_sync_confirm_endpoint(
+    request: SheetSyncConfirmRequest,
+    session: Session = Depends(get_db),
+) -> dict:
+    from app.services.sheets_sync import confirm_sync
+
+    resolutions = [item.model_dump() for item in request.conflict_resolutions]
+    try:
+        return confirm_sync(
+            session,
+            request.validation_id,
+            resolutions,
+            accept_missing_complementaria=request.accept_missing_complementaria,
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.delete("/api/sheets/sync")
+async def sheets_sync_delete_endpoint(session: Session = Depends(get_db)) -> dict:
+    from app.services.sheets_sync import delete_config, config_to_status
+
+    delete_config(session)
+    return config_to_status(None)
+
 
 # ---------------------------------------------------------------------------
 # Parche de actividad para el heatmap de la UI v2

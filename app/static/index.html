@@ -48,6 +48,13 @@
     <header class="topbar" id="carga">
       <div class="brand-mark" aria-hidden="true">SC</div>
       <div><p class="eyebrow">SENA Certificación</p><h1>Cargar información</h1><p class="subtitle">Importa archivos oficiales, bases DF14A o matrices de seguimiento para la certificación.</p></div>
+      <div class="topbar-actions sheets-topbar-actions">
+        <div class="sheets-search-panel" id="sheets-search-panel">
+          <input id="sheets-url-input" type="url" placeholder="docs.google.com/spreadsheets/d/ID/edit" aria-label="URL de Google Sheets">
+          <button id="sheets-sync-button" class="primary-button" type="button">Sincronizar</button>
+        </div>
+        <button id="sheets-toggle-button" class="primary-button sheets-toggle-button" type="button" aria-expanded="false" aria-controls="sheets-search-panel">Google Sheets</button>
+      </div>
     </header>
 
     <nav class="steps" aria-label="Progreso de carga"><span class="step active"><b>1</b> Seleccionar</span><i></i><span class="step"><b>2</b> Validar</span><i></i><span class="step"><b>3</b> Confirmar</span></nav>
@@ -438,7 +445,7 @@
       <button id="modal-close-button" class="modal-close" type="button" aria-label="Cerrar revisión de importación">×</button>
       <div id="import-modal-body"></div>
       <div class="modal-progress" id="modal-progress" hidden>
-        <div class="modal-progress-track"><div class="modal-progress-bar"></div></div>
+        <div class="modal-progress-track"><div class="modal-progress-bar" id="modal-progress-bar"></div></div>
         <p class="modal-progress-label" id="modal-progress-label">Confirmando importación…</p>
       </div>
       <div class="modal-actions">
@@ -518,6 +525,33 @@
       </div>
     </div>
   </div>
+  <div id="sheets-review-modal" class="modal-root" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="sheets-review-title">
+    <div class="modal-backdrop" data-close-sheets-review></div>
+    <div class="modal-dialog" tabindex="-1">
+      <button id="sheets-review-close" class="modal-close" type="button" aria-label="Cerrar">×</button>
+      <div class="report-modal-header">
+        <span class="report-modal-icon" aria-hidden="true">📊</span>
+        <div>
+          <p class="eyebrow">Sincronización Google Sheets</p>
+          <h2 id="sheets-review-title">Resultado de sincronización</h2>
+          <p id="sheets-review-subtitle">Procesando la hoja...</p>
+        </div>
+      </div>
+      <div class="upload-progress is-active" id="sheets-progress" aria-live="polite">
+        <div class="upload-progress-track"><div class="upload-progress-bar" id="sheets-progress-bar"></div></div>
+        <p class="upload-progress-label" id="sheets-progress-label">Sincronizando…</p>
+      </div>
+      <div class="sheets-sync-status" id="sheets-review-status">
+        <p id="sheets-review-message"></p>
+        <p id="sheets-review-check"></p>
+        <p id="sheets-review-import"></p>
+      </div>
+      <div class="report-modal-actions">
+        <button id="sheets-review-close-button" class="cancel-button" type="button">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
   <script src="/static/vendor/chart.umd.min.js"></script>
   <script src="/static/app.js?v=20261105-v17"></script>

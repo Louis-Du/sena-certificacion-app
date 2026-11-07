@@ -32,6 +32,30 @@ Los campos de dominio se mantienen opcionales cuando su formato o regla todavia 
 ha sido confirmado. La importacion continua guardando el registro original como JSON
 y, para archivos DF14A, actualiza el listado base de aprendices en SQLite.
 
+## Sincronizacion automatica desde Google Sheets
+
+En la vista **Cargar informacion**, el boton **Google Sheets** de la barra
+superior despliega un buscador para pegar la URL de una hoja compartida como
+"Cualquier persona con el enlace" -> Lector. El sistema descarga el XLSX publico,
+calcula el hash SHA-256 y muestra una revision previa con los conflictos
+CERTIFICADOS/PENDIENTES antes de importar. La importacion solo se ejecuta al
+confirmar y reutiliza el flujo existente (`stage_file` + `confirm_import`).
+
+Endpoints disponibles bajo `/api/sheets/sync`:
+
+- `GET` estado actual
+- `POST` registrar/actualizar URL y activar
+- `PATCH` `{ "enabled": true/false }`
+- `POST /preview` descarga y valida sin importar (para revisar conflictos)
+- `POST /confirm` confirma la importacion revisada
+- `POST /run` sincronizacion automatica inmediata
+- `DELETE` eliminar configuracion
+
+El flujo manual del boton **Google Sheets** usa `/preview` y `/confirm` para
+mostrar la misma revision de importacion que la carga de archivos. La
+sincronizacion automatica no decide conflictos CERTIFICADOS/PENDIENTES: los deja
+pendientes para resolucion manual.
+
 ## Ejecutar en desarrollo
 
 ```powershell

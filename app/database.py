@@ -14,7 +14,11 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/sena_certificacion.db
 if DATABASE_URL == "sqlite:///./data/sena_certificacion.db":
     (BASE_DIR / "data").mkdir(parents=True, exist_ok=True)
 
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+connect_args = (
+    {"check_same_thread": False, "timeout": 30}
+    if DATABASE_URL.startswith("sqlite")
+    else {}
+)
 engine = create_engine(DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
