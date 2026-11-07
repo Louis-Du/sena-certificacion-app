@@ -867,7 +867,7 @@ def _sheet_categories(wb: Workbook, dataset: dict[str, Any]) -> None:
             8: '0.0"%"',
         },
         blank_columns={3, 4, 5, 6, 7, 8},
-        freeze=True,
+        freeze=False,
     )
     # Resaltar la mayor brecha y las categorias que cumplen la meta.
     brechas = [
@@ -1025,7 +1025,7 @@ def _sheet_monthly(wb: Workbook, dataset: dict[str, Any]) -> None:
         widths=[18, 16, 16, 16],
         number_formats={2: "#,##0", 3: '0.0"%"', 4: "#,##0"},
         blank_columns={2, 3, 4},
-        freeze=True,
+        freeze=False,
     )
     row = last_row + 2
     row = _section(ws, row, "Observaciones descriptivas", last_col=9, color=BLUE)
@@ -1329,7 +1329,7 @@ def _sheet_acts(wb: Workbook, dataset: dict[str, Any]) -> None:
         widths=[14, 18, 14, 18, 14, 14, 42],
         number_formats={2: "#,##0"},
         blank_columns={2},
-        freeze=True,
+        freeze=False,
     )
     row = last_row + 1
     row = _note(
@@ -1395,7 +1395,6 @@ def _sheet_learners(wb: Workbook, dataset: dict[str, Any], *, title: str | None 
         kind="warning",
         chars_per_line=95,
     )
-    row += 1
     row = _section(ws, row, "Resumen del padrón local", last_col=8, color=DARK_GREEN)
     cards = [
         {
@@ -1464,7 +1463,7 @@ def _sheet_learners(wb: Workbook, dataset: dict[str, Any], *, title: str | None 
         headers,
         table_rows,
         widths=[18, 32, 32, 14, 20, 14, 26],
-        freeze=True,
+        freeze=False,
         highlight_status=5,
     )
     row = last_row + 1
@@ -1568,7 +1567,7 @@ def _sheet_pending_local(wb: Workbook, dataset: dict[str, Any]) -> None:
         headers,
         table_rows,
         widths=[18, 32, 32, 14, 30, 14, 24],
-        freeze=True,
+        freeze=False,
         highlight_status=6,
     )
     row = last_row + 1
@@ -1641,7 +1640,7 @@ def _sheet_traceability(wb: Workbook, dataset: dict[str, Any]) -> None:
         headers,
         table_rows,
         widths=[18, 32, 32, 14, 30, 14, 24],
-        freeze=True,
+        freeze=False,
         highlight_status=6,
     )
     row = last_row + 2
