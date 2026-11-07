@@ -63,27 +63,176 @@
   const reportClose = document.getElementById("report-modal-close");
   const reportCancel = document.getElementById("report-modal-cancel");
   const reportGenerate = document.getElementById("report-generate-button");
-  const reportFeedback = document.getElementById("report-modal-feedback");
+  const reportStatus = document.getElementById("report-modal-status");
+  const reportTypeOptions = document.getElementById("report-type-options");
+  const reportTypeDescription = document.getElementById("report-type-description");
+  const reportScope = document.getElementById("report-scope");
+  const reportDetail = document.getElementById("report-detail");
   const reportFormat = document.getElementById("report-format");
-  let selectedReportType = "general";
+  let selectedReportType = "consolidado";
+  let reportCatalog = [];
+  let isGenerating = false;
 
-  function updateReportLink() {
-    if (!reportGenerate) return;
-    const csvOption = reportFormat?.querySelector('option[value="csv"]');
-    if (csvOption) {
-      csvOption.disabled = selectedReportType === "consolidado";
-      if (csvOption.disabled && reportFormat.value === "csv") reportFormat.value = "xlsx";
+  function setStatus(message, kind) {
+    if (!reportStatus) return;
+    reportStatus.textContent = message || "";
+    reportStatus.className = "report-modal-feedback" + (kind ? " " + kind : "");
+  }
+
+  async function loadCatalog() {
+    try {
+      const res = await fetch("/api/informes/catalog", { cache: "no-store" });
+      if (!res.ok) throw new Error("No se pudo cargar el catálogo de informes.");
+      reportCatalog = await res.json();
+    } catch (error) {
+      reportCatalog = [];
+      setStatus(error.message, "error");
     }
-    const format = reportFormat?.value || "xlsx";
-    reportGenerate.href = `/api/informes/export?type=${encodeURIComponent(selectedReportType)}&format=${format}`;
-    reportGenerate.download = `informe_${selectedReportType}.${format}`;
+    renderTypeOptions();
+    updateControls();
+  }
+
+  function findType(type) {
+    return reportCatalog.find((item) => item.type === type) || null;
+  }
+
+  function renderTypeOptions() {
+    if (!reportTypeOptions) return;
+    reportTypeOptions.replaceChildren();
+    (reportCatalog.length ? reportCatalog : [
+      { type: "consolidado", name: "Informe consolidado de certificación", description: "Resumen, categorías, evolución, pendientes, gestión documental y anexos.", formats: ["pdf", "xlsx"], scopes: ["consolidado"], details: ["completo", "ejecutivo"] },
+    ]).forEach((item) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "report-option" + (item.type === selectedReportType ? " is-selected" : "");
+      button.setAttribute("role", "radio");
+      button.setAttribute("aria-checked", String(item.type === selectedReportType));
+      button.dataset.reportType = item.type;
+      button.innerHTML = `<span class="report-option-icon" aria-hidden="true">▤</span><span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.description)}</small><em>${item.formats.map((f) => f.toUpperCase()).join(" · ")}</em></span>`;
+      button.addEventListener("click", () => {
+        selectedReportType = item.type;
+        renderTypeOptions();
+        updateControls();
+      });
+      reportTypeOptions.appendChild(button);
+    });
+  }
+
+  function currentType() {
+    return findType(selectedReportType);
+  }
+
+  function updateControls() {
+    const item = currentType();
+    const formats = item ? item.formats : ["xlsx"];
+    const scopes = item ? item.scopes : ["consolidado"];
+    const details = item ? item.details : ["completo"];
+
+    if (reportTypeDescription) {
+      reportTypeDescription.textContent = item ? item.description : "";
+    }
+
+    if (reportScope) {
+      reportScope.replaceChildren();
+      scopes.forEach((scope) => {
+        const label = scope === "filtrado" ? "Vista filtrada actual" : "Consolidado general";
+        reportScope.add(new Option(label, scope));
+      });
+      reportScope.disabled = scopes.length <= 1;
+    }
+
+    if (reportDetail) {
+      reportDetail.replaceChildren();
+      details.forEach((detail) => {
+        const label = detail === "ejecutivo" ? "Ejecutivo" : "Completo";
+        reportDetail.add(new Option(label, detail));
+      });
+      reportDetail.disabled = details.length <= 1;
+    }
+
+    if (reportFormat) {
+      const previous = reportFormat.value;
+      reportFormat.replaceChildren();
+      formats.forEach((format) => {
+        reportFormat.add(new Option(format.toUpperCase(), format));
+      });
+      if (formats.includes(previous)) reportFormat.value = previous;
+      else reportFormat.value = formats[0] || "xlsx";
+    }
+  }
+
+  function getLearnerFilters() {
+    const search = (document.getElementById("learner-search")?.value || "").trim();
+    const status = document.getElementById("learner-status")?.value || "";
+    return { search, status };
+  }
+
+  async function generateReport() {
+    if (isGenerating) return;
+    isGenerating = true;
+    if (reportGenerate) {
+      reportGenerate.disabled = true;
+      reportGenerate.textContent = "Generando…";
+    }
+    setStatus("Generando el informe, por favor espera…", "info");
+    try {
+      const format = reportFormat?.value || "xlsx";
+      const scope = reportScope?.value || "consolidado";
+      const detail = reportDetail?.value || "completo";
+      const params = new URLSearchParams({
+        type: selectedReportType,
+        format,
+        scope,
+        detail,
+      });
+      if (scope === "filtrado") {
+        const filters = getLearnerFilters();
+        params.set("search", filters.search);
+        params.set("status", filters.status);
+      }
+      const response = await fetch(`/api/informes/export?${params.toString()}`, {
+        method: "GET",
+      });
+      if (!response.ok) {
+        let message = "No se pudo generar el informe.";
+        try {
+          const data = await response.json();
+          if (data && data.detail) message = data.detail;
+        } catch (_) {}
+        throw new Error(message);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="?([^"]+)"?/i);
+      link.download = match ? match[1] : `informe_${selectedReportType}.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setStatus("Informe generado y descargado correctamente.", "success");
+      showToast("Informe generado correctamente.", "success");
+      window.setTimeout(closeReportModal, 900);
+    } catch (error) {
+      setStatus(error.message || "No se pudo generar el informe.", "error");
+      showToast(error.message || "No se pudo generar el informe.", "error");
+    } finally {
+      isGenerating = false;
+      if (reportGenerate) {
+        reportGenerate.disabled = false;
+        reportGenerate.textContent = "Generar informe";
+      }
+    }
   }
 
   function closeReportModal() {
-    if (!reportModal) return;
-    reportModal.classList.remove("is-open");
-    reportModal.setAttribute("aria-hidden", "true");
-    document.body.style.overflow = "";
+    if (reportModal) {
+      reportModal.classList.remove("is-open");
+      reportModal.setAttribute("aria-hidden", "true");
+      document.body.style.overflow = "";
+    }
   }
 
   function openReportModal() {
@@ -91,7 +240,7 @@
     reportModal.classList.add("is-open");
     reportModal.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
-    reportFeedback.textContent = "";
+    setStatus("", "");
     reportGenerate?.focus();
   }
 
@@ -101,33 +250,14 @@
   reportModal?.querySelectorAll("[data-close-report-modal]").forEach((element) => {
     element.addEventListener("click", closeReportModal);
   });
-  reportModal?.querySelectorAll(".report-option").forEach((option) => {
-    option.addEventListener("click", () => {
-      if (option.classList.contains("is-disabled")) {
-        reportFeedback.textContent = "Este tipo de informe todavía no está disponible.";
-        return;
-      }
-      reportModal.querySelectorAll(".report-option").forEach((item) => {
-        const selected = item === option;
-        item.classList.toggle("is-selected", selected);
-        item.setAttribute("aria-checked", String(selected));
-      });
-      selectedReportType = option.dataset.reportType || "general";
-      updateReportLink();
-    });
-  });
-  reportFormat?.addEventListener("change", updateReportLink);
-  updateReportLink();
-  reportGenerate?.addEventListener("click", () => {
-    const format = reportFormat?.value || "xlsx";
-    showToast(`Preparando informe ${selectedReportType} en formato ${format.toUpperCase()}.`, "info");
-    window.setTimeout(closeReportModal, 100);
-  });
+  reportGenerate?.addEventListener("click", generateReport);
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && reportModal?.classList.contains("is-open")) {
       closeReportModal();
     }
   });
+
+  loadCatalog();
 
   function observeFeedback() {
     const feedbackEl = document.getElementById("feedback");
