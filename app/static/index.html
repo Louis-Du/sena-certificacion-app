@@ -466,62 +466,29 @@
           <p>Selecciona el alcance y el formato disponible para preparar un documento consistente con los indicadores.</p>
         </div>
       </div>
-      <div class="report-options" role="radiogroup" aria-label="Tipo de informe">
-        <button class="report-option" type="button" role="radio" aria-checked="false" data-report-type="consolidado">
-          <span class="report-option-icon" aria-hidden="true">▤</span>
-          <span><strong>Informe consolidado de certificación</strong><small>Reúne en un solo documento los seis informes disponibles y sus datos.</small><em>PDF · XLSX</em></span>
-        </button>
-        <button class="report-option is-selected" type="button" role="radio" aria-checked="true" data-report-type="general">
-          <span class="report-option-icon" aria-hidden="true">▥</span>
-          <span><strong>Informe general de indicadores</strong><small>Resumen, ejecución por categoría, certificados por mes, causas y actas.</small><em>PDF · XLSX · CSV</em></span>
-        </button>
-        <button class="report-option" type="button" role="radio" aria-checked="false" data-report-type="ejecutivo">
-          <span class="report-option-icon" aria-hidden="true">◈</span>
-          <span><strong>Informe ejecutivo</strong><small>Resumen breve para lectura rápida y seguimiento directivo.</small><em>PDF · XLSX · CSV</em></span>
-        </button>
-        <button class="report-option" type="button" role="radio" aria-checked="false" data-report-type="aprendices">
-          <span class="report-option-icon" aria-hidden="true">♙</span>
-          <span><strong>Informe de aprendices</strong><small>Detalle de aprendices, estados, requisitos y actas relacionadas.</small><em>PDF · XLSX · CSV</em></span>
-        </button>
-        <button class="report-option" type="button" role="radio" aria-checked="false" data-report-type="pendientes">
-          <span class="report-option-icon" aria-hidden="true">!</span>
-          <span><strong>Requisitos y pendientes</strong><small>Seguimiento de requisitos que requieren atención.</small><em>PDF · XLSX · CSV</em></span>
-        </button>
-        <button class="report-option" type="button" role="radio" aria-checked="false" data-report-type="causas">
-          <span class="report-option-icon" aria-hidden="true">⌁</span>
-          <span><strong>Causas de pendientes</strong><small>Frecuencia de motivos e incidencias de no certificación.</small><em>PDF · XLSX · CSV</em></span>
-        </button>
-        <button class="report-option" type="button" role="radio" aria-checked="false" data-report-type="actas">
-          <span class="report-option-icon" aria-hidden="true">▣</span>
-          <span><strong>Informe de actas</strong><small>Actas documentales y su relación con el consolidado.</small><em>PDF · XLSX · CSV</em></span>
-        </button>
-      </div>
+      <div class="report-options" role="radiogroup" aria-label="Tipo de informe" id="report-type-options"></div>
+      <p id="report-type-description" class="report-modal-feedback" style="margin-top:12px;"></p>
       <div class="report-settings">
-        <label>Alcance
-          <select id="report-scope">
-            <option value="consolidado">Consolidado general</option>
+        <label>Periodo
+          <select id="report-period" disabled>
+            <option value="2026">Enero – Septiembre 2026 (periodo del consolidado)</option>
           </select>
+        </label>
+        <label>Alcance
+          <select id="report-scope"></select>
         </label>
         <label>Detalle
-          <select id="report-detail">
-            <option value="completo">Completo</option>
-          </select>
+          <select id="report-detail"></select>
         </label>
         <label>Formato
-          <select id="report-format">
-            <option value="xlsx">XLSX</option>
-            <option value="csv">CSV</option>
-            <option value="pdf">PDF</option>
-          </select>
+          <select id="report-format"></select>
         </label>
-        <div class="report-format" aria-label="Formato disponible">
-          <span>Contenido</span><strong>Datos consistentes</strong><small>Generado desde los servicios existentes de indicadores y modelos locales.</small>
-        </div>
       </div>
+      <p id="report-modal-status" class="report-modal-feedback" role="status"></p>
       <p id="report-modal-feedback" class="report-modal-feedback" role="status"></p>
       <div class="report-modal-actions">
         <button id="report-modal-cancel" class="cancel-button" type="button">Cancelar</button>
-        <a id="report-generate-button" class="primary-button" href="/api/informes/export" download="informe_certificacion_v1.xlsx">Generar informe</a>
+        <button id="report-generate-button" class="primary-button" type="button">Generar informe</button>
       </div>
     </div>
   </div>
