@@ -493,32 +493,60 @@ async def informes_consolidado_resumen_endpoint(
 
 @app.get("/api/informes/export")
 async def informes_export_endpoint(
-    report_type: str = Query(default="general", alias="type"),
+    report_type: str = Query(default="consolidado", alias="type"),
     format: str = Query(default="xlsx", pattern="^(pdf|xlsx|csv)$"),
     year: int | None = Query(default=None, ge=2000, le=2100),
+    scope: str = Query(default="consolidado", pattern="^(consolidado|filtrado)$"),
+    detail: str = Query(default="completo", pattern="^(completo|ejecutivo)$"),
+    search: str = Query(default=""),
+    status: str = Query(default=""),
     session: Session = Depends(get_db),
 ) -> Response:
     """Exporta un informe estructurado en PDF, XLSX o CSV."""
     from app.services.informes import export_report_csv, export_report_pdf, export_report_xlsx
     try:
         if format == "csv":
-            content = export_report_csv(session, report_type=report_type, year=year)
+            content = export_report_csv(
+                session,
+                report_type=report_type,
+                year=year,
+                scope=scope,
+                detail=detail,
+                search=search,
+                status=status,
+            )
             media_type = "text/csv; charset=utf-8"
             filename = f"informe_{report_type}.csv"
         elif format == "pdf":
-            content = export_report_pdf(session, report_type=report_type, year=year)
+            content = export_report_pdf(
+                session,
+                report_type=report_type,
+                year=year,
+                scope=scope,
+                detail=detail,
+                search=search,
+                status=status,
+            )
             media_type = "application/pdf"
             filename = f"informe_{report_type}.pdf"
         else:
-            content = export_report_xlsx(session, report_type=report_type, year=year)
+            content = export_report_xlsx(
+                session,
+                report_type=report_type,
+                year=year,
+                scope=scope,
+                detail=detail,
+                search=search,
+                status=status,
+            )
             media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             filename = (
-                "informe_certificacion_v1.xlsx"
-                if report_type == "general"
+                "informe_consolidado.xlsx"
+                if report_type in {"consolidado", "general"}
                 else f"informe_{report_type}.xlsx"
             )
     except ValueError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
+        raise HTTPException(status_code=400, detail=str(error)) from error
     return Response(
         content=content,
         media_type=media_type,
@@ -528,14 +556,24 @@ async def informes_export_endpoint(
 
 @app.get("/api/informes/formats")
 async def informes_formats_endpoint(
-    report_type: str = Query(default="general", alias="type"),
+    report_type: str = Query(default="consolidado", alias="type"),
 ) -> dict:
     from app.services.informes import REPORT_TYPES, available_report_formats
     try:
         formats = available_report_formats(report_type)
     except ValueError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
-    return {"type": report_type, "name": REPORT_TYPES[report_type], "formats": formats}
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {
+        "type": report_type,
+        "name": REPORT_TYPES[report_type],
+        "formats": formats,
+    }
+
+
+@app.get("/api/informes/catalog")
+async def informes_catalog_endpoint() -> list[dict]:
+    from app.services.informes import report_catalog
+    return report_catalog()
 
 # ---------------------------------------------------------------------------
 # Sincronizacion automatica desde Google Sheets
