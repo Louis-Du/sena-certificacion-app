@@ -527,7 +527,7 @@ def _bar_drawing(
         chart.valueAxis.labels.fontSize = 6.6
         chart.bars[0].fillColor = color
         chart.bars[0].strokeColor = color
-        chart.useAbsolute = 1
+        chart.useAbsolute = 0
         chart.barWidth = min(13, max(8, (chart.height - 18) / max(1, count) - 4))
         chart.barLabelFormat = "%d"
         chart.barLabelArray = None
