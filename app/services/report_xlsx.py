@@ -564,8 +564,8 @@ def _doughnut_chart(
         return
     chart = DoughnutChart()
     chart.title = title
-    chart.height = 8.4
-    chart.width = 7.2
+    chart.height = 10.0
+    chart.width = 9.0
     chart.style = 10
     data = Reference(
         ws, min_col=values_col, min_row=header_row, max_row=last_row
@@ -577,7 +577,7 @@ def _doughnut_chart(
     chart.set_categories(labels)
     chart.dataLabels = DataLabelList()
     chart.dataLabels.showVal = True
-    chart.dataLabels.showCatName = True
+    chart.dataLabels.showCatName = False
     chart.dataLabels.showSerName = False
     chart.dataLabels.showPercent = False
     chart.dataLabels.showLegendKey = False
@@ -923,7 +923,7 @@ def _sheet_categories(wb: Workbook, dataset: dict[str, Any]) -> None:
         header_row=header_row,
         last_row=last_row,
         title="Avance por categoría (%)",
-        anchor="K4",
+        anchor="K12",
         horizontal=True,
         height=8.0,
         width=12.5,
@@ -1070,7 +1070,7 @@ def _sheet_monthly(wb: Workbook, dataset: dict[str, Any]) -> None:
         header_row=header_row,
         last_row=last_row,
         title="Certificados por mes",
-        anchor=f"F{header_row}",
+        anchor=f"A{row + 1}",
         horizontal=False,
         height=9.5,
         width=13.0,
@@ -1113,7 +1113,7 @@ def _sheet_causes(wb: Workbook, dataset: dict[str, Any]) -> None:
         {
             "title": "Personas pendientes únicas",
             "value": _num(causes.get("aprendices_pendientes_unicos")),
-            "note": "Personas clasificadas en las categorías misionales",
+            "note": "Personas con estado Pendiente",
             "accent": AMBER,
             "background": AMBER_SOFT,
         },
@@ -1213,17 +1213,20 @@ def _sheet_causes(wb: Workbook, dataset: dict[str, Any]) -> None:
             kind="info",
             chars_per_line=105,
         )
+    chart_last_row = header_row + len(table_rows) if table_rows else header_row
+    if table_rows and causes.get("aprendices_sin_motivo") is not None:
+        chart_last_row += 1
     _bar_chart(
         ws,
         values_col=2,
         labels_col=1,
         header_row=header_row,
-        last_row=min(header_row + 10, header_row + len(table_rows)) if table_rows else header_row,
+        last_row=chart_last_row,
         title="Principales causas (personas asociadas)",
-        anchor=f"F{header_row}",
+        anchor=f"A{row + 1}",
         horizontal=True,
-        height=10.5,
-        width=13.0,
+        height=max(8.0, (chart_last_row - header_row + 1) * 0.55),
+        width=18.0,
         percent=False,
     )
     for col in range(1, 10):
@@ -1313,10 +1316,21 @@ def _sheet_acts(wb: Workbook, dataset: dict[str, Any]) -> None:
                 item.get("act_type") or "No disponible",
                 metadata,
                 "Sí" if item.get("act_id") is not None else "No",
-                (
-                    ""
-                    if metadata == "Completos"
-                    else "Fecha o tipo no disponibles en el módulo de Actas"
+                " · ".join(
+                    part
+                    for part in [
+                        (
+                            ""
+                            if metadata == "Completos"
+                            else "Fecha o tipo no disponibles en el módulo de Actas"
+                        ),
+                        (
+                            "Identificador de acta inválido"
+                            if item.get("identificador_invalido")
+                            else ""
+                        ),
+                    ]
+                    if part
                 ),
             ]
         )

@@ -346,6 +346,7 @@ def _build_actas(ind: dict[str, Any]) -> dict[str, Any]:
     for item in items:
         if "metadata_completa" not in item:
             item["metadata_completa"] = bool(item.get("act_date") and item.get("act_type"))
+        item["identificador_invalido"] = not parsers.is_valid_act_identifier(item.get("number"))
     total = len(items)
     asociados = sum(
         item.get("aprendices_count")
@@ -511,6 +512,19 @@ def _build_quality(
             "fecha y tipo completos en el módulo de Actas. Se muestran como «No "
             "disponible»; no se construyen fechas a partir del número de acta.",
             quantity=actas["sin_metadatos"],
+            universe=UNIVERSO_INSTITUCIONAL,
+        )
+
+    invalid_actas = sum(1 for item in actas.get("items", []) if item.get("identificador_invalido"))
+    if invalid_actas:
+        add(
+            "acta_identificador_invalido",
+            "media",
+            "Acta con identificador inválido",
+            f"{invalid_actas} acta(s) tienen un identificador que no sigue el patrón "
+            "número+año (por ejemplo «2025»). Se conservan y se marcan como alerta "
+            "de calidad; no se eliminan del informe.",
+            quantity=invalid_actas,
             universe=UNIVERSO_INSTITUCIONAL,
         )
 
@@ -709,14 +723,12 @@ def _build_traceability(
         "conciliacion_certificados": reconciliation,
         "comparacion_causas": cause_comparison,
         "nota_causas": (
-            "La hoja «Causas» y la hoja «IncidenciasPendientes» del informe anterior "
-            "no eran equivalentes: la primera se calculaba con la hoja PENDIENTES del "
-            "consolidado y la segunda con los motivos del padrón local. Además, la "
-            "deduplicación institucional conserva la primera aparición del documento, "
-            "mientras que el padrón local conserva la última versión importada. Por eso "
-            "podían aparecer diferencias como 58 frente a 57 o 13 frente a 12. En este "
-            "informe el análisis institucional usa una sola fuente (PENDIENTES) y los "
-            "motivos locales solo aparecen en el anexo local, claramente etiquetados."
+            "El análisis institucional de causas usa una sola fuente: la hoja "
+            "PENDIENTES del consolidado ACTAS 2026. Los motivos del padrón local solo "
+            "aparecen en el anexo local, claramente etiquetados. Las cifras "
+            "institucionales y locales pueden diferir porque la institucional deduplica "
+            "por documento conservando la primera aparición, mientras que el padrón local "
+            "conserva la última versión importada."
         ),
         "nota_incidencias": INCIDENCE_NOTE,
         "limitaciones": [
@@ -883,6 +895,7 @@ def consolidate_report_dataset(
         "complementaria_canales": ind.get("complementaria_canales"),
         "referencia_institucional": ind.get("referencia_institucional"),
         "conflictos": ind.get("conflictos"),
+        "resoluciones_conflicto": ind.get("resoluciones_conflicto") or {},
     }
     # Aliases de compatibilidad con consumidores anteriores del dataset v1.
     payload["anexos"] = {

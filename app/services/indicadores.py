@@ -1026,11 +1026,13 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
         ),
         "actas_con_detalle": sum(1 for acta in ultimas_actas if acta["act_id"]),
         "conflictos_certificados_pendientes": len(conflictos_cert_pend),
+        "resoluciones_conflicto": dict(resoluciones_conflicto),
         "conflictos": {
             "detectados": len(conflictos_cert_pend),
             "resueltos": len(resoluciones_conflicto),
             "sin_resolver": len(conflictos_sin_resolver),
             "documentos_sin_resolver": sorted(conflictos_sin_resolver),
+            "resoluciones": dict(resoluciones_conflicto),
         },
         # B5: el mismo corte mensual que expone el endpoint dedicado, desde el
         # consolidado vigente y no desde el padron local.

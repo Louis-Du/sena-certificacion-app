@@ -124,6 +124,14 @@ def clean_act_number(value: Any) -> str | None:
     return clean_identification(value)
 
 
+def is_valid_act_identifier(value: Any) -> bool:
+    """Valida que un identificador de acta siga el patron numero+año (ej. 62026)."""
+    text = clean_identification(value)
+    if not text or not text.isdigit():
+        return False
+    return len(text) >= 5 and text[-4:] in {"2025", "2026"}
+
+
 # ---------------------------------------------------------------------------
 # Normalizacion defensiva del estado de certificacion (N1)
 # ---------------------------------------------------------------------------
@@ -462,6 +470,7 @@ def _canonical_cause(fragment: str) -> str:
         "carta carnet": "Carta carnet",
         "documento de identidad vencido": "Documento vencido",
         "documento vencido": "Documento vencido",
+        "documento de vencido": "Documento vencido",
         "documento de identidad": "Documento de identidad",
         "ape": "APE",
         # "No anexa APE" expresses the same missing business requirement.
