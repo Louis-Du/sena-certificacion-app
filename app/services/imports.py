@@ -51,11 +51,16 @@ CONFLICT_STATUSES = {"CERTIFICADOS", "PENDIENTE"}
 _CONFLICT_STATUS_LABELS = {"CERTIFICADOS": "Certificado", "PENDIENTE": "Pendiente"}
 
 
-def _conflict_resolution_map(
+def _normalize_conflict_status(value: Any) -> str | None:
+    status = str(value or "").strip().upper()
+    return status if status in CONFLICT_STATUSES else None
+
+
+def _explicit_conflict_resolutions(
     conflicts: list[dict[str, Any]],
     raw_resolutions: list[dict[str, Any]] | None,
 ) -> dict[str, str]:
-    """Valida que cada conflicto tenga una decision explicita del usuario."""
+    """Lee y valida las decisiones enviadas por la UI."""
     required = {item["identification"]: item for item in conflicts}
     if not required:
         return {}
@@ -64,11 +69,14 @@ def _conflict_resolution_map(
     invalid: list[str] = []
     for item in raw_resolutions or []:
         identification = str(item.get("identification") or "").strip()
-        status = str(item.get("status") or "").strip().upper()
         if identification not in required:
+            # Una resolucion de otro lote no debe romper la importacion actual.
             continue
-        if status not in CONFLICT_STATUSES:
-            invalid.append(f"{identification}: {status or 'sin estado'}")
+        status = _normalize_conflict_status(item.get("status"))
+        if status is None:
+            invalid.append(
+                f"{identification}: {str(item.get('status') or '').strip() or 'sin estado'}"
+            )
             continue
         resolutions[identification] = status
 
@@ -77,13 +85,87 @@ def _conflict_resolution_map(
             "Resolucion de conflicto no valida para "
             f"{', '.join(invalid)}. Use CERTIFICADOS o PENDIENTE."
         )
-    missing = [identification for identification in required if identification not in resolutions]
+    return resolutions
+
+
+def stored_conflict_resolutions(
+    session: Session, conflicts: list[dict[str, Any]]
+) -> dict[str, str]:
+    """Desempates vigentes o historicos para los documentos en conflicto.
+
+    ``conflict_resolution`` solo existe mientras el documento esta en la
+    interseccion. ``last_conflict_resolution`` conserva la ultima decision para
+    reaplicarla en silencio si el documento vuelve a aparecer en ambas hojas.
+    Las bases anteriores a la columna nueva se reconocen por la nota historica.
+    """
+    documents = {
+        str(item.get("identification") or "").strip() for item in conflicts
+    }
+    documents.discard("")
+    if not documents:
+        return {}
+
+    learners = session.scalars(
+        select(Learner).where(Learner.identification.in_(documents))
+    ).all()
+    resolutions: dict[str, str] = {}
+    for learner in learners:
+        status = _normalize_conflict_status(learner.conflict_resolution)
+        if status is None:
+            status = _normalize_conflict_status(
+                getattr(learner, "last_conflict_resolution", None)
+            )
+        if status is None:
+            notes = learner.tracking_notes or ""
+            if "Conflicto resuelto: Certificado" in notes:
+                status = "CERTIFICADOS"
+            elif "Conflicto resuelto: Pendiente" in notes:
+                status = "PENDIENTE"
+        if status is not None:
+            resolutions[learner.identification] = status
+    return resolutions
+
+
+def split_conflicts_by_resolution(
+    session: Session, conflicts: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Separa los cruces que aun requieren decision de los ya desempatados."""
+    saved = stored_conflict_resolutions(session, conflicts)
+    unresolved = [
+        item
+        for item in conflicts
+        if str(item.get("identification") or "").strip() not in saved
+    ]
+    return unresolved, saved
+
+
+def _resolve_conflict_decisions(
+    session: Session,
+    conflicts: list[dict[str, Any]],
+    raw_resolutions: list[dict[str, Any]] | None,
+) -> dict[str, str]:
+    """Combina decisiones nuevas con los desempates ya guardados.
+
+    La decision enviada por el usuario tiene prioridad. Si el documento ya
+    tenia un desempate vigente, se reutiliza sin volver a interrumpir el flujo.
+    """
+    required = {item["identification"]: item for item in conflicts}
+    if not required:
+        return {}
+
+    explicit = _explicit_conflict_resolutions(conflicts, raw_resolutions)
+    effective = {**stored_conflict_resolutions(session, conflicts), **explicit}
+    missing = [
+        identification
+        for identification in required
+        if identification not in effective
+    ]
     if missing:
         raise ValueError(
             f"Faltan {len(missing)} resolucion(es) de conflicto: {', '.join(missing)}. "
             "Elija Certificado o Pendiente para cada aprendiz antes de confirmar."
         )
-    return resolutions
+    return effective
 
 
 def _apply_conflict_resolutions(session: Session, resolutions: dict[str, str]) -> None:
@@ -95,11 +177,47 @@ def _apply_conflict_resolutions(session: Session, resolutions: dict[str, str]) -
         status = resolutions[learner.identification]
         learner.certification_status = status
         learner.conflict_resolution = status
+        learner.last_conflict_resolution = status
         note = f"Conflicto resuelto: {_CONFLICT_STATUS_LABELS[status]}"
         current = (learner.tracking_notes or "").strip()
         if note not in current:
             learner.tracking_notes = f"{current}; {note}" if current else note
     session.flush()
+
+
+def _clear_inactive_conflict_resolutions(
+    session: Session, active_documents: set[str]
+) -> int:
+    """Limpia el desempate de documentos que ya no estan en la interseccion.
+
+    La decision historica (``last_conflict_resolution``) y la nota de auditoria
+    se conservan. Solo se retira el estado condicional que ya no aplica.
+    """
+    learners = session.scalars(
+        select(Learner).where(Learner.conflict_resolution.is_not(None))
+    ).all()
+    cleared = 0
+    for learner in learners:
+        if learner.identification not in active_documents:
+            learner.conflict_resolution = None
+            cleared += 1
+    if cleared:
+        session.flush()
+    return cleared
+
+
+def _actas_snapshot_has_both_sheets(content: bytes) -> bool:
+    """Indica si el lote trae ambas hojas del cruce.
+
+    Sin las dos hojas no se puede afirmar que un documento haya dejado la
+    interseccion, asi que no se limpian desempates en ese caso.
+    """
+    try:
+        sheets = parsers.list_excel_sheets(content)
+    except Exception:
+        return False
+    names = {str(sheet).strip().upper() for sheet in sheets or []}
+    return {"CERTIFICADOS", "PENDIENTES"}.issubset(names)
 
 
 def stage_file(
@@ -134,6 +252,14 @@ def import_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
         for check in staged.result.checks
         if check["status"] in {"warning", "error"}
     ]
+    conflicts = (
+        coherence_conflicts(prepared)
+        if staged.information_type == "actas_completo"
+        else []
+    )
+    saved_resolutions = (
+        stored_conflict_resolutions(session, conflicts) if conflicts else {}
+    )
     preview = {
         "validation_id": staged.validation_id,
         "file_name": staged.file_name,
@@ -149,11 +275,10 @@ def import_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
         "detected_columns": staged.result.detected_columns,
         "missing_columns": staged.result.missing_columns,
         "breakdown": prepared.breakdown(),
-        "coherence_conflicts": (
-            coherence_conflicts(prepared)
-            if staged.information_type == "actas_completo"
-            else []
-        ),
+        "coherence_conflicts": conflicts,
+        # Mapa documento -> desempate guardado. La UI lo usa para preseleccionar
+        # la decision previa sin alterar el contrato de ``coherence_conflicts``.
+        "conflict_resolutions": saved_resolutions,
         "missing_complementaria": getattr(staged.result, "missing_complementaria", False),
     }
     if staged.information_type == "acta":
@@ -273,6 +398,7 @@ def confirm_import(
     session: Session,
     conflict_resolutions: list[dict[str, Any]] | None = None,
     accept_missing_complementaria: bool = False,
+    sheets_manual_cleanup_acknowledged: bool = False,
 ) -> dict[str, Any]:
     staged = get_staged(validation_id)
     if staged is None:
@@ -296,7 +422,13 @@ def confirm_import(
             if staged.information_type == "actas_completo"
             else []
         )
-        resolutions = _conflict_resolution_map(conflicts, conflict_resolutions)
+        resolutions = _resolve_conflict_decisions(
+            session, conflicts, conflict_resolutions
+        )
+        has_full_conflict_snapshot = (
+            staged.information_type == "actas_completo"
+            and _actas_snapshot_has_both_sheets(staged.content)
+        )
 
         final_records = [
             (entry.record, entry.information_type) for entry in prepared.importable
@@ -359,8 +491,33 @@ def confirm_import(
 
         if resolutions:
             _apply_conflict_resolutions(session, resolutions)
-            history.message = (
-                f"{history.message} Conflictos resueltos manualmente: {len(resolutions)}."
+            if conflict_resolutions:
+                history.message = (
+                    f"{history.message} Conflictos resueltos manualmente: "
+                    f"{len(resolutions)}."
+                )
+            else:
+                history.message = (
+                    f"{history.message} Desempates guardados reaplicados: "
+                    f"{len(resolutions)}."
+                )
+            if sheets_manual_cleanup_acknowledged:
+                # Solo trazabilidad local: el acuse no dispara ninguna escritura
+                # ni sincronizacion inversa hacia Google Sheets.
+                history.message = (
+                    f"{history.message} El usuario confirmó la corrección manual "
+                    "del registro duplicado en Google Sheets (solo documental)."
+                )
+
+        if has_full_conflict_snapshot:
+            # Regla condicional: si el documento dejo la interseccion, el
+            # desempate ya no aplica y manda el estado de la unica hoja vigente.
+            _clear_inactive_conflict_resolutions(
+                session,
+                {
+                    str(item.get("identification") or "").strip()
+                    for item in conflicts
+                },
             )
 
         # Las columnas de evidencias de CERTIFICADOS/PENDIENTES se convierten en

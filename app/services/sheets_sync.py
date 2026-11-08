@@ -13,7 +13,13 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models import SheetSyncConfig
-from app.services.imports import confirm_import, get_staged, import_preview, stage_file
+from app.services.imports import (
+    confirm_import,
+    get_staged,
+    import_preview,
+    split_conflicts_by_resolution,
+    stage_file,
+)
 
 
 _sync_lock = threading.Lock()
@@ -363,14 +369,20 @@ def _run_sync_impl(session: Session) -> SheetSyncConfig:
     new_hash = hashlib.sha256(content).hexdigest()
 
     # Un lote en conflicto se conserva hasta que el usuario decida. Si la hoja
-    # no cambió desde ese lote, no se vuelve a validar ni a notificar.
+    # no cambio desde ese lote y aun hay documentos sin desempate, no se vuelve
+    # a validar ni a notificar. Si todos los cruces ya fueron decididos, el
+    # flujo continua y el lote se importa reutilizando esas decisiones.
     if config.last_status == "conflict_pending" and config.pending_hash == new_hash:
-        config.last_message = (
-            f"Hay {config.pending_conflict_count} conflicto(s) entre CERTIFICADOS "
-            "y PENDIENTES pendientes de resolución. El lote no se reimportará solo."
+        unresolved_pending, _ = split_conflicts_by_resolution(
+            session, _pending_conflicts(config)
         )
-        session.commit()
-        return config
+        if unresolved_pending:
+            config.last_message = (
+                f"Hay {len(unresolved_pending)} conflicto(s) entre CERTIFICADOS "
+                "y PENDIENTES pendientes de resolución. El lote no se reimportará solo."
+            )
+            session.commit()
+            return config
 
     if config.last_hash is not None and config.last_hash == new_hash:
         # La hoja volvió al contenido ya importado: el lote en conflicto dejó
@@ -398,11 +410,17 @@ def _run_sync_impl(session: Session) -> SheetSyncConfig:
         return config
 
     conflicts = getattr(result, "coherence_conflicts", None) or []
+    unresolved_conflicts: list[dict[str, Any]] = []
     if conflicts:
-        # La sincronización automática no decide por el usuario: si hay
-        # aprendices en CERTIFICADOS y PENDIENTES a la vez, se deja el lote
-        # pendiente, se conserva el hash anterior y se solicita la
-        # notificación nativa (una sola vez por conjunto de documentos).
+        # Un cruce ya decidido se reutiliza en silencio. Solo los documentos
+        # que aun no tienen un desempate requieren intervencion y notificacion.
+        unresolved_conflicts, _ = split_conflicts_by_resolution(session, conflicts)
+
+    if unresolved_conflicts:
+        # La sincronizacion automatica no decide por el usuario: si hay
+        # aprendices sin desempate en CERTIFICADOS y PENDIENTES, se deja el lote
+        # pendiente, se conserva el hash anterior y se solicita la notificacion
+        # nativa (una sola vez por conjunto de documentos).
         preview: dict[str, Any] | None = None
         try:
             preview = import_preview(staged, session)
@@ -413,13 +431,13 @@ def _run_sync_impl(session: Session) -> SheetSyncConfig:
             staged=staged,
             sheet_hash=new_hash,
             file_name=file_name,
-            conflicts=conflicts,
+            conflicts=unresolved_conflicts,
             preview=preview,
         )
         config.last_message = (
-            f"Se detectaron {len(conflicts)} conflicto(s) entre CERTIFICADOS y "
-            "PENDIENTES. Abra 'Resolver ahora' para elegir el estado final de cada "
-            "aprendiz; el lote no se importará automáticamente."
+            f"Se detectaron {len(unresolved_conflicts)} conflicto(s) entre "
+            "CERTIFICADOS y PENDIENTES. Abra 'Resolver ahora' para elegir el "
+            "estado final de cada aprendiz; el lote no se importará automáticamente."
         )
         session.commit()
         return config
@@ -449,6 +467,11 @@ def _run_sync_impl(session: Session) -> SheetSyncConfig:
             return config
         raise
     config.last_message = import_result.get("message") or "Importación completada."
+    if conflicts and not unresolved_conflicts:
+        config.last_message = (
+            f"{config.last_message} Se reaplicaron {len(conflicts)} desempate(s) "
+            "guardado(s) sin intervención."
+        )
     session.commit()
     return config
 
@@ -616,6 +639,7 @@ def confirm_sync(
     validation_id: str,
     conflict_resolutions: list[dict[str, Any]] | None = None,
     accept_missing_complementaria: bool = False,
+    sheets_manual_cleanup_acknowledged: bool = False,
 ) -> dict[str, Any]:
     """Confirma el lote preparado y actualiza el hash/estado de la sincronización."""
     config = get_config(session)
@@ -644,6 +668,7 @@ def confirm_sync(
                 session,
                 conflict_resolutions,
                 accept_missing_complementaria=accept_missing_complementaria,
+                sheets_manual_cleanup_acknowledged=sheets_manual_cleanup_acknowledged,
             )
         except Exception:
             session.rollback()
@@ -684,24 +709,39 @@ def pending_conflicts_payload(session: Session) -> dict[str, Any]:
     conflicts = _pending_conflicts(config)
     preview = _pending_preview(config)
     staged = _restore_staged(config)
+    live_loaded = False
     if staged is not None:
         try:
             live_preview = import_preview(staged, session)
-            live_conflicts = live_preview.get("coherence_conflicts") or conflicts
+            live_conflicts = live_preview.get("coherence_conflicts") or []
+            if live_conflicts:
+                # La UI solo pide decision para los cruces que siguen sin
+                # desempate; los ya decididos se reaplican al confirmar.
+                conflicts, _ = split_conflicts_by_resolution(
+                    session, live_conflicts
+                )
             preview = live_preview
-            conflicts = live_conflicts
+            live_loaded = True
         except Exception:
             # Se conserva el resumen persistido para que la UI siga mostrando
             # el lote aunque una validación puntual falle.
             pass
 
+    pending_count = (
+        len(conflicts)
+        if live_loaded
+        else int(config.pending_conflict_count or 0)
+    )
+    if isinstance(preview, dict):
+        # El modal de resolucion solo muestra los cruces que aun esperan
+        # decision; los ya desempatados se reaplican al confirmar.
+        preview["coherence_conflicts"] = conflicts
     payload = {
         "status": "conflict_pending",
         "conflict_pending": True,
         "validation_id": config.pending_validation_id,
         "pending_validation_id": config.pending_validation_id,
-        "pending_conflict_count": len(conflicts)
-        or int(config.pending_conflict_count or 0),
+        "pending_conflict_count": pending_count,
         "fingerprint": config.pending_conflict_fingerprint,
         "pending_conflict_fingerprint": config.pending_conflict_fingerprint,
         "conflicts": conflicts,
@@ -744,6 +784,7 @@ def resolve_pending(
     session: Session,
     conflict_resolutions: list[dict[str, Any]] | None = None,
     accept_missing_complementaria: bool = False,
+    sheets_manual_cleanup_acknowledged: bool = False,
 ) -> dict[str, Any]:
     """Resuelve el lote pendiente y completa su importación."""
     config = get_config(session)
@@ -772,6 +813,7 @@ def resolve_pending(
                 session,
                 conflict_resolutions,
                 accept_missing_complementaria=accept_missing_complementaria,
+                sheets_manual_cleanup_acknowledged=sheets_manual_cleanup_acknowledged,
             )
         except Exception:
             session.rollback()

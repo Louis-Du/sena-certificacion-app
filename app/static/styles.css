@@ -1332,6 +1332,90 @@ body.has-conflict-banner .sidebar {
   font-size: var(--text-md);
 }
 
+/* ---------- Modal "Antes de confirmar" ---------- */
+.conflict-confirm-modal {
+  z-index: 110;
+}
+
+.conflict-confirm-dialog {
+  width: min(660px, 100%);
+  padding: 26px 28px;
+}
+
+.conflict-confirm-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.conflict-confirm-icon {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #c2410c;
+  font-size: 1.25rem;
+  font-weight: 800;
+}
+
+.conflict-confirm-header h2 {
+  margin: 2px 0 0;
+  font-size: var(--text-xl);
+}
+
+.conflict-confirm-body {
+  display: grid;
+  gap: 10px;
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+
+.conflict-confirm-body p {
+  margin: 0;
+}
+
+.conflict-confirm-ack {
+  margin-top: 6px;
+  padding: 12px 14px;
+  border: 1px dashed #fdba74;
+  border-radius: 12px;
+  background: #fff7ed;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.conflict-confirm-ack label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: #7c2d12;
+  font-weight: 600;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.conflict-confirm-ack input[type="checkbox"] {
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
+
+.conflict-confirm-ack small {
+  color: #9a3412;
+  line-height: 1.45;
+}
+
+.conflict-confirm-actions {
+  background: none;
+  padding-top: 14px;
+}
+
 .coherence-conflict-row {
   display: grid;
   grid-template-columns: 120px 1fr 120px auto;

@@ -50,8 +50,27 @@ dentro del proceso de la aplicacion (tambien dentro del `.exe`) cada
    sin notificar.
 3. Si cambio, valida el archivo y calcula la vista previa.
 4. Si no hay conflictos, importa automaticamente como antes.
-5. Si hay documentos en CERTIFICADOS y PENDIENTES a la vez, deja el lote en
-   `conflict_pending` y **no importa**.
+5. Si hay documentos en CERTIFICADOS y PENDIENTES a la vez **sin un desempate
+   previo**, deja el lote en `conflict_pending` y **no importa**.
+6. Si todos los cruces ya tienen un desempate guardado, los reaplica en
+   silencio e importa el lote sin abrir de nuevo el flujo de intervencion.
+
+### Desempate condicional (`conflict_resolution`)
+
+`conflict_resolution` no es un estado permanente: solo vale mientras el
+documento siga en la interseccion CERTIFICADOS/PENDIENTES.
+
+- Si en una revision posterior aparece solo en CERTIFICADOS, se toma ese estado
+  y se limpia `conflict_resolution`.
+- Si aparece solo en PENDIENTES, se toma ese estado y se limpia
+  `conflict_resolution`.
+- Si ya no aparece en ninguna hoja, no se fuerza el estado viejo: aplican las
+  reglas normales de importacion y se limpia el desempate.
+- `last_conflict_resolution` conserva la ultima decision manual como historial.
+  Si el documento vuelve a aparecer en ambas hojas, esa decision se reaplica en
+  silencio (sin nuevo toast ni bloqueo), salvo que el usuario la cambie.
+- Resolver en la aplicacion **nunca** modifica Google Sheets. La hoja solo se
+  lee/descarga; cualquier correccion del registro duplicado es manual.
 
 ### Persistencia del lote en conflicto
 
@@ -99,6 +118,18 @@ se importa el lote, se actualiza `last_hash` y se limpian
 `conflict_pending`/`pending_*`/`notified_at`; el banner desaparece. Si el usuario
 cierra sin resolver, el lote sigue pendiente y el worker no lo reimporta.
 
+El panel de conflictos solo contiene la lista de aprendices y la eleccion
+Certificado/Pendiente. Al pulsar **Confirmar importacion**, si el lote tuvo
+conflictos de coherencia, se abre el modal flotante **"Antes de confirmar"**
+antes de enviar el POST. El modal advierte que la decision aplica solo dentro de
+la app, que la aplicacion solo lee Google Sheets y los archivos de origen, que el
+cruce permanecera en la hoja mientras no se corrija manualmente y que, si la
+hoja deja el cruce, la app tomara el estado de la unica lista vigente. Incluye
+una casilla opcional ("Ya corregi o elimine el registro duplicado en Google
+Sheets") que solo se registra en el historial local como trazabilidad
+(`sheets_manual_cleanup_acknowledged`) y no dispara ninguna escritura remota.
+Los lotes sin conflictos se confirman directamente, sin este modal.
+
 ### Endpoints
 
 Endpoints disponibles bajo `/api/sheets/sync`:
@@ -108,11 +139,13 @@ Endpoints disponibles bajo `/api/sheets/sync`:
 - `POST` registrar/actualizar URL y activar
 - `PATCH` `{ "enabled": true/false }`
 - `POST /preview` descarga y valida sin importar (para revisar conflictos)
-- `POST /confirm` confirma la importacion revisada
+- `POST /confirm` confirma la importacion revisada; acepta el acuse
+  `sheets_manual_cleanup_acknowledged` solo para trazabilidad
 - `POST /run` sincronizacion automatica inmediata
 - `GET /pending-conflicts` detalle del lote pendiente (conflictos + preview)
-- `POST /resolve` body `{ "conflict_resolutions": [...] }`; resuelve e importa
-  el lote pendiente
+- `POST /resolve` body
+  `{ "conflict_resolutions": [...], "sheets_manual_cleanup_acknowledged": true }`;
+  resuelve e importa el lote pendiente. El acuse es opcional y solo documental.
 - `POST /notified` body `{ "fingerprint": "..." }`; registra que el toast del SO
   ya se mostro para esa huella
 - `DELETE` eliminar configuracion
@@ -134,6 +167,14 @@ confirmacion limpia el estado pendiente.
 | `POST /resolve` importa, limpia el estado y oculta el banner | `test_resolve_pending_imports_lot_and_clears_state` |
 | Cerrar sin resolver mantiene el lote pendiente | `test_resolve_requires_every_conflict_resolution` |
 | La resolucion funciona tras reiniciar la app (lote recuperado de SQLite) | `test_resolution_recovers_staged_lot_after_restart` |
+| El mismo cruce ya resuelto se reutiliza sin volver a interrumpir | `test_next_scan_reuses_saved_resolution_without_intervencion` |
+| Si el documento deja la interseccion, manda la hoja y se limpia el desempate | `test_document_leaving_intersection_clears_tiebreak_and_follows_sheet` |
+| Si el cruce reaparece, se reaplica la ultima decision sin toast | `test_document_leaving_intersection_clears_tiebreak_and_follows_sheet` |
+| Un conflicto nuevo solo pide decision por el documento nuevo | `test_new_conflict_after_resolved_one_only_requests_the_new_document` |
+| El panel solo pide el estado; la advertencia larga vive en el modal de confirmacion | `test_conflict_panel_only_contains_the_state_decision` |
+| El modal "Antes de confirmar" advierte que solo se lee Sheets y que la correccion es manual | `test_second_confirmation_modal_has_required_warning_and_actions` |
+| El POST de importacion espera la segunda confirmacion cuando hubo conflictos | `test_import_post_waits_for_second_confirmation_when_conflicts_exist` |
+| El acuse de correccion manual queda solo como trazabilidad local | `test_resolve_records_manual_sheets_cleanup_acknowledgement` |
 | El bridge nativo deduplica por huella y el `.exe` declara dependencias | `tests/test_desktop_launcher.py` |
 
 ## Ejecutar en desarrollo

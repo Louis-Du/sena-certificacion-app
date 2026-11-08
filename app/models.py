@@ -74,7 +74,16 @@ class Learner(Base):
     # CERTIFICADOS y PENDIENTES del consolidado. Guarda "CERTIFICADOS" o
     # "PENDIENTE"; None significa que el conflicto no se ha resuelto. El motor de
     # indicadores lo usa para no contar a la misma persona en ambos universos.
+    # Es un desempate CONDICIONAL: solo vale mientras el documento siga en la
+    # interseccion CERTIFICADOS/PENDIENTES. Al dejar de estar en ambas hojas se
+    # limpia este campo.
     conflict_resolution: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # Ultima decision manual de desempate, conservada como historial para
+    # reaplicarla en silencio si el documento vuelve a aparecer en ambas hojas.
+    # No se usa para forzar el estado cuando la hoja ya lo dejo en una sola.
+    last_conflict_resolution: Mapped[str | None] = mapped_column(
+        String(30), nullable=True
+    )
     # Motivo de no certificacion (hoja PENDIENTES de ACTAS 2026.xlsx). Es el
     # "porque" resumido del aprendiz y alimenta el indicador de causas; NO es un
     # requisito ni un estado.

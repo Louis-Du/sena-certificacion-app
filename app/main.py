@@ -116,6 +116,7 @@ class ConflictResolutionRequest(BaseModel):
 class ConfirmImportRequest(BaseModel):
     conflict_resolutions: list[ConflictResolutionRequest] = []
     accept_missing_complementaria: bool = False
+    sheets_manual_cleanup_acknowledged: bool = False
 
 class SheetSyncCreateRequest(BaseModel):
     url: str
@@ -135,10 +136,12 @@ class SheetSyncConfirmRequest(BaseModel):
     validation_id: str
     conflict_resolutions: list[ConflictResolutionRequest] = []
     accept_missing_complementaria: bool = False
+    sheets_manual_cleanup_acknowledged: bool = False
 
 class SheetSyncResolveRequest(BaseModel):
     conflict_resolutions: list[ConflictResolutionRequest] = []
     accept_missing_complementaria: bool = False
+    sheets_manual_cleanup_acknowledged: bool = False
 
 class SheetSyncNotifiedRequest(BaseModel):
     fingerprint: str | None = None
@@ -236,11 +239,15 @@ async def confirm_import_endpoint(
         accept_missing_complementaria = (
             request.accept_missing_complementaria if request is not None else False
         )
+        sheets_manual_cleanup_acknowledged = (
+            request.sheets_manual_cleanup_acknowledged if request is not None else False
+        )
         return confirm_import(
             validation_id,
             session,
             resolutions,
             accept_missing_complementaria=accept_missing_complementaria,
+            sheets_manual_cleanup_acknowledged=sheets_manual_cleanup_acknowledged,
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -616,6 +623,7 @@ async def sheets_sync_resolve_endpoint(
             session,
             resolutions,
             accept_missing_complementaria=request.accept_missing_complementaria,
+            sheets_manual_cleanup_acknowledged=request.sheets_manual_cleanup_acknowledged,
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -727,6 +735,7 @@ async def sheets_sync_confirm_endpoint(
             request.validation_id,
             resolutions,
             accept_missing_complementaria=request.accept_missing_complementaria,
+            sheets_manual_cleanup_acknowledged=request.sheets_manual_cleanup_acknowledged,
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
