@@ -36,6 +36,10 @@ const coherenceSection = document.querySelector("#coherence-conflicts");
 const coherenceTitle = document.querySelector("#coherence-conflicts-title");
 const coherenceList = document.querySelector("#coherence-conflict-list");
 const coherenceHelp = document.querySelector("#coherence-help");
+const sheetsManualCleanup = document.querySelector("#sheets-manual-cleanup");
+const conflictConfirmModal = document.querySelector("#conflict-confirm-modal");
+const conflictConfirmAccept = document.querySelector("#conflict-confirm-accept");
+const conflictConfirmBack = document.querySelector("#conflict-confirm-back");
 const missingComplementariaSection = document.querySelector("#missing-complementaria");
 const acceptMissingComplementaria = document.querySelector("#accept-missing-complementaria");
 const missingComplementariaHelp = document.querySelector("#missing-complementaria-help");
@@ -113,6 +117,7 @@ let conflictDismissedFingerprint = (() => {
   }
 })();
 let nativeNotificationFingerprint = null;
+let conflictConfirmBypass = false;
 
 const importSuccessViews = {
   acta: { view: "actas", label: "Ver actas" },
@@ -333,6 +338,9 @@ function resetCoherenceConflicts() {
   coherenceList.replaceChildren();
   coherenceHelp.textContent = "";
   coherenceHelp.classList.remove("ready");
+  closeConflictConfirmModal();
+  conflictConfirmBypass = false;
+  if (sheetsManualCleanup) sheetsManualCleanup.checked = false;
   confirmButton.disabled = false;
 }
 
@@ -370,7 +378,7 @@ function updateCoherenceState() {
   }
 }
 
-function renderCoherenceConflicts(items) {
+function renderCoherenceConflicts(items, { resolutions = {} } = {}) {
   resetCoherenceConflicts();
   if (!items.length) return;
   coherenceSection.hidden = false;
@@ -387,12 +395,18 @@ function renderCoherenceConflicts(items) {
     groupCell.textContent = item.group_code ? `Ficha ${item.group_code}` : "Sin ficha";
     const options = document.createElement("div");
     options.className = "coherence-options";
+    const savedResolution = String(
+      resolutions[item.identification] || item.conflict_resolution || "",
+    ).toUpperCase();
     [["CERTIFICADOS", "Certificado"], ["PENDIENTE", "Pendiente"]].forEach(([value, labelText]) => {
       const label = document.createElement("label");
       const input = document.createElement("input");
       input.type = "radio";
       input.name = `coherence-${index}`;
       input.value = value;
+      // Un desempate previo se muestra preseleccionado, pero el usuario puede
+      // cambiarlo antes de confirmar. No se importa nada sin confirmacion.
+      if (savedResolution === value) input.checked = true;
       input.addEventListener("change", updateCoherenceState);
       label.append(input, document.createTextNode(labelText));
       options.appendChild(label);
@@ -412,6 +426,22 @@ function collectConflictResolutions() {
         : null;
     })
     .filter(Boolean);
+}
+
+function openConflictConfirmModal() {
+  if (!conflictConfirmModal) return;
+  if (sheetsManualCleanup) sheetsManualCleanup.checked = false;
+  conflictConfirmModal.classList.add("is-open");
+  conflictConfirmModal.setAttribute("aria-hidden", "false");
+  window.setTimeout(() => {
+    conflictConfirmModal.querySelector(".modal-dialog")?.focus?.({ preventScroll: true });
+  }, 30);
+}
+
+function closeConflictConfirmModal() {
+  if (!conflictConfirmModal) return;
+  conflictConfirmModal.classList.remove("is-open");
+  conflictConfirmModal.setAttribute("aria-hidden", "true");
 }
 
 // #65: llevar el foco y la vista al resultado de la validación. El scroll solo
@@ -630,7 +660,18 @@ async function validateFile() {
 }
 
 async function confirmImport() {
-  if (!validationId) return;
+  if (!validationId) {
+    conflictConfirmBypass = false;
+    return;
+  }
+  const resolutions = collectConflictResolutions();
+  if (resolutions.length > 0 && !conflictConfirmBypass) {
+    // Segunda confirmacion obligatoria: no se envia el POST hasta que el
+    // usuario lea la advertencia de solo lectura y confirme de nuevo.
+    openConflictConfirmModal();
+    return;
+  }
+  conflictConfirmBypass = false;
   const isSheetsResolve = Boolean(window.__sheetsResolvePending);
   const isSheetsSync = Boolean(window.__sheetsSyncPending) || isSheetsResolve;
   confirmButton.disabled = true;
@@ -643,9 +684,12 @@ async function confirmImport() {
         ? "/api/sheets/sync/confirm"
         : `/api/imports/${validationId}/confirm`);
     const payload = {
-      conflict_resolutions: collectConflictResolutions(),
+      conflict_resolutions: resolutions,
       accept_missing_complementaria: acceptMissingComplementaria.checked,
     };
+    if (resolutions.length > 0) {
+      payload.sheets_manual_cleanup_acknowledged = Boolean(sheetsManualCleanup?.checked);
+    }
     if (isSheetsSync && !isSheetsResolve) payload.validation_id = validationId;
     const response = await readResponse(await fetch(endpoint, {
       method: "POST",
@@ -654,6 +698,8 @@ async function confirmImport() {
     }));
     const result = isSheetsSync ? (response.result || response) : response;
     if (stopProgress) stopProgress(true);
+    closeConflictConfirmModal();
+    if (sheetsManualCleanup) sheetsManualCleanup.checked = false;
     fileStatus.textContent = "IMPORTACION COMPLETA";
     showFeedback(`${result.message} ${result.records_count} registros procesados.`);
     confirmButton.hidden = true;
@@ -2711,6 +2757,9 @@ removeButton.addEventListener("click", clearFile);
 cancelButton.addEventListener("click", () => {
   window.__sheetsSyncPending = false;
   window.__sheetsResolvePending = false;
+  closeConflictConfirmModal();
+  conflictConfirmBypass = false;
+  if (sheetsManualCleanup) sheetsManualCleanup.checked = false;
   clearFile();
   clearFeedback();
   resetSelection();
@@ -2720,6 +2769,53 @@ cancelButton.addEventListener("click", () => {
 });
 validateButton.addEventListener("click", validateFile);
 confirmButton.addEventListener("click", confirmImport);
+if (conflictConfirmAccept) {
+  conflictConfirmAccept.addEventListener("click", () => {
+    conflictConfirmBypass = true;
+    closeConflictConfirmModal();
+    confirmImport();
+  });
+}
+if (conflictConfirmBack) {
+  conflictConfirmBack.addEventListener("click", () => {
+    conflictConfirmBypass = false;
+    closeConflictConfirmModal();
+    confirmButton?.focus?.({ preventScroll: true });
+  });
+}
+conflictConfirmModal?.querySelectorAll("[data-close-conflict-confirm]").forEach((element) => {
+  element.addEventListener("click", () => {
+    conflictConfirmBypass = false;
+    closeConflictConfirmModal();
+    confirmButton?.focus?.({ preventScroll: true });
+  });
+});
+conflictConfirmModal?.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    conflictConfirmBypass = false;
+    closeConflictConfirmModal();
+    confirmButton?.focus?.({ preventScroll: true });
+    return;
+  }
+  if (event.key !== "Tab") return;
+  const focusables = [
+    ...conflictConfirmModal.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    ),
+  ].filter((element) => !element.hidden && !element.disabled && element.offsetParent !== null);
+  if (!focusables.length) return;
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+});
 newImportButton.addEventListener("click", startNewImport);
 viewImportedButton.addEventListener("click", () => {
   const target = viewImportedButton.dataset.viewTarget;
@@ -2871,7 +2967,9 @@ function showSheetsPreview(data) {
   );
   renderPreviewBreakdown(preview);
   renderPreviewWarnings(preview.warnings);
-  renderCoherenceConflicts(preview.coherence_conflicts || []);
+  renderCoherenceConflicts(preview.coherence_conflicts || [], {
+    resolutions: preview.conflict_resolutions || {},
+  });
   missingComplementariaRequired = Boolean(preview.missing_complementaria);
   if (missingComplementariaRequired) missingComplementariaSection.hidden = false;
   updateCoherenceState();
@@ -2932,8 +3030,7 @@ function updateConflictBanner(data) {
 
   if (conflictBannerText) {
     conflictBannerText.textContent = (
-      `${conflictCountLabel(count)} de Google Sheets. Elige el estado final de cada `
-      + "aprendiz para completar la importación; el lote no se reimportará solo."
+      `${conflictCountLabel(count)} de resolución (Google Sheets).`
     );
   }
   setConflictBannerVisible(true);
@@ -2951,8 +3048,8 @@ async function sendNativeConflictNotification(data) {
   const count = Number(data.pending_conflict_count || 0);
   const title = "Conflicto de certificación detectado";
   const body = count === 1
-    ? "1 aprendiz aparece en CERTIFICADOS y PENDIENTES. Debe definir el estado final."
-    : `${count} aprendices aparecen en CERTIFICADOS y PENDIENTES. Debe definir el estado final.`;
+    ? "1 aprendiz aparece en CERTIFICADOS y PENDIENTES. Debe definir el estado final en la aplicación."
+    : `${count} aprendices aparecen en CERTIFICADOS y PENDIENTES. Debe definir el estado final en la aplicación.`;
 
   // Se marca antes del await para que dos ciclos de polling simultáneos no
   // intenten mostrar el mismo toast.
@@ -3061,11 +3158,20 @@ async function loadSheetsStatus() {
     const response = await fetch("/api/sheets/sync", { cache: "no-store" });
     if (!response.ok) return;
     const data = await response.json();
+    if (!data.configured) {
+      updateConflictBanner(data);
+      if (conflictPollTimer) {
+        window.clearInterval(conflictPollTimer);
+        conflictPollTimer = null;
+      }
+      return;
+    }
+    // El polling ligero solo se mantiene cuando hay una hoja configurada.
+    startConflictPolling();
     updateConflictBanner(data);
     if (data.notification_pending) {
       sendNativeConflictNotification(data).catch(() => {});
     }
-    if (!data.configured) return;
     if (sheetsUrlInput && !sheetsUrlInput.value) sheetsUrlInput.value = data.url || "";
     if (sheetsToggleButton) {
       const state = data.enabled ? "activa" : "detenida";
@@ -3134,6 +3240,9 @@ async function runSheetsSync() {
       check: "",
       importText: "",
     });
+  } finally {
+    // Si la hoja quedo configurada, esto activa el polling del banner.
+    loadSheetsStatus();
   }
 }
 
@@ -3199,7 +3308,7 @@ window.addEventListener("pywebviewready", () => {
 });
 
 function startConflictPolling() {
-  if (conflictPollTimer) window.clearInterval(conflictPollTimer);
+  if (conflictPollTimer) return;
   conflictPollTimer = window.setInterval(() => {
     if (document.visibilityState === "hidden") return;
     loadSheetsStatus();
@@ -3218,5 +3327,4 @@ window.addEventListener("resize", () => {
   );
 });
 
-startConflictPolling();
 loadSheetsStatus();

@@ -425,6 +425,10 @@
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && modal?.classList.contains("is-open")) {
+      // El modal "Antes de confirmar" se superpone a la revisión; su tecla
+      // Escape solo debe cerrar esa advertencia, no cancelar la importación.
+      const warningModal = document.getElementById("conflict-confirm-modal");
+      if (warningModal?.classList.contains("is-open")) return;
       cancelModal();
     }
   });

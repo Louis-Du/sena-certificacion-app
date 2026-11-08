@@ -110,10 +110,15 @@ class DesktopNotificationBridge:
                 # InteractableWindowsToaster permite capturar el clic del
                 # cuerpo del toast sin depender de botones de accion.
                 self._toaster = InteractableWindowsToaster("SENA Certificacion")
-            toast = Toast(
-                text_fields=[title, body],
-                on_activated=lambda _args: self.open_conflict_resolution(fingerprint),
-            )
+            toast = Toast(text_fields=[title, body])
+            try:
+                toast.on_activated = lambda _args: self.open_conflict_resolution(
+                    fingerprint
+                )
+            except Exception:
+                # Algunas versiones no exponen el callback de activacion; el
+                # toast sigue siendo util aunque el clic no abra el modal.
+                pass
             self._toaster.show_toast(toast)
             return True
         except Exception:
@@ -146,10 +151,13 @@ class DesktopNotificationBridge:
         fingerprint = str(fingerprint or "")
         count = int(count or 0)
         title = title or "Conflicto de certificación detectado"
-        body = body or (
-            f"{count} aprendiz(es) aparecen en CERTIFICADOS y PENDIENTES. "
-            "Debe definir el estado final."
-        )
+        if not body:
+            noun = "aprendiz" if count == 1 else "aprendices"
+            verb = "aparece" if count == 1 else "aparecen"
+            body = (
+                f"{count} {noun} {verb} en CERTIFICADOS y PENDIENTES. "
+                "Debe definir el estado final en la aplicación."
+            )
         with self._lock:
             if fingerprint and fingerprint in self._notified_fingerprints:
                 return {"delivered": True, "method": "deduped", "fingerprint": fingerprint}

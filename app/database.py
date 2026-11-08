@@ -143,6 +143,14 @@ def _upgrade_sqlite_schema(bind: Engine | None = None) -> None:
             "ALTER TABLE learners ADD COLUMN conflict_resolution VARCHAR(30)",
             learner_columns,
         ),
+        # Ultima decision manual de desempate. Permite reaplicarla en silencio
+        # si el documento vuelve a la interseccion, sin bloquear el estado
+        # vigente cuando la hoja ya lo dejo en una sola lista.
+        "last_conflict_resolution": (
+            "last_conflict_resolution",
+            "ALTER TABLE learners ADD COLUMN last_conflict_resolution VARCHAR(30)",
+            learner_columns,
+        ),
         # Fechas del aprendiz que ya existian en el modelo pero no estaban en la
         # migracion. En bases antiguas su ausencia hacia que todo quedara "Sin
         # fecha"; se agregan de forma compatible hacia adelante.

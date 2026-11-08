@@ -47,3 +47,57 @@ def test_resolution_does_not_depend_on_history_replace_state():
     assert "function replaceLocationHash(hash)" in APP_JS
     assert 'showView("carga", false);' in APP_JS
     assert "replaceHashSafely" in UI_JS
+
+
+def test_conflict_panel_only_contains_the_state_decision():
+    start = INDEX.index('id="coherence-conflicts"')
+    end = INDEX.index("</section>", start)
+    panel = INDEX[start:end]
+
+    assert "coherence-conflict-list" in panel
+    assert "Certificado" not in panel  # las opciones las construye app.js
+    assert "solo lee Google Sheets" not in panel
+    assert "sheets-manual-cleanup" not in panel
+    assert "corrección manual" not in panel
+
+
+def test_second_confirmation_modal_has_required_warning_and_actions():
+    assert 'id="conflict-confirm-modal"' in INDEX
+    assert "Antes de confirmar" in INDEX
+    assert (
+        "Resolvió conflictos de coherencia en este lote. Esa decisión se guardará "
+        "solo en SENA Certificación App."
+    ) in INDEX
+    assert (
+        "Esta aplicación solo lee Google Sheets y los archivos de origen: no puede "
+        "modificar, borrar ni actualizar filas en la hoja."
+    ) in INDEX
+    assert "el cruce permanecerá allí" in INDEX
+    assert "corríjala o elimine el registro duplicado de forma manual" in INDEX
+    assert "la app tomará ese estado y descartará el desempate anterior" in INDEX
+    assert "Ya corregí o eliminé el registro duplicado en Google Sheets" in INDEX
+    assert "Solo documental en la app; no modifica Google Sheets." in INDEX
+    assert ">Volver</button>" in INDEX
+    assert ">Confirmar de todos modos</button>" in INDEX
+
+
+def test_import_post_waits_for_second_confirmation_when_conflicts_exist():
+    assert "function openConflictConfirmModal()" in APP_JS
+    assert "resolutions.length > 0 && !conflictConfirmBypass" in APP_JS
+    assert "openConflictConfirmModal();" in APP_JS
+    assert "conflictConfirmBypass = true;" in APP_JS
+    assert "conflictConfirmBypass = false;" in APP_JS
+    assert "sheets_manual_cleanup_acknowledged" in APP_JS
+    assert "payload.sheets_manual_cleanup_acknowledged" in APP_JS
+    assert 'const endpoint = isSheetsResolve' in APP_JS
+    assert '? "/api/sheets/sync/resolve"' in APP_JS
+
+
+def test_warning_modal_escape_does_not_cancel_import_review():
+    assert 'getElementById("conflict-confirm-modal")' in UI_JS
+    assert 'warningModal?.classList.contains("is-open")' in UI_JS
+
+
+def test_banner_text_mentions_resolution_and_google_sheets():
+    assert "de resolución (Google Sheets)" in APP_JS
+    assert "conflictCountLabel(count)" in APP_JS
