@@ -1,6 +1,7 @@
 # Importamos la clase Path del módulo pathlib para trabajar con rutas de archivos y directorios de manera más conveniente.
 from pathlib import Path 
 # Importamos el decorador asynccontextmanager del módulo contextlib para crear un contexto asíncrono que se puede usar con la declaración with.
+import asyncio
 from contextlib import asynccontextmanager 
 from datetime import date
 from typing import Any
@@ -8,7 +9,7 @@ from typing import Any
 # Importamos varias clases y funciones de FastAPI para crear la aplicación web, manejar dependencias, recibir archivos y formularios, y manejar excepciones HTTP.
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile 
 # Importamos la clase FileResponse de fastapi.responses para enviar archivos como respuesta HTTP.
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 # Importamos la clase StaticFiles de fastapi.staticfiles para servir archivos estáticos desde un directorio específico.
 from fastapi.staticfiles import StaticFiles
 # Importamos la clase BaseModel de pydantic para definir modelos de datos que se validan automáticamente.
@@ -65,7 +66,15 @@ async def lifespan(_: FastAPI):
             session.commit()
     except Exception:
         pass
+    from app.services.sheets_sync import run_background_worker
+
+    worker_task = asyncio.create_task(run_background_worker())
     yield
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(title="Sena Certificacion App", version="0.1.0", lifespan=lifespan) # El parámetro lifespan se establece en la función lifespan definida anteriormente el cual inicializa la base de datos al iniciar la aplicación.
@@ -105,6 +114,25 @@ class ConflictResolutionRequest(BaseModel):
     status: str
 
 class ConfirmImportRequest(BaseModel):
+    conflict_resolutions: list[ConflictResolutionRequest] = []
+    accept_missing_complementaria: bool = False
+
+class SheetSyncCreateRequest(BaseModel):
+    url: str
+    information_type: str = "actas_completo"
+    interval_seconds: int = 60
+    enabled: bool = True
+
+class SheetSyncPatchRequest(BaseModel):
+    enabled: bool
+
+class SheetSyncPreviewRequest(BaseModel):
+    url: str | None = None
+    information_type: str = "actas_completo"
+    interval_seconds: int = 60
+
+class SheetSyncConfirmRequest(BaseModel):
+    validation_id: str
     conflict_resolutions: list[ConflictResolutionRequest] = []
     accept_missing_complementaria: bool = False
 
@@ -426,6 +454,244 @@ async def certificados_por_mes_endpoint(session: Session = Depends(get_db)) -> d
     from app.services.indicadores import compute_certificados_por_mes
     return compute_certificados_por_mes(session)
 
+
+@app.get("/api/informes/consolidado")
+async def informes_consolidado_endpoint(
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    session: Session = Depends(get_db),
+) -> dict:
+    """Dataset consolidado de informe v1 desde el lote vigente de ACTAS 2026.
+
+    Reutiliza el motor de indicadores (B1-B5). No escribe en BD. Si no hay
+    lote vigente responde de forma segura con totales vacios/null.
+    """
+    from app.services.informes import consolidate_report_dataset
+    return consolidate_report_dataset(session, year=year)
+
+
+@app.get("/api/informes/consolidado/resumen")
+async def informes_consolidado_resumen_endpoint(
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    session: Session = Depends(get_db),
+) -> dict:
+    """Metadatos + KPIs del dataset consolidado (version liviana)."""
+    from app.services.informes import consolidate_report_dataset
+    data = consolidate_report_dataset(session, year=year)
+    return {
+        "generated_at": data["generated_at"],
+        "periodo": data["periodo"],
+        "periodo_inicio": data["periodo_inicio"],
+        "periodo_fin": data["periodo_fin"],
+        "source": data["source"],
+        "import_id": data["import_id"],
+        "file_name": data["file_name"],
+        "advertencias": data["advertencias"],
+        "datos_suficientes": data["datos_suficientes"],
+        "resumen_ejecutivo": data["resumen_ejecutivo"],
+    }
+
+
+@app.get("/api/informes/export")
+async def informes_export_endpoint(
+    report_type: str = Query(default="consolidado", alias="type"),
+    format: str = Query(default="xlsx", pattern="^(pdf|xlsx|csv)$"),
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    scope: str = Query(default="consolidado", pattern="^(consolidado|filtrado)$"),
+    detail: str = Query(default="completo", pattern="^(completo|ejecutivo)$"),
+    search: str = Query(default=""),
+    status: str = Query(default=""),
+    session: Session = Depends(get_db),
+) -> Response:
+    """Exporta un informe estructurado en PDF, XLSX o CSV."""
+    from app.services.informes import export_report_csv, export_report_pdf, export_report_xlsx
+    try:
+        if format == "csv":
+            content = export_report_csv(
+                session,
+                report_type=report_type,
+                year=year,
+                scope=scope,
+                detail=detail,
+                search=search,
+                status=status,
+            )
+            media_type = "text/csv; charset=utf-8"
+            filename = f"informe_{report_type}.csv"
+        elif format == "pdf":
+            content = export_report_pdf(
+                session,
+                report_type=report_type,
+                year=year,
+                scope=scope,
+                detail=detail,
+                search=search,
+                status=status,
+            )
+            media_type = "application/pdf"
+            filename = f"informe_{report_type}.pdf"
+        else:
+            content = export_report_xlsx(
+                session,
+                report_type=report_type,
+                year=year,
+                scope=scope,
+                detail=detail,
+                search=search,
+                status=status,
+            )
+            media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            filename = (
+                "informe_consolidado.xlsx"
+                if report_type in {"consolidado", "general"}
+                else f"informe_{report_type}.xlsx"
+            )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/informes/formats")
+async def informes_formats_endpoint(
+    report_type: str = Query(default="consolidado", alias="type"),
+) -> dict:
+    from app.services.informes import REPORT_TYPES, available_report_formats
+    try:
+        formats = available_report_formats(report_type)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {
+        "type": report_type,
+        "name": REPORT_TYPES[report_type],
+        "formats": formats,
+    }
+
+
+@app.get("/api/informes/catalog")
+async def informes_catalog_endpoint() -> list[dict]:
+    from app.services.informes import report_catalog
+    return report_catalog()
+
+# ---------------------------------------------------------------------------
+# Sincronizacion automatica desde Google Sheets
+# ---------------------------------------------------------------------------
+@app.get("/api/sheets/sync")
+async def sheets_sync_status_endpoint(session: Session = Depends(get_db)) -> dict:
+    from app.services.sheets_sync import get_config, config_to_status
+
+    return config_to_status(get_config(session))
+
+
+@app.post("/api/sheets/sync")
+async def sheets_sync_create_endpoint(
+    request: SheetSyncCreateRequest,
+    session: Session = Depends(get_db),
+) -> dict:
+    from app.services.sheets_sync import save_config, config_to_status
+
+    try:
+        config = save_config(
+            session,
+            request.url,
+            request.information_type,
+            request.interval_seconds,
+            request.enabled,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return config_to_status(config)
+
+
+@app.patch("/api/sheets/sync")
+async def sheets_sync_patch_endpoint(
+    request: SheetSyncPatchRequest,
+    session: Session = Depends(get_db),
+) -> dict:
+    from app.services.sheets_sync import update_enabled, config_to_status
+
+    config = update_enabled(session, request.enabled)
+    if config is None:
+        raise HTTPException(status_code=404, detail="No hay configuracion de sincronizacion.")
+    return config_to_status(config)
+
+
+@app.post("/api/sheets/sync/run")
+async def sheets_sync_run_endpoint(session: Session = Depends(get_db)) -> dict:
+    from app.services.sheets_sync import run_sync, get_config, config_to_status
+
+    config = get_config(session)
+    if config is None:
+        raise HTTPException(status_code=404, detail="No hay configuracion de sincronizacion.")
+    try:
+        config = run_sync(session)
+    except Exception as error:  # noqa: BLE001
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        config = get_config(session)
+        if config is None:
+            raise HTTPException(status_code=500, detail=str(error)) from error
+        if config.last_status != "error":
+            config.last_status = "error"
+            config.last_message = str(error)
+            try:
+                session.commit()
+            except Exception:
+                session.rollback()
+    return config_to_status(config)
+
+
+@app.post("/api/sheets/sync/preview")
+async def sheets_sync_preview_endpoint(
+    request: SheetSyncPreviewRequest,
+    session: Session = Depends(get_db),
+) -> dict:
+    from app.services.sheets_sync import prepare_sync
+
+    try:
+        return prepare_sync(
+            session,
+            request.url,
+            request.information_type,
+            request.interval_seconds,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/sheets/sync/confirm")
+async def sheets_sync_confirm_endpoint(
+    request: SheetSyncConfirmRequest,
+    session: Session = Depends(get_db),
+) -> dict:
+    from app.services.sheets_sync import confirm_sync
+
+    resolutions = [item.model_dump() for item in request.conflict_resolutions]
+    try:
+        return confirm_sync(
+            session,
+            request.validation_id,
+            resolutions,
+            accept_missing_complementaria=request.accept_missing_complementaria,
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.delete("/api/sheets/sync")
+async def sheets_sync_delete_endpoint(session: Session = Depends(get_db)) -> dict:
+    from app.services.sheets_sync import delete_config, config_to_status
+
+    delete_config(session)
+    return config_to_status(None)
+
+
 # ---------------------------------------------------------------------------
 # Parche de actividad para el heatmap de la UI v2
 # ---------------------------------------------------------------------------
@@ -448,4 +714,3 @@ async def activity_day(
     session: Session = Depends(get_db),
 ) -> dict:
     return learners_for_activity_date(session, day)
-

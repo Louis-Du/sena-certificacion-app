@@ -1,9 +1,7 @@
-"""E2E de Indicadores: toggle Heatmap | Gráfico y claridad de datos.
+"""E2E de Indicadores: certificados por mes y claridad de datos.
 
 Cubre:
-* Ambas vistas de actividad usan la misma fuente (la suma semanal coincide con
-  los eventos diarios del endpoint del heatmap).
-* Cambiar el año refresca la vista activa y muestra el vacío controlado.
+* El único gráfico temporal usa el mes de certificación del consolidado.
 * Causas normalizadas + auditoría sin "diferencia de −N".
 * Actas del consolidado: columnas de fecha/tipo ocultas si no hay dato y enlace
   al detalle cuando el acta está registrada en el módulo Actas.
@@ -27,77 +25,42 @@ def _importar_actas(page, app_url):
 def _abrir_indicadores(page):
     page.click('a[data-view="indicadores"]')
     page.wait_for_selector("#indicadores-metrics")
-    # Las celdas se crean después de cargar /api/activity/heatmap.
-    page.wait_for_selector("#indicadores-heatmap .heatmap-cell", state="attached")
+    page.wait_for_selector("#indicadores-certificados-mes-chart", state="attached")
 
 
-def test_activity_toggle_shares_source_and_switches_year(page, app_url):
+def test_certificados_por_mes_usa_la_fuente_del_consolidado(page, app_url):
     _importar_actas(page, app_url)
     _abrir_indicadores(page)
 
-    assert page.locator("#activity-heatmap-panel").is_visible()
-    assert page.locator("#activity-chart-panel").is_hidden()
-    assert page.locator("#indicadores-heatmap .heatmap-cell").count() >= 365
-
-    page.click("#activity-tab-chart")
-    page.wait_for_selector("#activity-chart-panel:not([hidden])")
-    assert page.locator("#activity-heatmap-panel").is_hidden()
+    page.get_by_role("button", name="Exportar informe").click()
+    page.wait_for_selector("#report-modal.is-open")
+    assert page.get_by_text("Informe general de indicadores").is_visible()
+    assert page.get_by_text("PDF · XLSX · CSV").first.is_visible()
+    assert page.get_by_role("link", name="Generar informe").is_visible()
+    page.get_by_role("button", name="Cancelar").last.click()
+    page.wait_for_selector("#report-modal[aria-hidden='true']", state="attached")
+    assert page.locator("#activity-tab-heatmap").count() == 0
+    assert page.locator("#activity-tab-chart").count() == 0
+    assert page.locator("#activity-tab-certificados").count() == 0
     page.wait_for_function(
         "() => {"
-        " const canvas = document.querySelector('#indicadores-activity-chart');"
+        " const canvas = document.querySelector('#indicadores-certificados-mes-chart');"
         " const chart = window.Chart && window.Chart.getChart(canvas);"
         " return !!(chart && chart.data.datasets[0].data.some((value) => value > 0));"
         "}"
     )
 
-    # Misma fuente: la serie semanal suma exactamente los eventos diarios.
-    total_diario = page.request.get(f"{app_url}/api/activity/heatmap?year=2026").json()[
-        "total_events"
-    ]
     total_grafico = page.evaluate(
-        "() => window.Chart"
-        ".getChart(document.querySelector('#indicadores-activity-chart'))"
+        "() => window.Chart.getChart(document.querySelector('#indicadores-certificados-mes-chart'))"
         ".data.datasets[0].data.reduce((sum, value) => sum + value, 0)"
     )
-    assert total_grafico == total_diario
-
-    # Cambiar el año refresca la vista activa con los datos de ese año.
-    page.select_option("#heatmap-year", "2025")
-    total_2025 = page.request.get(f"{app_url}/api/activity/heatmap?year=2025").json()[
-        "total_events"
-    ]
-    page.wait_for_function(
-        "(total) => {"
-        " const chart = window.Chart.getChart(document.querySelector('#indicadores-activity-chart'));"
-        " return chart.data.datasets[0].data.reduce((sum, value) => sum + value, 0) === total;"
-        "}",
-        arg=total_2025,
-    )
-
-    # Año sin datos (se inyecta 2024): vacío controlado en gráfico y heatmap.
-    page.evaluate(
-        "() => {"
-        " const sel = document.querySelector('#heatmap-year');"
-        " const opt = document.createElement('option');"
-        " opt.value = '2024'; opt.textContent = '2024'; sel.appendChild(opt);"
-        " sel.value = '2024';"
-        " sel.dispatchEvent(new Event('change', { bubbles: true }));"
-        "}"
-    )
-    page.wait_for_selector("#activity-chart-empty:not([hidden])")
-    assert "2024" in page.locator("#activity-chart-empty").text_content()
-    page.click("#activity-tab-heatmap")
-    page.wait_for_selector("#activity-heatmap-panel:not([hidden])")
-    page.wait_for_selector("#heatmap-empty:not([hidden])")
-
-    # La selección se conserva al volver a entrar a Indicadores.
-    page.select_option("#heatmap-year", "2026")
-    page.click("#activity-tab-chart")
-    page.wait_for_selector("#activity-chart-panel:not([hidden])")
-    page.click('a[data-view="carga"]')
-    page.click('a[data-view="indicadores"]')
-    page.wait_for_selector("#activity-chart-panel:not([hidden])")
-    assert page.locator("#activity-tab-chart").get_attribute("aria-selected") == "true"
+    total_consolidado = page.request.get(
+        f"{app_url}/api/indicadores/certificados-por-mes"
+    ).json()["total"]
+    assert total_grafico == total_consolidado
+    assert "No es padrón local ni fecha de importación" in page.locator(
+        "#certificados-mes-summary"
+    ).text_content()
 
 
 def test_causas_normalizadas_y_auditoria_clara(page, app_url):

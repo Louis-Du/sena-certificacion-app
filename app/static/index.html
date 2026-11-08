@@ -4,10 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SENA Certificación</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link href="/static/styles.css?v=20261101-v18" rel="stylesheet">
+  <link href="/static/styles.css?v=20261105-v19" rel="stylesheet">
 </head>
 
 <body>
@@ -51,6 +48,13 @@
     <header class="topbar" id="carga">
       <div class="brand-mark" aria-hidden="true">SC</div>
       <div><p class="eyebrow">SENA Certificación</p><h1>Cargar información</h1><p class="subtitle">Importa archivos oficiales, bases DF14A o matrices de seguimiento para la certificación.</p></div>
+      <div class="topbar-actions sheets-topbar-actions">
+        <div class="sheets-search-panel" id="sheets-search-panel">
+          <input id="sheets-url-input" type="url" placeholder="docs.google.com/spreadsheets/d/ID/edit" aria-label="URL de Google Sheets">
+          <button id="sheets-sync-button" class="primary-button" type="button">Sincronizar</button>
+        </div>
+        <button id="sheets-toggle-button" class="primary-button sheets-toggle-button" type="button" aria-expanded="false" aria-controls="sheets-search-panel">Google Sheets</button>
+      </div>
     </header>
 
     <nav class="steps" aria-label="Progreso de carga"><span class="step active"><b>1</b> Seleccionar</span><i></i><span class="step"><b>2</b> Validar</span><i></i><span class="step"><b>3</b> Confirmar</span></nav>
@@ -280,9 +284,12 @@
           <div class="topbar-text">
             <p class="eyebrow">SENA Certificación</p>
             <h1>Indicadores de certificación 2026</h1>
-            <p class="subtitle">Resumen, actividad y detalle por pestañas · Enero – Septiembre 2026</p>
+            <p class="subtitle">Resumen, certificaciones y detalle por pestañas · Enero – Septiembre 2026</p>
           </div>
-          <button id="refresh-indicadores" class="primary-button refresh-button" type="button">Actualizar</button>
+          <div class="topbar-actions">
+            <button id="export-report-button" class="primary-button report-export-button" type="button">Exportar informe</button>
+            <button id="refresh-indicadores" class="primary-button refresh-button" type="button">Actualizar</button>
+          </div>
         </header>
 
         <p class="metrics-scope-note" id="indicadores-scope-note">
@@ -315,49 +322,11 @@
         <section class="panel heatmap-panel heatmap-panel-compact">
           <div class="heatmap-header">
             <div>
-              <h2 class="heatmap-title">Actividad de certificación</h2>
-              <p class="heatmap-sub" id="activity-sub">Cambios de estado e importaciones por día</p>
-            </div>
-            <div class="heatmap-controls">
-              <label class="search-field heatmap-year-field" for="heatmap-year">Año
-                <select id="heatmap-year">
-                  <option value="2026" selected>2026</option>
-                  <option value="2025">2025</option>
-                </select>
-              </label>
-              <div class="activity-view-toggle" id="activity-view-toggle" role="tablist" aria-label="Vista de actividad">
-                <button class="activity-view-btn is-active" type="button" role="tab" id="activity-tab-heatmap" aria-selected="true" aria-controls="activity-heatmap-panel" data-activity-view="heatmap">Heatmap</button>
-                <button class="activity-view-btn" type="button" role="tab" id="activity-tab-chart" aria-selected="false" aria-controls="activity-chart-panel" data-activity-view="chart" tabindex="-1">Actividad</button>
-                <button class="activity-view-btn" type="button" role="tab" id="activity-tab-certificados" aria-selected="false" aria-controls="activity-certificados-panel" data-activity-view="certificados" tabindex="-1">Certificados/mes</button>
-              </div>
+              <h2 class="heatmap-title">Certificados por mes</h2>
+              <p class="heatmap-sub">Personas certificadas según el mes de certificación del consolidado</p>
             </div>
           </div>
-          <div class="activity-view-panel" id="activity-heatmap-panel" role="tabpanel" aria-labelledby="activity-tab-heatmap">
-            <div class="gh-heatmap-wrap">
-              <div class="gh-heatmap-months" id="heatmap-months" aria-hidden="true"></div>
-              <div class="gh-heatmap-body">
-                <div class="gh-heatmap-days" aria-hidden="true">
-                  <span>Lun</span><span></span><span>Mié</span><span></span><span>Vie</span><span></span><span></span>
-                </div>
-                <div id="indicadores-heatmap" class="github-heatmap" role="img" aria-label="Mapa de actividad de certificación estilo GitHub"></div>
-              </div>
-              <div class="heatmap-legend" aria-hidden="true">
-                Menos
-                <i class="lv0"></i><i class="lv1"></i><i class="lv2"></i><i class="lv3"></i><i class="lv4"></i>
-                Más
-              </div>
-            </div>
-            <p class="heatmap-hint">Pasa el cursor o haz clic en un día con actividad para ver aprendices e importaciones.</p>
-            <p id="heatmap-empty" class="chart-note" hidden>No hay actividad registrada en el período seleccionado.</p>
-          </div>
-          <div class="activity-view-panel" id="activity-chart-panel" role="tabpanel" aria-labelledby="activity-tab-chart" hidden>
-            <div class="chart-canvas-wrap activity-chart-wrap">
-              <canvas id="indicadores-activity-chart" role="img" aria-label="Eventos de actividad por día"></canvas>
-              <p class="chart-empty" id="activity-chart-empty" hidden>No hay actividad registrada en el período seleccionado.</p>
-            </div>
-            <p class="heatmap-hint" id="activity-chart-summary">Serie semanal (suma de eventos por día) · haz clic en una barra para ver el día con más actividad de esa semana.</p>
-          </div>
-          <div class="activity-view-panel" id="activity-certificados-panel" role="tabpanel" aria-labelledby="activity-tab-certificados" hidden>
+          <div class="activity-view-panel" id="activity-certificados-panel" role="tabpanel">
             <div class="chart-canvas-wrap activity-chart-wrap">
               <canvas id="indicadores-certificados-mes-chart" role="img" aria-label="Certificados del consolidado por mes de certificación"></canvas>
               <p class="chart-empty" id="certificados-mes-empty" hidden>No hay certificados del consolidado en el período.</p>
@@ -476,7 +445,7 @@
       <button id="modal-close-button" class="modal-close" type="button" aria-label="Cerrar revisión de importación">×</button>
       <div id="import-modal-body"></div>
       <div class="modal-progress" id="modal-progress" hidden>
-        <div class="modal-progress-track"><div class="modal-progress-bar"></div></div>
+        <div class="modal-progress-track"><div class="modal-progress-bar" id="modal-progress-bar"></div></div>
         <p class="modal-progress-label" id="modal-progress-label">Confirmando importación…</p>
       </div>
       <div class="modal-actions">
@@ -485,9 +454,74 @@
       </div>
     </div>
   </div>
+  <div id="report-modal" class="modal-root" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="report-modal-title">
+    <div class="modal-backdrop" data-close-report-modal></div>
+    <div class="modal-dialog report-dialog" tabindex="-1">
+      <button id="report-modal-close" class="modal-close" type="button" aria-label="Cerrar generación de informe">×</button>
+      <div class="report-modal-header">
+        <span class="report-modal-icon" aria-hidden="true">▤</span>
+        <div>
+          <p class="eyebrow">Informes y exportaciones</p>
+          <h2 id="report-modal-title">¿Qué informe deseas generar?</h2>
+          <p>Selecciona el alcance y el formato disponible para preparar un documento consistente con los indicadores.</p>
+        </div>
+      </div>
+      <div class="report-options" role="radiogroup" aria-label="Tipo de informe" id="report-type-options"></div>
+      <p id="report-type-description" class="report-modal-feedback" style="margin-top:12px;"></p>
+      <div class="report-settings">
+        <label>Periodo
+          <select id="report-period" disabled>
+            <option value="2026">Enero – Septiembre 2026 (periodo del consolidado)</option>
+          </select>
+        </label>
+        <label>Alcance
+          <select id="report-scope"></select>
+        </label>
+        <label>Detalle
+          <select id="report-detail"></select>
+        </label>
+        <label>Formato
+          <select id="report-format"></select>
+        </label>
+      </div>
+      <p id="report-modal-status" class="report-modal-feedback" role="status"></p>
+      <p id="report-modal-feedback" class="report-modal-feedback" role="status"></p>
+      <div class="report-modal-actions">
+        <button id="report-modal-cancel" class="cancel-button" type="button">Cancelar</button>
+        <button id="report-generate-button" class="primary-button" type="button">Generar informe</button>
+      </div>
+    </div>
+  </div>
+  <div id="sheets-review-modal" class="modal-root" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="sheets-review-title">
+    <div class="modal-backdrop" data-close-sheets-review></div>
+    <div class="modal-dialog" tabindex="-1">
+      <button id="sheets-review-close" class="modal-close" type="button" aria-label="Cerrar">×</button>
+      <div class="report-modal-header">
+        <span class="report-modal-icon" aria-hidden="true">📊</span>
+        <div>
+          <p class="eyebrow">Sincronización Google Sheets</p>
+          <h2 id="sheets-review-title">Resultado de sincronización</h2>
+          <p id="sheets-review-subtitle">Procesando la hoja...</p>
+        </div>
+      </div>
+      <div class="upload-progress is-active" id="sheets-progress" aria-live="polite">
+        <div class="upload-progress-track"><div class="upload-progress-bar" id="sheets-progress-bar"></div></div>
+        <p class="upload-progress-label" id="sheets-progress-label">Sincronizando…</p>
+      </div>
+      <div class="sheets-sync-status" id="sheets-review-status">
+        <p id="sheets-review-message"></p>
+        <p id="sheets-review-check"></p>
+        <p id="sheets-review-import"></p>
+      </div>
+      <div class="report-modal-actions">
+        <button id="sheets-review-close-button" class="cancel-button" type="button">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="/static/app.js?v=20261101-v16"></script>
-  <script src="/static/ui-enhancements.js?v=20261101-v8"></script>
+  <script src="/static/vendor/chart.umd.min.js"></script>
+  <script src="/static/app.js?v=20261105-v17"></script>
+  <script src="/static/ui-enhancements.js?v=20261105-v9"></script>
 </body>
 </html>

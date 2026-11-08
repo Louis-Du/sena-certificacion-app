@@ -99,6 +99,27 @@ class Learner(Base):
         back_populates="learner", cascade="all, delete-orphan"
     )
 
+
+# Esta clase representa la configuracion de sincronizacion automatica desde
+# Google Sheets. Solo existe una fila activa (id=1).
+class SheetSyncConfig(Base):
+    __tablename__ = "sheet_sync_config"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    url: Mapped[str] = mapped_column(String(500))
+    information_type: Mapped[str] = mapped_column(String(50), default="actas_completo")
+    enabled: Mapped[int] = mapped_column(Integer, default=1)
+    interval_seconds: Mapped[int] = mapped_column(Integer, default=60)
+    last_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_check_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_import_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    last_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    last_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
 # Esta clase representa un requisito asociado a un aprendiz en la base de datos.
 class Requirement(Base):
     __tablename__ = "requirements"

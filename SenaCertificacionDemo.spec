@@ -19,6 +19,7 @@ a = Analysis(
         "uvicorn.loops.auto",
         "uvicorn.protocols.http.auto",
         "uvicorn.protocols.websockets.auto",
+        "webview",
     ],
 )
 pyz = PYZ(a.pure)
