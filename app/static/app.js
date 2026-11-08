@@ -118,6 +118,7 @@ let conflictDismissedFingerprint = (() => {
 })();
 let nativeNotificationFingerprint = null;
 let conflictConfirmBypass = false;
+let conflictResolutionLoading = false;
 
 const importSuccessViews = {
   acta: { view: "actas", label: "Ver actas" },
@@ -3106,7 +3107,22 @@ async function sendNativeConflictNotification(data) {
   }
 }
 
+function setConflictResolutionLoading(loading) {
+  conflictResolutionLoading = loading;
+  if (conflictResolveButton) {
+    conflictResolveButton.disabled = loading;
+    conflictResolveButton.classList.toggle("is-loading", loading);
+    conflictResolveButton.textContent = loading
+      ? "Cargando conflictos…"
+      : "Resolver ahora";
+  }
+  const globalProgress = document.getElementById("global-progress");
+  if (globalProgress) globalProgress.hidden = !loading;
+}
+
 async function openPendingConflictResolution() {
+  if (conflictResolutionLoading) return;
+  setConflictResolutionLoading(true);
   try {
     const response = await fetch("/api/sheets/sync/pending-conflicts", { cache: "no-store" });
     const data = await readResponse(response);
@@ -3132,7 +3148,12 @@ async function openPendingConflictResolution() {
       { duration: 6500 },
     );
   } catch (error) {
-    window.showToast?.(error.message || "No fue posible abrir los conflictos pendientes.", "error");
+    window.showToast?.(
+      "No fue posible cargar los conflictos. Intente de nuevo.",
+      "error",
+    );
+  } finally {
+    setConflictResolutionLoading(false);
   }
 }
 
