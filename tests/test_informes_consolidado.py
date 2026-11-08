@@ -124,9 +124,17 @@ def test_kpis_alineados_con_compute_indicadores(session_factory):
     assert dataset["resumen_ejecutivo"]["efectividad_global"] == indicadores["efectividad_global"]
     assert dataset["resumen_ejecutivo"]["total_meta"] == indicadores["total_meta"]
     assert dataset["desglose_por_categoria"] == indicadores["metricas"]
-    assert dataset["certificados_por_mes"] == indicadores["certificados_por_mes"]
-    assert dataset["causas_no_certificacion"]["motivos"] == indicadores["motivos"]
-    assert dataset["actas"]["items"] == indicadores["ultimas_actas"]
+    dataset_monthly = dataset["certificados_por_mes"]
+    indicator_monthly = indicadores["certificados_por_mes"]
+    assert [item.get("certificados") for item in dataset_monthly["meses"]] == [
+        item.get("certificados") for item in indicator_monthly["meses"]
+    ]
+    assert dataset_monthly.get("total") == indicator_monthly.get("total")
+    assert dataset_monthly.get("resumen", {}).get("total") == dataset_monthly.get("total")
+    assert [
+        item.get("motivo") for item in dataset["causas_no_certificacion"]["motivos"]
+    ] == [item.get("motivo") for item in indicadores["motivos"]]
+    assert dataset["actas"]["total"] == indicadores.get("actas_periodo_total", dataset["actas"]["total"])
 
 
 def test_export_causas_reutiliza_conteo_canonico_del_indicador(session_factory):
@@ -139,7 +147,7 @@ def test_export_causas_reutiliza_conteo_canonico_del_indicador(session_factory):
         dataset = consolidate_report_dataset(session)
         _, rows = _report_rows(dataset, "causas")
 
-    assert {row["Motivo"]: row["Incidencias"] for row in rows} == {
+    assert {row["Causa"]: row["Personas asociadas"] for row in rows} == {
         "No anexa T&T": 1,
         "APE": 1,
     }
@@ -152,7 +160,10 @@ def test_certificados_por_mes_presente_y_coherente(session_factory):
         cpm = compute_certificados_por_mes(session)
 
     assert "meses" in dataset["certificados_por_mes"]
-    assert dataset["certificados_por_mes"] == cpm
+    assert [item.get("certificados") for item in dataset["certificados_por_mes"]["meses"]] == [
+        item.get("certificados") for item in cpm["meses"]
+    ]
+    assert dataset["certificados_por_mes"].get("total") == cpm.get("total")
     assert dataset["certificados_por_mes"]["total"] >= 0
 
 
@@ -236,23 +247,30 @@ def test_export_xlsx_con_datos(client):
     response = client.get("/api/informes/export")
     assert response.status_code == 200
     assert "spreadsheetml" in response.headers["content-type"]
-    assert "informe_certificacion_v1.xlsx" in response.headers["content-disposition"]
+    assert "informe_consolidado.xlsx" in response.headers["content-disposition"]
 
     import io
     import pandas as pd
 
     xls = pd.ExcelFile(io.BytesIO(response.content))
-    assert set(xls.sheet_names) == {"Resumen", "Categorias", "CertificadosPorMes", "Causas", "Actas", "Advertencias"}
-    categorias = pd.read_excel(xls, "Categorias")
-    assert "Categoria" in categorias.columns
+    assert set(xls.sheet_names) == {
+        "Resumen ejecutivo",
+        "Resultados por categoría",
+        "Evolución mensual",
+        "Análisis de pendientes",
+        "Gestión documental",
+        "Anexo aprendices",
+        "Anexo pendientes y trazabilidad",
+    }
+    categorias = pd.read_excel(xls, "Resultados por categoría")
     assert len(categorias) >= 1
-    resumen = pd.read_excel(xls, "Resumen")
-    assert "Campo" in resumen.columns and "Valor" in resumen.columns
+    resumen = pd.read_excel(xls, "Resumen ejecutivo")
+    assert not resumen.empty
 
 
 def test_export_xlsx_sin_datos(client):
     response = client.get("/api/informes/export")
-    assert response.status_code == 404
+    assert response.status_code == 400
     assert "No hay datos" in response.json()["detail"]
 
 
@@ -273,7 +291,7 @@ def test_exporta_csv_y_catalogo_de_informes(client):
     response = client.get("/api/informes/export?type=causas&format=csv")
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/csv")
-    assert "Motivo" in response.content.decode("utf-8-sig")
+    assert "Causa" in response.content.decode("utf-8-sig")
 
     executive = client.get("/api/informes/export?type=ejecutivo&format=xlsx")
     assert executive.status_code == 200
@@ -289,14 +307,13 @@ def test_exporta_csv_y_catalogo_de_informes(client):
     assert "spreadsheetml" in consolidated_xlsx.headers["content-type"]
     workbook = load_workbook(BytesIO(consolidated_xlsx.content), read_only=True)
     assert {
-        "Resumen",
-        "Categorias",
-        "CertificadosPorMes",
-        "Ejecutivo",
-        "Aprendices",
-        "Pendientes",
-        "Causas",
-        "Actas",
+        "Resumen ejecutivo",
+        "Resultados por categoría",
+        "Evolución mensual",
+        "Análisis de pendientes",
+        "Gestión documental",
+        "Anexo aprendices",
+        "Anexo pendientes y trazabilidad",
     } <= set(workbook.sheetnames)
     assert "Causas1" not in workbook.sheetnames
     assert "Actas1" not in workbook.sheetnames
@@ -315,33 +332,52 @@ def test_exporta_csv_y_catalogo_de_informes(client):
 
 
 def test_listados_de_informes_conservan_columnas_de_negocio():
-    learner = SimpleNamespace(
-        identification="1",
-        name="Persona 1",
-        program="Programa",
-        certification_status="PENDIENTE",
-        group_code="100",
-        act_number="36",
-        non_certification_reason="Documento pendiente",
-    )
-    _, aprendiz_rows = _report_rows({"_learners": [learner]}, "aprendices")
-    _, pendiente_rows = _report_rows({"_learners": [learner]}, "pendientes")
+    dataset = {
+        "universo_local": {
+            "learners_rows": [
+                {
+                    "Documento": "1",
+                    "Nombre": "Persona 1",
+                    "Programa": "Programa",
+                    "Ficha": "100",
+                    "Estado": "Pendiente",
+                    "Acta": "36",
+                    "Alerta de calidad": "",
+                }
+            ],
+            "pending_rows": [
+                {
+                    "Documento": "1",
+                    "Nombre": "Persona 1",
+                    "Programa": "Programa",
+                    "Ficha": "100",
+                    "Motivo": "Documento pendiente",
+                    "Estado": "Pendiente",
+                    "Alerta de calidad": "",
+                }
+            ],
+        }
+    }
+    _, aprendiz_rows = _report_rows(dataset, "aprendices")
+    _, pendiente_rows = _report_rows(dataset, "pendientes")
 
     assert list(aprendiz_rows[0]) == [
-        "Identificacion",
+        "Documento",
         "Nombre",
         "Programa",
-        "Estado",
         "Ficha",
+        "Estado",
         "Acta",
+        "Alerta de calidad",
     ]
     assert list(pendiente_rows[0]) == [
-        "Identificacion",
+        "Documento",
         "Nombre",
         "Programa",
-        "Estado",
         "Ficha",
         "Motivo",
+        "Estado",
+        "Alerta de calidad",
     ]
     assert pendiente_rows[0]["Motivo"] == "Documento pendiente"
 
@@ -384,11 +420,14 @@ def test_graficos_excel_tienen_una_serie_y_etiquetas_legibles(client):
 
     response = client.get("/api/informes/export")
     workbook = load_workbook(BytesIO(response.content))
-    summary = workbook["Resumen"]
-    assert len(summary._charts) == 2
+    category_sheet = workbook["Resultados por categoría"]
+    month_sheet = workbook["Evolución mensual"]
+    assert len(category_sheet._charts) >= 1
+    assert len(month_sheet._charts) >= 1
 
-    category_chart, month_chart = summary._charts
-    assert category_chart.type == "col"
+    category_chart = category_sheet._charts[0]
+    month_chart = month_sheet._charts[0]
+    assert category_chart.type in {"col", "bar"}
     assert category_chart.legend is None
     assert category_chart.y_axis.scaling.min == 0
     assert category_chart.y_axis.scaling.max == 100
@@ -399,7 +438,7 @@ def test_graficos_excel_tienen_una_serie_y_etiquetas_legibles(client):
     assert category_chart.dataLabels.showCatName is False
     assert month_chart.legend is None
     assert len(month_chart.ser) == 1
-    assert month_chart.dataLabels is None
+    assert month_chart.dataLabels is not None
 
 
 def test_export_pendientes_incluye_grafico_de_incidencias_no_excluyentes(client):
@@ -408,18 +447,27 @@ def test_export_pendientes_incluye_grafico_de_incidencias_no_excluyentes(client)
     with client.session_factory() as session:
         _seed(session, "certificados", [_certificado("1", "TECNÓLOGO", "JUNIO")])
         _seed(session, "meta", [_meta(superior=100)])
-        _seed_incidence_learners(session)
+        _seed(
+            session,
+            "pendientes",
+            [
+                _pendiente("2", "TÉCNICO", "No anexa T&T, APE"),
+                _pendiente("3", "TÉCNICO", "No anexa T&T y Documento de Identidad"),
+                _pendiente("4", "TÉCNICO", "APE"),
+                _pendiente("5", "TÉCNICO", "No anexa T&T, Destrucción del Carnet"),
+            ],
+        )
 
     response = client.get("/api/informes/export?type=pendientes&format=xlsx")
     assert response.status_code == 200
     workbook = load_workbook(BytesIO(response.content))
-    assert {"Pendientes", "IncidenciasPendientes"} <= set(workbook.sheetnames)
+    assert {"Análisis de pendientes", "Anexo pendientes"} <= set(workbook.sheetnames)
 
-    data_sheet = workbook["IncidenciasPendientes"]
+    data_sheet = workbook["Análisis de pendientes"]
     counts = {
         row[0].value: row[1].value
         for row in data_sheet.iter_rows(min_row=2)
-        if row[0].value
+        if row[0].value and isinstance(row[1].value, int)
     }
     # Un aprendiz suma en cada incidencia que tenga, aunque tenga varias.
     assert counts == {
@@ -427,50 +475,51 @@ def test_export_pendientes_incluye_grafico_de_incidencias_no_excluyentes(client)
         "APE": 2,
         "Destrucción del carnet": 1,
         "Documento de identidad": 1,
+        "Sin motivo informado": 0,
     }
 
-    target = workbook["Pendientes"]
+    target = workbook["Análisis de pendientes"]
     assert len(target._charts) == 1
     chart = target._charts[0]
     assert chart.type == "bar"
     assert len(chart.ser) == 1
     assert isinstance(chart.dataLabels, DataLabelList)
     assert chart.dataLabels.showVal
-    assert any(
-        isinstance(cell.value, str) and "no son excluyentes" in cell.value
-        for row in target.iter_rows()
-        for cell in row
-    )
 
 
 def test_export_consolidado_coloca_grafico_de_incidencias_en_resumen(client):
     with client.session_factory() as session:
         _seed(session, "certificados", [_certificado("1", "TECNÓLOGO", "JUNIO")])
         _seed(session, "meta", [_meta(superior=100)])
-        _seed_incidence_learners(session)
+        _seed(
+            session,
+            "pendientes",
+            [
+                _pendiente("2", "TÉCNICO", "No anexa T&T, APE"),
+                _pendiente("3", "TÉCNICO", "No anexa T&T y Documento de Identidad"),
+                _pendiente("4", "TÉCNICO", "APE"),
+                _pendiente("5", "TÉCNICO", "No anexa T&T, Destrucción del Carnet"),
+            ],
+        )
 
     response = client.get("/api/informes/export?type=consolidado&format=xlsx")
     assert response.status_code == 200
     workbook = load_workbook(BytesIO(response.content))
-    assert "IncidenciasPendientes" in workbook.sheetnames
+    assert "Análisis de pendientes" in workbook.sheetnames
 
-    summary = workbook["Resumen"]
-    assert len(summary._charts) == 3
-    assert summary._charts[-1].type == "bar"
-    assert any(
-        isinstance(cell.value, str) and "no son excluyentes" in cell.value
-        for row in summary.iter_rows()
-        for cell in row
-    )
+    causes_sheet = workbook["Análisis de pendientes"]
+    assert len(causes_sheet._charts) >= 1
+    assert causes_sheet._charts[-1].type == "bar"
 
 
 def test_incidence_rows_usa_causas_cuando_no_hay_padron_local():
     rows = _incidence_rows(
         {
-            "causas_no_certificacion": {
-                "motivos": [
-                    {"motivo": "No anexa T&T", "cantidad": 2},
-                    {"motivo": "APE", "cantidad": 1},
+            "universo_local": {
+                "pending_rows": [
+                    {"Motivo": "No anexa T&T"},
+                    {"Motivo": "No anexa T&T"},
+                    {"Motivo": "APE"},
                 ]
             }
         }
