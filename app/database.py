@@ -63,6 +63,11 @@ def _upgrade_sqlite_schema(bind: Engine | None = None) -> None:
         if inspector.has_table("imported_records")
         else set()
     )
+    sheet_sync_columns = (
+        _table_columns(inspector, "sheet_sync_config")
+        if inspector.has_table("sheet_sync_config")
+        else set()
+    )
     migrations = {
         "error_count": (
             "error_count",
@@ -150,6 +155,53 @@ def _upgrade_sqlite_schema(bind: Engine | None = None) -> None:
             "start_date",
             "ALTER TABLE learners ADD COLUMN start_date DATE",
             learner_columns,
+        ),
+        # Estado recuperable del lote detenido por conflictos
+        # CERTIFICADOS/PENDIENTES detectados por la sincronizacion automatica.
+        "pending_validation_id": (
+            "pending_validation_id",
+            "ALTER TABLE sheet_sync_config ADD COLUMN pending_validation_id VARCHAR(64)",
+            sheet_sync_columns,
+        ),
+        "pending_conflict_count": (
+            "pending_conflict_count",
+            "ALTER TABLE sheet_sync_config ADD COLUMN pending_conflict_count INTEGER NOT NULL DEFAULT 0",
+            sheet_sync_columns,
+        ),
+        "pending_conflict_fingerprint": (
+            "pending_conflict_fingerprint",
+            "ALTER TABLE sheet_sync_config ADD COLUMN pending_conflict_fingerprint VARCHAR(64)",
+            sheet_sync_columns,
+        ),
+        "pending_hash": (
+            "pending_hash",
+            "ALTER TABLE sheet_sync_config ADD COLUMN pending_hash VARCHAR(64)",
+            sheet_sync_columns,
+        ),
+        "pending_file_name": (
+            "pending_file_name",
+            "ALTER TABLE sheet_sync_config ADD COLUMN pending_file_name VARCHAR(255)",
+            sheet_sync_columns,
+        ),
+        "pending_content": (
+            "pending_content",
+            "ALTER TABLE sheet_sync_config ADD COLUMN pending_content BLOB",
+            sheet_sync_columns,
+        ),
+        "pending_conflicts_json": (
+            "pending_conflicts_json",
+            "ALTER TABLE sheet_sync_config ADD COLUMN pending_conflicts_json TEXT",
+            sheet_sync_columns,
+        ),
+        "pending_preview_json": (
+            "pending_preview_json",
+            "ALTER TABLE sheet_sync_config ADD COLUMN pending_preview_json TEXT",
+            sheet_sync_columns,
+        ),
+        "notified_at": (
+            "notified_at",
+            "ALTER TABLE sheet_sync_config ADD COLUMN notified_at DATETIME",
+            sheet_sync_columns,
         ),
     }
     with target.begin() as connection:

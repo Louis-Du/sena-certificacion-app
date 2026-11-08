@@ -20,6 +20,15 @@ a = Analysis(
         "uvicorn.protocols.http.auto",
         "uvicorn.protocols.websockets.auto",
         "webview",
+        "plyer",
+        "plyer.platforms.win.notification",
+        "plyer.platforms.win.libs.balloontip",
+        "windows_toasts",
+        "winrt",
+        "winrt.windows.ui.notifications",
+        "winrt.windows.data.xml.dom",
+        "winrt.windows.foundation",
+        "winrt.windows.foundation.collections",
     ],
 )
 pyz = PYZ(a.pure)

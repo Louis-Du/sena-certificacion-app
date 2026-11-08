@@ -97,6 +97,23 @@ const actLearners = document.querySelector("#act-learners");
 const actLearnerForm = document.querySelector("#act-learner-form");
 let currentActId = null;
 
+const conflictBanner = document.querySelector("#global-conflict-banner");
+const conflictBannerText = document.querySelector("#global-conflict-text");
+const conflictResolveButton = document.querySelector("#global-conflict-resolve");
+const conflictLaterButton = document.querySelector("#global-conflict-later");
+const CONFLICT_POLL_INTERVAL_MS = 12000;
+const CONFLICT_DISMISS_KEY = "sena-conflict-banner-dismissed";
+let conflictPollTimer = null;
+let activeConflictFingerprint = null;
+let conflictDismissedFingerprint = (() => {
+  try {
+    return window.sessionStorage.getItem(CONFLICT_DISMISS_KEY) || "";
+  } catch (error) {
+    return "";
+  }
+})();
+let nativeNotificationFingerprint = null;
+
 const importSuccessViews = {
   acta: { view: "actas", label: "Ver actas" },
   actas_completo: { view: "aprendices", label: "Ver aprendices" },
@@ -614,19 +631,22 @@ async function validateFile() {
 
 async function confirmImport() {
   if (!validationId) return;
-  const isSheetsSync = Boolean(window.__sheetsSyncPending);
+  const isSheetsResolve = Boolean(window.__sheetsResolvePending);
+  const isSheetsSync = Boolean(window.__sheetsSyncPending) || isSheetsResolve;
   confirmButton.disabled = true;
   let stopProgress = null;
   if (isSheetsSync) stopProgress = startImportPercentProgress();
   try {
-    const endpoint = isSheetsSync
-      ? "/api/sheets/sync/confirm"
-      : `/api/imports/${validationId}/confirm`;
+    const endpoint = isSheetsResolve
+      ? "/api/sheets/sync/resolve"
+      : (isSheetsSync
+        ? "/api/sheets/sync/confirm"
+        : `/api/imports/${validationId}/confirm`);
     const payload = {
       conflict_resolutions: collectConflictResolutions(),
       accept_missing_complementaria: acceptMissingComplementaria.checked,
     };
-    if (isSheetsSync) payload.validation_id = validationId;
+    if (isSheetsSync && !isSheetsResolve) payload.validation_id = validationId;
     const response = await readResponse(await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -639,6 +659,8 @@ async function confirmImport() {
     confirmButton.hidden = true;
     if (isSheetsSync) {
       window.__sheetsSyncPending = false;
+      window.__sheetsResolvePending = false;
+      setConflictBannerVisible(false);
       hideReview();
       window.SenaUI?.closeImportModal?.();
       await loadSheetsStatus();
@@ -2675,9 +2697,13 @@ dropZone.addEventListener("drop", (event) => setFile(event.dataTransfer.files[0]
 removeButton.addEventListener("click", clearFile);
 cancelButton.addEventListener("click", () => {
   window.__sheetsSyncPending = false;
+  window.__sheetsResolvePending = false;
   clearFile();
   clearFeedback();
   resetSelection();
+  // Si el usuario cierra la resolución sin decidir, el lote sigue pendiente:
+  // el banner vuelve a mostrarse y el worker no lo reimporta.
+  loadSheetsStatus();
 });
 validateButton.addEventListener("click", validateFile);
 confirmButton.addEventListener("click", confirmImport);
@@ -2847,10 +2873,182 @@ function showSheetsPreview(data) {
   window.setTimeout(() => revealValidationResult(confirmSummary), 80);
 }
 
+function setConflictBannerVisible(visible) {
+  if (!conflictBanner) return;
+  conflictBanner.hidden = !visible;
+  document.body.classList.toggle("has-conflict-banner", visible);
+  if (visible) {
+    window.requestAnimationFrame(() => {
+      const height = conflictBanner.offsetHeight || 0;
+      document.documentElement.style.setProperty("--conflict-banner-height", `${height}px`);
+    });
+  } else {
+    document.documentElement.style.setProperty("--conflict-banner-height", "0px");
+  }
+}
+
+function conflictCountLabel(count) {
+  return count === 1 ? "1 conflicto pendiente" : `${count} conflictos pendientes`;
+}
+
+function updateConflictBanner(data) {
+  const count = Number(data.pending_conflict_count || 0);
+  const pending = Boolean(data.conflict_pending && count > 0);
+  if (!pending) {
+    activeConflictFingerprint = null;
+    conflictDismissedFingerprint = "";
+    try {
+      window.sessionStorage.removeItem(CONFLICT_DISMISS_KEY);
+    } catch (error) {
+      // La sesión puede estar restringida; el banner igualmente se oculta.
+    }
+    setConflictBannerVisible(false);
+    return;
+  }
+
+  const fingerprint = String(
+    data.pending_conflict_fingerprint
+      || data.pending_conflict_summary?.fingerprint
+      || "",
+  );
+  activeConflictFingerprint = fingerprint || null;
+  if (fingerprint && fingerprint === conflictDismissedFingerprint) {
+    setConflictBannerVisible(false);
+    return;
+  }
+
+  if (conflictBannerText) {
+    conflictBannerText.textContent = (
+      `${conflictCountLabel(count)} de Google Sheets. Elige el estado final de cada `
+      + "aprendiz para completar la importación; el lote no se reimportará solo."
+    );
+  }
+  setConflictBannerVisible(true);
+}
+
+async function sendNativeConflictNotification(data) {
+  if (!data.notification_pending) return;
+  const fingerprint = String(
+    data.pending_conflict_fingerprint
+      || data.pending_conflict_summary?.fingerprint
+      || "",
+  );
+  if (!fingerprint || fingerprint === nativeNotificationFingerprint) return;
+
+  const count = Number(data.pending_conflict_count || 0);
+  const title = "Conflicto de certificación detectado";
+  const body = count === 1
+    ? "1 aprendiz aparece en CERTIFICADOS y PENDIENTES. Debe definir el estado final."
+    : `${count} aprendices aparecen en CERTIFICADOS y PENDIENTES. Debe definir el estado final.`;
+
+  // Se marca antes del await para que dos ciclos de polling simultáneos no
+  // intenten mostrar el mismo toast.
+  nativeNotificationFingerprint = fingerprint;
+  let delivered = false;
+
+  const bridge = window.pywebview?.api;
+  if (bridge && typeof bridge.notify_conflict === "function") {
+    try {
+      const result = await bridge.notify_conflict(count, fingerprint, title, body);
+      delivered = Boolean(result) && result.delivered !== false;
+    } catch (error) {
+      delivered = false;
+    }
+  }
+
+  if (!delivered && typeof window.Notification === "function") {
+    try {
+      let permission = window.Notification.permission;
+      if (permission === "default") permission = await window.Notification.requestPermission();
+      if (permission === "granted") {
+        const notification = new window.Notification(title, {
+          body,
+          tag: `sena-conflict-${fingerprint}`,
+          requireInteraction: true,
+        });
+        notification.onclick = () => {
+          window.focus();
+          openPendingConflictResolution();
+          notification.close();
+        };
+        delivered = true;
+      }
+    } catch (error) {
+      delivered = false;
+    }
+  }
+
+  if (!delivered) {
+    // Se reintenta en el próximo ciclo; el backend mantiene notified_at vacío.
+    nativeNotificationFingerprint = null;
+    return;
+  }
+
+  try {
+    await fetch("/api/sheets/sync/notified", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fingerprint }),
+    });
+  } catch (error) {
+    // Si falla la marca, el backend volverá a pedir la notificación; el
+    // bridge de escritorio deduplica por huella dentro del mismo proceso.
+  }
+}
+
+async function openPendingConflictResolution() {
+  try {
+    const response = await fetch("/api/sheets/sync/pending-conflicts", { cache: "no-store" });
+    const data = await readResponse(response);
+    if (!data.conflict_pending || !data.preview) {
+      window.showToast?.("No hay conflictos pendientes de Google Sheets.", "info");
+      await loadSheetsStatus();
+      return;
+    }
+
+    showView("carga");
+    showSheetsPreview({ validation_id: data.validation_id, preview: data.preview });
+    window.__sheetsSyncPending = true;
+    window.__sheetsResolvePending = true;
+    setConflictBannerVisible(false);
+    window.setTimeout(() => window.SenaUI?.openImportModal?.(), 80);
+    window.showToast?.(
+      `${conflictCountLabel(Number(data.pending_conflict_count || 0))}. `
+        + "Elige Certificado o Pendiente para cada aprendiz.",
+      "warning",
+      { duration: 6500 },
+    );
+  } catch (error) {
+    window.showToast?.(error.message || "No fue posible abrir los conflictos pendientes.", "error");
+  }
+}
+
+function dismissConflictBannerForSession() {
+  if (activeConflictFingerprint) {
+    conflictDismissedFingerprint = activeConflictFingerprint;
+    try {
+      window.sessionStorage.setItem(CONFLICT_DISMISS_KEY, activeConflictFingerprint);
+    } catch (error) {
+      // Sin sessionStorage se oculta solo hasta la próxima recarga.
+    }
+  }
+  setConflictBannerVisible(false);
+  window.showToast?.(
+    "El lote sigue pendiente. Puedes retomarlo desde el botón Google Sheets o al recargar.",
+    "info",
+    { duration: 6000 },
+  );
+}
+
 async function loadSheetsStatus() {
   try {
-    const response = await fetch("/api/sheets/sync");
+    const response = await fetch("/api/sheets/sync", { cache: "no-store" });
+    if (!response.ok) return;
     const data = await response.json();
+    updateConflictBanner(data);
+    if (data.notification_pending) {
+      sendNativeConflictNotification(data).catch(() => {});
+    }
     if (!data.configured) return;
     if (sheetsUrlInput && !sheetsUrlInput.value) sheetsUrlInput.value = data.url || "";
     if (sheetsToggleButton) {
@@ -2947,4 +3145,58 @@ document.querySelectorAll("[data-close-sheets-review]").forEach((el) => {
   el.addEventListener("click", closeSheetsReviewModal);
 });
 
+if (conflictResolveButton) {
+  conflictResolveButton.addEventListener("click", () => {
+    openPendingConflictResolution();
+  });
+}
+if (conflictLaterButton) {
+  conflictLaterButton.addEventListener("click", dismissConflictBannerForSession);
+}
+
+// API usada por el bridge de pywebview al hacer clic en el toast nativo.
+window.SenaConflictBanner = {
+  refresh: loadSheetsStatus,
+  openResolution: openPendingConflictResolution,
+  update: updateConflictBanner,
+  dismiss: dismissConflictBannerForSession,
+};
+
+window.addEventListener("hashchange", () => {
+  if (window.location.hash === "#conflict-pending") {
+    openPendingConflictResolution();
+  }
+});
+
+if (window.location.hash === "#conflict-pending") {
+  window.setTimeout(openPendingConflictResolution, 350);
+}
+
+// El bridge JS -> Python se inyecta de forma asíncrona; al estar listo se
+// refresca el estado para poder emitir el toast pendiente.
+window.addEventListener("pywebviewready", () => {
+  loadSheetsStatus();
+});
+
+function startConflictPolling() {
+  if (conflictPollTimer) window.clearInterval(conflictPollTimer);
+  conflictPollTimer = window.setInterval(() => {
+    if (document.visibilityState === "hidden") return;
+    loadSheetsStatus();
+  }, CONFLICT_POLL_INTERVAL_MS);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") loadSheetsStatus();
+});
+
+window.addEventListener("resize", () => {
+  if (!conflictBanner || conflictBanner.hidden) return;
+  document.documentElement.style.setProperty(
+    "--conflict-banner-height",
+    `${conflictBanner.offsetHeight || 0}px`,
+  );
+});
+
+startConflictPolling();
 loadSheetsStatus();

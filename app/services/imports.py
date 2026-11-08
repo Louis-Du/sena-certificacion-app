@@ -102,9 +102,14 @@ def _apply_conflict_resolutions(session: Session, resolutions: dict[str, str]) -
     session.flush()
 
 
-def stage_file(file_name: str, content: bytes, information_type: str) -> StagedImport:
+def stage_file(
+    file_name: str,
+    content: bytes,
+    information_type: str,
+    validation_id: str | None = None,
+) -> StagedImport:
     result = validate_file(file_name, content, information_type)
-    validation_id = uuid.uuid4().hex
+    validation_id = validation_id or uuid.uuid4().hex
     staged = StagedImport(validation_id, file_name, content, information_type, result)
     _staged_imports[validation_id] = staged
     return staged

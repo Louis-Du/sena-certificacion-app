@@ -4,10 +4,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SENA Certificación</title>
-  <link href="/static/styles.css?v=20261105-v19" rel="stylesheet">
+  <link href="/static/styles.css?v=20261108-v20" rel="stylesheet">
 </head>
 
 <body>
+  <aside id="global-conflict-banner" class="global-conflict-banner" role="region" aria-live="polite" aria-labelledby="global-conflict-title" hidden>
+    <span class="global-conflict-icon" aria-hidden="true">!</span>
+    <div class="global-conflict-copy">
+      <strong id="global-conflict-title">Conflictos pendientes de Google Sheets</strong>
+      <span id="global-conflict-text">Hay conflictos de certificación pendientes de resolución.</span>
+    </div>
+    <div class="global-conflict-actions">
+      <button id="global-conflict-resolve" class="primary-button" type="button">Resolver ahora</button>
+      <button id="global-conflict-later" class="cancel-button" type="button">Más tarde</button>
+    </div>
+  </aside>
   <div id="global-progress" class="global-progress" role="progressbar" aria-label="Procesando archivo" aria-valuetext="Procesando" hidden>
     <div class="global-progress-bar"></div>
   </div>
@@ -521,7 +532,7 @@
 
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
   <script src="/static/vendor/chart.umd.min.js"></script>
-  <script src="/static/app.js?v=20261105-v17"></script>
+  <script src="/static/app.js?v=20261108-v18"></script>
   <script src="/static/ui-enhancements.js?v=20261105-v9"></script>
 </body>
 </html>
