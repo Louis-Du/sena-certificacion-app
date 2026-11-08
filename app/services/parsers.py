@@ -124,6 +124,14 @@ def clean_act_number(value: Any) -> str | None:
     return clean_identification(value)
 
 
+def is_valid_act_identifier(value: Any) -> bool:
+    """Valida que un identificador de acta siga el patron numero+año (ej. 62026)."""
+    text = clean_identification(value)
+    if not text or not text.isdigit():
+        return False
+    return len(text) >= 5 and text[-4:] in {"2025", "2026"}
+
+
 # ---------------------------------------------------------------------------
 # Normalizacion defensiva del estado de certificacion (N1)
 # ---------------------------------------------------------------------------
@@ -443,26 +451,76 @@ def classify_nivel(value: Any) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def split_motivos(value: Any) -> list[str]:
-    """
-    Separa la columna MOTIVO DE NO CERTIFICACION en causas individuales.
+def _canonical_cause(fragment: str) -> str:
+    cleaned = normalize_text(fragment).strip(" .;")
+    if not cleaned:
+        return ""
+    cleaned = re.sub(r"\bt\s*&\s*t\b|\bt\s+y\s+t\b|\bt\s+yt\b|\btyt\b", "t&t", cleaned)
+    cleaned = cleaned.replace("documentpos", "documentos")
+    cleaned = cleaned.replace("remitido remitido", "remitido")
+    cleaned = " ".join(cleaned.split())
+    mapping = {
+        "no anexa t&t": "No anexa T&T",
+        "no ha remitido documentos": "No ha remitido documentos",
+        "no ha remitido documento": "No ha remitido documentos",
+        "no anexo documento": "No anexó documento",
+        "no anexo documentos": "No anexó documento",
+        "destruccion del carnet": "Destrucción del carnet",
+        "carta carnet sin firma": "Carta carnet sin firma",
+        "carta carnet": "Carta carnet",
+        "documento de identidad vencido": "Documento vencido",
+        "documento vencido": "Documento vencido",
+        "documento de vencido": "Documento vencido",
+        "documento de identidad": "Documento de identidad",
+        "ape": "APE",
+        # "No anexa APE" expresses the same missing business requirement.
+        "no anexa ape": "APE",
+        "sin documentos": "Sin documentos",
+        "icfes bogota": "ICFES Bogotá",
+    }
+    if cleaned in mapping:
+        return mapping[cleaned]
+    return cleaned.capitalize() if cleaned else ""
 
-    Una misma persona puede tener varios motivos escritos en una sola celda,
-    separados por comas (por ejemplo ``"APE, No anexa T&T"``). Cada motivo es una
-    *incidencia* distinta, aunque siga siendo *una sola persona* pendiente.
 
-    Devuelve una lista de motivos normalizados, sin elementos vacios ni
-    repetidos dentro de la misma celda.
-    """
+def normalize_motivo_fragments(value: Any) -> list[str]:
+    """Devuelve las causas canónicas atómicas de una celda de MOTIVO."""
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return []
-    texto = str(value)
-    motivos: list[str] = []
-    for parte in texto.split(","):
-        limpio = normalize_text(parte).strip(" .;")
-        if limpio and limpio not in motivos:
-            motivos.append(limpio)
-    return motivos
+    texto = normalize_text(value)
+    if not texto:
+        return []
+    # Normalizar las variantes de T&T antes de usar " y " como separador.
+    texto = re.sub(r"\bt\s*&\s*t\b|\bt\s+y\s+t\b|\bt\s+yt\b|\btyt\b", "t&t", texto)
+    raw_fragments = re.split(r"\s*[,;]\s*|\s+y\s+", texto, flags=re.IGNORECASE)
+    result: list[str] = []
+    for fragment in raw_fragments:
+        canonical = _canonical_cause(fragment)
+        if canonical and canonical not in result:
+            result.append(canonical)
+    return result
+
+
+def split_motivos(value: Any) -> list[str]:
+    """Compatibilidad: separa motivos en texto comparable, sin canonizarlos."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return []
+    texto = normalize_text(value)
+    if not texto:
+        return []
+    texto = re.sub(r"\bt\s*&\s*t\b|\bt\s+y\s+t\b|\bt\s+yt\b|\btyt\b", "t&t", texto)
+    return list(dict.fromkeys(fragment.strip(" .;") for fragment in re.split(
+        r"\s*[,;]\s*|\s+y\s+", texto, flags=re.IGNORECASE
+    ) if fragment.strip(" .;")))
+
+
+def aggregate_causas(values: Any) -> dict[str, int]:
+    """Cuenta una incidencia por cada causa canónica de cada celda."""
+    counts: dict[str, int] = {}
+    for value in values or []:
+        for cause in normalize_motivo_fragments(value):
+            counts[cause] = counts.get(cause, 0) + 1
+    return counts
 
 
 # ---------------------------------------------------------------------------

@@ -335,7 +335,9 @@ def _resumen_hoja_actas(
 
         # 7) Motivos de no certificacion (una celda puede traer varios).
         if leer_motivos:
-            lista_motivos = parsers.split_motivos(registro.get("motivo de no certificacion"))
+            lista_motivos = parsers.normalize_motivo_fragments(
+                registro.get("motivo de no certificacion")
+            )
             if not lista_motivos:
                 documentos_sin_motivo += 1
             elif len(lista_motivos) > 1:
@@ -848,9 +850,13 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
         )
 
     if certificados["fuera_de_periodo"]:
+        cantidad = certificados["fuera_de_periodo"]
+        plural = "" if cantidad == 1 else "s"
+        verbo = "quedó" if cantidad == 1 else "quedaron"
+        verbo_contar = "contó" if cantidad == 1 else "contaron"
         advertencias.append(
-            f"{certificados['fuera_de_periodo']} certificados quedaron fuera del periodo "
-            "Ene-Sep 2026 y no se contaron."
+            f"{cantidad} certificado{plural} {verbo} fuera del periodo Ene-Sep 2026 "
+            f"y no se {verbo_contar}."
         )
     if certificados["sin_documento"]:
         advertencias.append(
@@ -866,18 +872,37 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
     # ``resoluciones_conflicto`` vienen del filtro aplicado a los totales.
 
     # ---- Motivos de no certificacion --------------------------------------
+    # ``cantidad`` conserva el significado historico: personas unicas que
+    # registran la causa (una persona suma una vez por causa, no una vez por
+    # incidencia repetida). La suma de todas las causas es el total de
+    # asociaciones persona-causa ("incidencias") y puede superar a las personas
+    # pendientes porque una persona puede tener varias causas.
     motivos_incidencias = pendientes["motivos"]
     total_incidencias = sum(motivos_incidencias.values())
+    pendientes_unicos_total = (
+        pendientes["total_documentos"] if pendientes_disponibles else None
+    )
     motivos = [
         {
             "motivo": motivo,
             "cantidad": cantidad,
+            "personas": cantidad,
             "porcentaje": (
                 round((cantidad / total_incidencias) * 100, 1) if total_incidencias else None
+            ),
+            "porcentaje_personas": (
+                round((cantidad / pendientes_unicos_total) * 100, 1)
+                if pendientes_unicos_total
+                else None
             ),
         }
         for motivo, cantidad in motivos_incidencias.most_common()
     ]
+    porcentaje_sin_motivo = (
+        round((pendientes["documentos_sin_motivo"] / pendientes_unicos_total) * 100, 1)
+        if pendientes_unicos_total
+        else None
+    )
 
     # ---- Actas del periodo (desde la hoja CERTIFICADOS) -------------------
     # La hoja CERTIFICADOS solo informa el numero de acta, no su fecha ni su tipo.
@@ -893,22 +918,27 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
             if clave and clave not in actas_por_clave:
                 actas_por_clave[clave] = acta_db
 
-    ultimas_actas = []
-    for acta, cantidad in certificados["por_acta"].most_common(15):
+    actas_periodo = []
+    for acta, cantidad in certificados["por_acta"].most_common():
         acta_db = actas_por_clave.get(_acta_clave(acta))
-        ultimas_actas.append(
+        act_date = (
+            acta_db.act_date.isoformat()
+            if acta_db is not None and acta_db.act_date
+            else None
+        )
+        act_type = acta_db.act_type if acta_db is not None else None
+        actas_periodo.append(
             {
                 "number": acta,
                 "aprendices_count": cantidad,
-                "act_date": (
-                    acta_db.act_date.isoformat()
-                    if acta_db is not None and acta_db.act_date
-                    else None
-                ),
-                "act_type": acta_db.act_type if acta_db is not None else None,
+                "act_date": act_date,
+                "act_type": act_type,
                 "act_id": acta_db.id if acta_db is not None else None,
+                "metadata_completa": bool(act_date and act_type),
             }
         )
+    # ``ultimas_actas`` se conserva para la tabla resumida de la interfaz.
+    ultimas_actas = actas_periodo[:15]
 
     if (
         not certificados["total_documentos"]
@@ -956,10 +986,15 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
         "certificados_complementaria": total_certificados_complementaria,
         "total_pendientes": total_pendientes_valor,
         "pendientes_personas": total_pendientes_valor,
+        # Total de documentos unicos de PENDIENTES, incluidos los que no se
+        # pudieron clasificar por NIVEL. Se usa como denominador de causas para
+        # no comparar contra una base distinta a la que se conto.
+        "pendientes_unicos_total": pendientes_unicos_total,
         "total_pendientes_completo": pendientes_disponibles and pendientes_completos,
         "total_incidencias_causas": total_incidencias,
         "aprendices_con_causas_multiples": pendientes["documentos_con_varios_motivos"],
         "aprendices_pendientes_sin_motivo": pendientes["documentos_sin_motivo"],
+        "porcentaje_pendientes_sin_motivo": porcentaje_sin_motivo,
         "avance_global": avance_global,
         "efectividad_global": efectividad_global,
         "universo_efectividad": "personas titulada (sin formacion complementaria)",
@@ -976,18 +1011,28 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
             ),
         },
         "sin_clasificar": sin_clasificar,
+        "certificados_fuera_de_periodo": certificados["fuera_de_periodo"],
+        "certificados_sin_documento": certificados["sin_documento"],
         "metricas": metricas,
         "motivos": motivos,
         "complementaria_canales": complementaria["por_canal"],
         "referencia_institucional": referencia,
         "ultimas_actas": ultimas_actas,
+        # Listado completo de actas del periodo (no solo las 15 de la UI).
+        "actas_periodo": actas_periodo,
+        "actas_periodo_total": len(actas_periodo),
+        "actas_sin_metadatos": sum(
+            1 for acta in actas_periodo if not acta["metadata_completa"]
+        ),
         "actas_con_detalle": sum(1 for acta in ultimas_actas if acta["act_id"]),
         "conflictos_certificados_pendientes": len(conflictos_cert_pend),
+        "resoluciones_conflicto": dict(resoluciones_conflicto),
         "conflictos": {
             "detectados": len(conflictos_cert_pend),
             "resueltos": len(resoluciones_conflicto),
             "sin_resolver": len(conflictos_sin_resolver),
             "documentos_sin_resolver": sorted(conflictos_sin_resolver),
+            "resoluciones": dict(resoluciones_conflicto),
         },
         # B5: el mismo corte mensual que expone el endpoint dedicado, desde el
         # consolidado vigente y no desde el padron local.

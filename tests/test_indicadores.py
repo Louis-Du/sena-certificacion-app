@@ -208,15 +208,15 @@ def test_personas_pendientes_vs_incidencias(session_factory):
 
     # 4 personas pendientes (aunque haya 5 incidencias de motivos).
     assert data["total_pendientes"] == 4
-    # 5 incidencias: "ape" x3 + "no anexa t&t" x1 + "documento vencido" x1.
+    # 5 incidencias: "APE" x3 + "No anexa T&T" x1 + "Documento vencido" x1.
     assert data["total_incidencias_causas"] == 5
     assert data["aprendices_con_causas_multiples"] == 2
     assert data["aprendices_pendientes_sin_motivo"] == 1
 
     motivos = {m["motivo"]: m["cantidad"] for m in data["motivos"]}
-    assert motivos["ape"] == 3
-    assert motivos["no anexa t&t"] == 1
-    assert motivos["documento vencido"] == 1
+    assert motivos["APE"] == 3
+    assert motivos["No anexa T&T"] == 1
+    assert motivos["Documento vencido"] == 1
     # Las personas y las incidencias se informan por separado: NO se fuerzan a coincidir.
     assert data["total_pendientes"] != data["total_incidencias_causas"]
 
