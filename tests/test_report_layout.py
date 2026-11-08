@@ -19,4 +19,4 @@ def test_informes_sin_freeze_agresivo():
         "informe_pendientes.xlsx",
     ]:
         _assert_no_freeze(path)
-"
+
