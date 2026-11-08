@@ -2005,13 +2005,26 @@ learnersNext.addEventListener("click", () => {
   loadLearners();
 });
 
+function replaceLocationHash(hash) {
+  // Algunos bloqueadores (p. ej. Malwarebytes Browser Guard) interceptan
+  // history.replaceState y lanzan "Breaking Browser Locker Behavior detected".
+  // El cambio de vista no debe depender de esa API: si falla, la navegacion
+  // interna sigue funcionando y la URL simplemente conserva su valor.
+  if (window.location.hash === hash) return;
+  try {
+    history.replaceState(null, "", hash);
+  } catch (error) {
+    // Silencioso a proposito: es una mejora cosmetica de la URL.
+  }
+}
+
 function showView(viewName, updateHash = true) {
   const target = ["aprendices", "actas", "indicadores"].includes(viewName) ? viewName : "carga";
   views.forEach((view) => {
     view.hidden = view.id !== `${target}-view`;
   });
   viewLinks.forEach((link) => link.classList.toggle("active", link.dataset.view === target));
-  if (updateHash) history.replaceState(null, "", `#${target}`);
+  if (updateHash) replaceLocationHash(`#${target}`);
   if (target === "aprendices") loadLearners();
   if (target === "actas") loadActs();
   if (target === "indicadores") loadIndicadores();
@@ -3006,7 +3019,10 @@ async function openPendingConflictResolution() {
       return;
     }
 
-    showView("carga");
+    // Sin cambio de hash: abrir la resolución no debe depender de
+    // history.replaceState (algunos bloqueadores lo marcan como browser
+    // locker y abortarían el flujo antes de mostrar el modal).
+    showView("carga", false);
     showSheetsPreview({ validation_id: data.validation_id, preview: data.preview });
     window.__sheetsSyncPending = true;
     window.__sheetsResolvePending = true;
@@ -3164,7 +3180,11 @@ window.SenaConflictBanner = {
 
 window.addEventListener("hashchange", () => {
   if (window.location.hash === "#conflict-pending") {
-    openPendingConflictResolution();
+    openPendingConflictResolution().finally(() => {
+      // Se limpia el hash con la misma protección que el resto de la
+      // navegación: si el bloqueador lo impide, no afecta al modal abierto.
+      replaceLocationHash("#carga");
+    });
   }
 });
 

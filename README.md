@@ -86,6 +86,9 @@ archivo; por eso no se repite el toast en cada ciclo de 60 segundos.
   estado del backend y el lote no se borran. El banner hace polling ligero cada
   12 segundos a `GET /api/sheets/sync`, no bloquea la app y no aparece si no hay
   conflictos.
+- El flujo de resolucion no depende de `history.replaceState`: si un bloqueador
+  como Malwarebytes Browser Guard lanza "Breaking Browser Locker Behavior
+  detected", la navegacion interna y el modal de resolucion siguen funcionando.
 
 ### Resolucion
 
