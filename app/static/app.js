@@ -3115,9 +3115,13 @@ function setConflictResolutionLoading(loading) {
     conflictResolveButton.textContent = loading
       ? "Cargando conflictos…"
       : "Resolver ahora";
+    conflictResolveButton.setAttribute("aria-busy", loading ? "true" : "false");
   }
   const globalProgress = document.getElementById("global-progress");
   if (globalProgress) globalProgress.hidden = !loading;
+  if (loading) {
+    window.showToast?.("Cargando conflictos…", "info", { duration: 2000 });
+  }
 }
 
 async function openPendingConflictResolution() {
