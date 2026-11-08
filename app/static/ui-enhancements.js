@@ -425,6 +425,10 @@
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && modal?.classList.contains("is-open")) {
+      // El modal "Antes de confirmar" se superpone a la revisión; su tecla
+      // Escape solo debe cerrar esa advertencia, no cancelar la importación.
+      const warningModal = document.getElementById("conflict-confirm-modal");
+      if (warningModal?.classList.contains("is-open")) return;
       cancelModal();
     }
   });
@@ -1330,13 +1334,24 @@
   });
 
   /* ---------------- Integración con showView de app.js ---------------- */
+  function replaceHashSafely(hash) {
+    // Browser Guard y otros bloqueadores pueden interceptar replaceState con
+    // "Breaking Browser Locker Behavior detected". La navegación interna no
+    // debe romperse por esa API cosmética.
+    try {
+      history.replaceState(null, "", hash);
+    } catch (error) {
+      // La vista ya cambió; solo se omite la actualización de la URL.
+    }
+  }
+
   const originalShowView = window.showView;
   if (typeof originalShowView === "function") {
     window.showView = function (viewName, updateHash) {
       if (viewName === "historial") {
         originalShowView("carga", false);
         activateSidebar("historial");
-        if (updateHash !== false) history.replaceState(null, "", "#historial");
+        if (updateHash !== false) replaceHashSafely("#historial");
         setTimeout(() => {
           document.getElementById("historial")?.scrollIntoView({
             behavior: "smooth",

@@ -476,6 +476,12 @@ def _resoluciones_conflicto(
             getattr(learner, "conflict_resolution", None)
         )
         if estado not in {"certificados", "pendiente"}:
+            # Un desempate historico solo se usa cuando el documento esta de
+            # nuevo en la interseccion (esta funcion recibe solo esos casos).
+            estado = parsers.normalize_certification_status(
+                getattr(learner, "last_conflict_resolution", None)
+            )
+        if estado not in {"certificados", "pendiente"}:
             notas = learner.tracking_notes or ""
             if "Conflicto resuelto: Certificado" in notas:
                 estado = "certificados"

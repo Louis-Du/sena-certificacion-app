@@ -4,10 +4,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SENA Certificación</title>
-  <link href="/static/styles.css?v=20261105-v19" rel="stylesheet">
+  <link href="/static/styles.css?v=20261108-v22" rel="stylesheet">
 </head>
 
 <body>
+  <aside id="global-conflict-banner" class="global-conflict-banner" role="region" aria-live="polite" aria-labelledby="global-conflict-title" hidden>
+    <span class="global-conflict-icon" aria-hidden="true">!</span>
+    <div class="global-conflict-copy">
+      <strong id="global-conflict-title">Conflictos pendientes de resolución</strong>
+      <span id="global-conflict-text">Hay conflictos de certificación pendientes de resolución en Google Sheets.</span>
+    </div>
+    <div class="global-conflict-actions">
+      <button id="global-conflict-resolve" class="primary-button" type="button">Resolver ahora</button>
+      <button id="global-conflict-later" class="cancel-button" type="button">Más tarde</button>
+    </div>
+  </aside>
   <div id="global-progress" class="global-progress" role="progressbar" aria-label="Procesando archivo" aria-valuetext="Procesando" hidden>
     <div class="global-progress-bar"></div>
   </div>
@@ -454,6 +465,32 @@
       </div>
     </div>
   </div>
+  <div id="conflict-confirm-modal" class="modal-root conflict-confirm-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="conflict-confirm-title">
+    <div class="modal-backdrop" data-close-conflict-confirm></div>
+    <div class="modal-dialog conflict-confirm-dialog" tabindex="-1">
+      <div class="conflict-confirm-header">
+        <span class="conflict-confirm-icon" aria-hidden="true">⚠</span>
+        <div>
+          <p class="eyebrow">Confirmación adicional</p>
+          <h2 id="conflict-confirm-title">Antes de confirmar</h2>
+        </div>
+      </div>
+      <div class="conflict-confirm-body">
+        <p>Resolvió conflictos de coherencia en este lote. Esa decisión se guardará solo en SENA Certificación App.</p>
+        <p>Esta aplicación solo lee Google Sheets y los archivos de origen: no puede modificar, borrar ni actualizar filas en la hoja.</p>
+        <p>Si el aprendiz sigue en CERTIFICADOS y PENDIENTES a la vez en Google Sheets, el cruce permanecerá allí. Para alinear la hoja, corríjala o elimine el registro duplicado de forma manual.</p>
+        <p>Si más adelante la hoja deja de presentar el cruce y el aprendiz aparece solo en una lista, la app tomará ese estado y descartará el desempate anterior.</p>
+        <div class="conflict-confirm-ack">
+          <label for="sheets-manual-cleanup"><input type="checkbox" id="sheets-manual-cleanup"> Ya corregí o eliminé el registro duplicado en Google Sheets (acción manual)</label>
+          <small>Solo documental en la app; no modifica Google Sheets.</small>
+        </div>
+      </div>
+      <div class="modal-actions conflict-confirm-actions">
+        <button id="conflict-confirm-back" class="cancel-button" type="button">Volver</button>
+        <button id="conflict-confirm-accept" class="primary-button" type="button">Confirmar de todos modos</button>
+      </div>
+    </div>
+  </div>
   <div id="report-modal" class="modal-root" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="report-modal-title">
     <div class="modal-backdrop" data-close-report-modal></div>
     <div class="modal-dialog report-dialog" tabindex="-1">
@@ -521,7 +558,7 @@
 
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
   <script src="/static/vendor/chart.umd.min.js"></script>
-  <script src="/static/app.js?v=20261105-v17"></script>
-  <script src="/static/ui-enhancements.js?v=20261105-v9"></script>
+  <script src="/static/app.js?v=20261108-v22"></script>
+  <script src="/static/ui-enhancements.js?v=20261108-v11"></script>
 </body>
 </html>
