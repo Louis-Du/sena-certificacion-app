@@ -385,6 +385,104 @@ a {
   animation: progressSlide 1.1s ease-in-out infinite;
 }
 
+/* ---------- Banner global de conflictos Google Sheets ---------- */
+.global-conflict-banner {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 22px;
+  color: #fff;
+  background: linear-gradient(90deg, #7f1d1d, #b91c1c 48%, #be123c);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 12px 32px rgba(127, 29, 29, 0.38);
+  animation: conflictBannerIn 0.24s ease both;
+}
+
+@keyframes conflictBannerIn {
+  from {
+    transform: translateY(-100%);
+    opacity: 0.4;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.global-conflict-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  font-weight: 800;
+  font-size: 1rem;
+}
+
+.global-conflict-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.global-conflict-copy strong {
+  font-size: var(--text-sm);
+  letter-spacing: 0.01em;
+}
+
+.global-conflict-copy span {
+  font-size: var(--text-xs);
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.global-conflict-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+
+.global-conflict-banner .primary-button {
+  background: #fff;
+  border-color: #fff;
+  color: #7f1d1d;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.24);
+}
+
+.global-conflict-banner .primary-button:hover:not(:disabled) {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.global-conflict-banner .cancel-button {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.55);
+  color: #fff;
+}
+
+.global-conflict-banner .cancel-button:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* El banner es fijo y no modal: solo desplaza el contenido de la app. */
+body.has-conflict-banner .shell {
+  padding-top: var(--conflict-banner-height, 0px);
+}
+
+body.has-conflict-banner .sidebar {
+  top: var(--conflict-banner-height, 0px);
+  height: calc(100vh - var(--conflict-banner-height, 0px));
+}
+
 /* ---------- Panels ---------- */
 .panel {
   background: var(--surface);
@@ -1688,7 +1786,19 @@ a {
   .app-layout {
     grid-template-columns: 1fr;
   }
-  .sidebar {
+  .global-conflict-banner {
+    flex-wrap: wrap;
+    padding: 10px 14px;
+  }
+  .global-conflict-copy {
+    flex-basis: calc(100% - 52px);
+  }
+  .global-conflict-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .sidebar,
+  body.has-conflict-banner .sidebar {
     position: fixed;
     left: 0;
     right: 0;

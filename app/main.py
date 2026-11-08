@@ -136,6 +136,13 @@ class SheetSyncConfirmRequest(BaseModel):
     conflict_resolutions: list[ConflictResolutionRequest] = []
     accept_missing_complementaria: bool = False
 
+class SheetSyncResolveRequest(BaseModel):
+    conflict_resolutions: list[ConflictResolutionRequest] = []
+    accept_missing_complementaria: bool = False
+
+class SheetSyncNotifiedRequest(BaseModel):
+    fingerprint: str | None = None
+
 # Esta ruta devuelve el archivo index.html ubicado en el directorio static cuando se accede a la raíz del sitio web. Se utiliza FileResponse para enviar el archivo como respuesta HTTP.
 @app.get("/", include_in_schema=False)
 async def index() -> FileResponse:
@@ -583,6 +590,49 @@ async def sheets_sync_status_endpoint(session: Session = Depends(get_db)) -> dic
     from app.services.sheets_sync import get_config, config_to_status
 
     return config_to_status(get_config(session))
+
+
+@app.get("/api/sheets/sync/pending-conflicts")
+async def sheets_sync_pending_conflicts_endpoint(
+    session: Session = Depends(get_db),
+) -> dict:
+    """Lote detenido por conflictos CERTIFICADOS/PENDIENTES, listo para resolver."""
+    from app.services.sheets_sync import pending_conflicts_payload
+
+    return pending_conflicts_payload(session)
+
+
+@app.post("/api/sheets/sync/resolve")
+async def sheets_sync_resolve_endpoint(
+    request: SheetSyncResolveRequest,
+    session: Session = Depends(get_db),
+) -> dict:
+    """Resuelve el lote pendiente y completa la importación automática."""
+    from app.services.sheets_sync import resolve_pending
+
+    resolutions = [item.model_dump() for item in request.conflict_resolutions]
+    try:
+        return resolve_pending(
+            session,
+            resolutions,
+            accept_missing_complementaria=request.accept_missing_complementaria,
+        )
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.post("/api/sheets/sync/notified")
+async def sheets_sync_notified_endpoint(
+    request: SheetSyncNotifiedRequest | None = None,
+    session: Session = Depends(get_db),
+) -> dict:
+    """Marca que el toast nativo ya se mostró para evitar notificaciones repetidas."""
+    from app.services.sheets_sync import mark_notified
+
+    fingerprint = request.fingerprint if request is not None else None
+    return mark_notified(session, fingerprint)
 
 
 @app.post("/api/sheets/sync")

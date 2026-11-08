@@ -1,6 +1,17 @@
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -119,6 +130,31 @@ class SheetSyncConfig(Base):
     )
     last_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
     last_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Lote descargado que quedo detenido porque CERTIFICADOS y PENDIENTES
+    # contienen el mismo documento. El hash de la hoja NO se actualiza hasta
+    # resolverlo e importarlo, de modo que el siguiente ciclo no lo descarte.
+    pending_validation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pending_conflict_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Huella estable del conjunto de documentos en conflicto. Evita repetir la
+    # notificacion nativa en cada ciclo de 60 segundos.
+    pending_conflict_fingerprint: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    # Hash del XLSX que produjo el conflicto pendiente. Permite reconocer el
+    # mismo lote sin volver a validarlo en cada ciclo.
+    pending_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pending_file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Contenido del lote y resumen serializado para que la resolucion funcione
+    # incluso si la aplicacion se reinicia y ``_staged_imports`` (memoria) se
+    # vacia. ``deferred`` evita cargar el BLOB en cada polling de estado.
+    pending_content: Mapped[bytes | None] = mapped_column(
+        LargeBinary, nullable=True, deferred=True
+    )
+    pending_conflicts_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pending_preview_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 # Esta clase representa un requisito asociado a un aprendiz en la base de datos.
 class Requirement(Base):
