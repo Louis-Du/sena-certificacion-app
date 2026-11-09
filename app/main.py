@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 # Importamos varias funciones y clases de nuestro propio módulo app para manejar la base de datos, modelos, servicios y validaciones.
 from app.database import SessionLocal, get_db, init_db
-from app.models import Act
+from app.models import Act, Anexo
 from app.services.imports import (
     confirm_import,
     get_staged,
@@ -450,6 +450,83 @@ async def unlink_act_learner(
         unlink_learner_from_act(session, act_id, learner_id)
     except LookupError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+# ---------------------------------------------------------------------------
+# Anexos (imagenes de cualquier resolucion)
+# ---------------------------------------------------------------------------
+@app.post("/api/anexos", status_code=201)
+async def create_anexo_endpoint(
+    title: str = Form(...),
+    description: str | None = Form(default=None),
+    attachment_date: date | None = Form(default=None),
+    file: UploadFile = File(...),
+    session: Session = Depends(get_db),
+) -> dict:
+    if not title.strip():
+        raise HTTPException(status_code=422, detail="El titulo es obligatorio.")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="El archivo esta vacio.")
+    resolved_date = attachment_date or date.today()
+    anexo = Anexo(
+        title=title.strip(),
+        description=description.strip() if description else None,
+        attachment_date=resolved_date,
+        file_name=file.filename or "anexo",
+        mime_type=file.content_type,
+        content=content,
+    )
+    session.add(anexo)
+    session.commit()
+    session.refresh(anexo)
+    return {
+        "id": anexo.id,
+        "title": anexo.title,
+        "description": anexo.description,
+        "attachment_date": anexo.attachment_date.isoformat(),
+        "file_name": anexo.file_name,
+        "mime_type": anexo.mime_type,
+        "image_url": f"/api/anexos/{anexo.id}/image",
+        "created_at": anexo.created_at.isoformat() if anexo.created_at else None,
+    }
+
+
+@app.get("/api/anexos")
+async def list_anexos_endpoint(session: Session = Depends(get_db)) -> dict:
+    items = session.query(Anexo).order_by(Anexo.created_at.desc(), Anexo.id.desc()).all()
+    return {
+        "items": [
+            {
+                "id": item.id,
+                "title": item.title,
+                "description": item.description,
+                "attachment_date": item.attachment_date.isoformat() if item.attachment_date else None,
+                "file_name": item.file_name,
+                "mime_type": item.mime_type,
+                "image_url": f"/api/anexos/{item.id}/image",
+                "created_at": item.created_at.isoformat() if item.created_at else None,
+            }
+            for item in items
+        ]
+    }
+
+
+@app.get("/api/anexos/{anexo_id}/image")
+async def anexo_image_endpoint(anexo_id: int, session: Session = Depends(get_db)):
+    anexo = session.get(Anexo, anexo_id)
+    if anexo is None:
+        raise HTTPException(status_code=404, detail="Anexo no encontrado.")
+    return Response(content=anexo.content, media_type=anexo.mime_type or "application/octet-stream")
+
+
+@app.delete("/api/anexos/{anexo_id}", status_code=204)
+async def delete_anexo_endpoint(anexo_id: int, session: Session = Depends(get_db)) -> None:
+    anexo = session.get(Anexo, anexo_id)
+    if anexo is None:
+        raise HTTPException(status_code=404, detail="Anexo no encontrado.")
+    session.delete(anexo)
+    session.commit()
 
 
 @app.get("/api/indicadores")

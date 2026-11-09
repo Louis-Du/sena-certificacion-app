@@ -1,13 +1,1 @@
-{
-  "tests/test_informes_consolidado.py::test_kpis_alineados_con_compute_indicadores": true,
-  "tests/test_informes_consolidado.py::test_export_causas_reutiliza_conteo_canonico_del_indicador": true,
-  "tests/test_informes_consolidado.py::test_certificados_por_mes_presente_y_coherente": true,
-  "tests/test_informes_consolidado.py::test_export_xlsx_con_datos": true,
-  "tests/test_informes_consolidado.py::test_export_xlsx_sin_datos": true,
-  "tests/test_informes_consolidado.py::test_exporta_csv_y_catalogo_de_informes": true,
-  "tests/test_informes_consolidado.py::test_listados_de_informes_conservan_columnas_de_negocio": true,
-  "tests/test_informes_consolidado.py::test_graficos_excel_tienen_una_serie_y_etiquetas_legibles": true,
-  "tests/test_informes_consolidado.py::test_export_pendientes_incluye_grafico_de_incidencias_no_excluyentes": true,
-  "tests/test_informes_consolidado.py::test_export_consolidado_coloca_grafico_de_incidencias_en_resumen": true,
-  "tests/test_informes_consolidado.py::test_incidence_rows_usa_causas_cuando_no_hay_padron_local": true
-}
+{}

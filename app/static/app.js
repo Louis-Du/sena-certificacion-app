@@ -100,6 +100,10 @@ const actBasicInfo = document.querySelector("#act-basic-info");
 const actLearners = document.querySelector("#act-learners");
 const actLearnerForm = document.querySelector("#act-learner-form");
 let currentActId = null;
+const anexoForm = document.querySelector("#anexo-form");
+const anexoFeedback = document.querySelector("#anexo-form-feedback");
+const anexosList = document.querySelector("#anexos-list");
+const anexosSummary = document.querySelector("#anexos-summary");
 
 const conflictBanner = document.querySelector("#global-conflict-banner");
 const conflictBannerText = document.querySelector("#global-conflict-text");
@@ -2066,7 +2070,7 @@ function replaceLocationHash(hash) {
 }
 
 function showView(viewName, updateHash = true) {
-  const target = ["aprendices", "actas", "indicadores"].includes(viewName) ? viewName : "carga";
+  const target = ["aprendices", "actas", "indicadores", "anexos"].includes(viewName) ? viewName : "carga";
   views.forEach((view) => {
     view.hidden = view.id !== `${target}-view`;
   });
@@ -2075,6 +2079,7 @@ function showView(viewName, updateHash = true) {
   if (target === "aprendices") loadLearners();
   if (target === "actas") loadActs();
   if (target === "indicadores") loadIndicadores();
+  if (target === "anexos") loadAnexos();
 }
 
 // ---------------------------------------------------------------------------
@@ -2687,6 +2692,56 @@ function renderActs(items) {
   });
   if (!items.length) actList.innerHTML = '<tr><td colspan="6">No hay actas registradas.</td></tr>';
 }
+async function loadAnexos() {
+  try {
+    const result = await readResponse(await fetch("/api/anexos"));
+    const items = result.items || [];
+    anexosSummary.textContent = `${items.length} anexos cargados`;
+    anexosList.replaceChildren();
+    if (!items.length) {
+      anexosList.innerHTML = '<p class="empty-detail">Aún no hay anexos cargados.</p>';
+      return;
+    }
+    items.forEach((item) => {
+      const entry = document.createElement("div");
+      entry.className = "detail-list-item";
+      const img = document.createElement("img");
+      img.src = item.image_url;
+      img.alt = item.title;
+      img.style.maxWidth = "120px";
+      img.style.maxHeight = "120px";
+      img.style.objectFit = "contain";
+      const text = document.createElement("div");
+      const title = document.createElement("strong");
+      title.textContent = item.title;
+      const desc = document.createElement("p");
+      desc.textContent = item.description || "Sin descripción";
+      const date = document.createElement("small");
+      date.textContent = item.attachment_date || "";
+      text.append(title, desc, date);
+      entry.append(img, text);
+      anexosList.appendChild(entry);
+    });
+  } catch (error) {
+    anexosSummary.textContent = error.message;
+  }
+}
+
+if (anexoForm) {
+  anexoForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(anexoForm);
+    try {
+      await readResponse(await fetch("/api/anexos", { method: "POST", body: formData }));
+      anexoForm.reset();
+      anexoFeedback.textContent = "Anexo guardado correctamente.";
+      loadAnexos();
+    } catch (error) {
+      anexoFeedback.textContent = error.message;
+    }
+  });
+}
+
 async function loadActs() {
   try {
     const params = {
@@ -2826,7 +2881,12 @@ acceptMissingComplementaria.addEventListener("change", updateCoherenceState);
 resetSelection();
 loadHistory();
 loadLearners();
-showView(window.location.hash === "#aprendices" ? "aprendices" : "carga", false);
+const initialView = window.location.hash === "#aprendices" ? "aprendices"
+  : window.location.hash === "#anexos" ? "anexos"
+  : window.location.hash === "#actas" ? "actas"
+  : window.location.hash === "#indicadores" ? "indicadores"
+  : "carga";
+showView(initialView, false);
 
 
 // ---------------------------------------------------------------------------

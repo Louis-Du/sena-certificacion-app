@@ -242,3 +242,21 @@ class ActLearner(Base):
 
     act: Mapped[Act] = relationship(back_populates="learners")
     learner: Mapped[Learner] = relationship(back_populates="acts")
+
+
+# Esta clase representa un anexo (imagen) cargado en la aplicacion. Permite
+# almacenar imagenes de cualquier resolucion junto con un titulo, descripcion
+# y la fecha de adjuncion (por defecto la fecha actual).
+class Anexo(Base):
+    __tablename__ = "anexos"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attachment_date: Mapped[date] = mapped_column(Date)
+    file_name: Mapped[str] = mapped_column(String(255))
+    mime_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    content: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )

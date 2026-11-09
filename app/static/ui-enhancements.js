@@ -1366,7 +1366,7 @@
         loadIndicadoresExtras();
         return;
       }
-      const target = ["aprendices", "actas", "indicadores"].includes(viewName)
+      const target = ["aprendices", "actas", "indicadores", "anexos"].includes(viewName)
         ? viewName
         : "carga";
       originalShowView(target, updateHash);
@@ -1385,7 +1385,7 @@
     const hash = (location.hash || "").replace("#", "");
     if (hash === "dashboard") {
       window.showView?.("indicadores", false);
-    } else if (["aprendices", "actas", "indicadores", "historial"].includes(hash)) {
+    } else if (["aprendices", "actas", "indicadores", "anexos", "historial"].includes(hash)) {
       window.showView?.(hash, false);
     } else {
       activateSidebar("carga");
