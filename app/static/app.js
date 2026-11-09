@@ -374,9 +374,14 @@ function resetMissingComplementaria() {
 function updateCoherenceState() {
   const rows = [
     ...coherenceList.querySelectorAll(".coherence-conflict-row"),
-    ...requirementConflictList.querySelectorAll(".coherence-conflict-row"),
+    ...requirementConflictList.querySelectorAll(".requirement-conflict-item"),
   ];
-  const pending = rows.filter((row) => !row.querySelector("input[type=radio]:checked")).length;
+  const pending = rows.filter((row) => {
+    if (row.classList.contains("requirement-conflict-item")) {
+      return !row.dataset.status;
+    }
+    return !row.querySelector("input[type=radio]:checked");
+  }).length;
   const missingPending = missingComplementariaRequired && !acceptMissingComplementaria.checked;
   confirmButton.disabled = pending > 0 || missingPending;
   if (rows.length) {
@@ -460,8 +465,82 @@ function renderCoherenceConflicts(
     row.append(documentCell, nameCell, groupCell, options);
     target.appendChild(row);
   });
+  const groupedRequirements = new Map();
+  requirementConflicts.forEach((item) => {
+    const key = item.identification;
+    if (!groupedRequirements.has(key)) {
+      groupedRequirements.set(key, {
+        identification: item.identification,
+        name: item.name,
+        group_code: item.group_code,
+        items: [],
+      });
+    }
+    groupedRequirements.get(key).items.push(item);
+  });
+  [...groupedRequirements.values()].forEach((learner, learnerIndex) => {
+    const row = document.createElement("div");
+    row.className = "coherence-conflict-row requirement-conflict-learner";
+    row.dataset.identification = learner.identification;
+    const documentCell = document.createElement("strong");
+    documentCell.textContent = learner.identification;
+    const nameCell = document.createElement("span");
+    nameCell.textContent = learner.name || "Nombre no disponible";
+    const groupCell = document.createElement("span");
+    groupCell.textContent = learner.group_code ? `Ficha ${learner.group_code}` : "Sin ficha";
+    const requirements = document.createElement("div");
+    requirements.className = "requirement-conflict-items";
+    learner.items.forEach((item, itemIndex) => {
+      const requirement = document.createElement("div");
+      requirement.className = "requirement-conflict-item";
+      requirement.dataset.identification = item.identification;
+      requirement.dataset.requirementType = item.requirement_type;
+      const key = `${item.identification}|${item.requirement_type}`;
+      const savedResolution = String(requirementResolutions[key] || "");
+      const initialStatus = savedResolution || (
+        item.evidence_status === "Pendiente" ? "Pendiente" : "Cumplido"
+      );
+      requirement.dataset.status = initialStatus;
+
+      const tag = document.createElement("label");
+      tag.className = "requirement-conflict-tag";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = initialStatus === "Pendiente";
+      checkbox.setAttribute("aria-label", `${item.requirement_label} de ${learner.name || learner.identification}`);
+      const tagText = document.createElement("span");
+      tagText.textContent = item.requirement_label;
+      tag.append(checkbox, tagText);
+      const reason = document.createElement("small");
+      reason.textContent = item.reason_label;
+      const noApply = document.createElement("button");
+      noApply.type = "button";
+      noApply.className = "requirement-conflict-no-apply";
+      noApply.textContent = "No aplica";
+      noApply.setAttribute("aria-pressed", String(initialStatus === "No aplica"));
+      const setStatus = (status) => {
+        requirement.dataset.status = status;
+        checkbox.checked = status === "Pendiente";
+        tag.classList.toggle("is-pending", status === "Pendiente");
+        tag.classList.toggle("is-fulfilled", status === "Cumplido");
+        tag.classList.toggle("is-na", status === "No aplica");
+        noApply.setAttribute("aria-pressed", String(status === "No aplica"));
+        updateCoherenceState();
+      };
+      checkbox.addEventListener("change", () => {
+        setStatus(checkbox.checked ? "Pendiente" : "Cumplido");
+      });
+      noApply.addEventListener("click", () => {
+        setStatus(requirement.dataset.status === "No aplica" ? "Cumplido" : "No aplica");
+      });
+      setStatus(initialStatus);
+      requirement.append(tag, reason, noApply);
+      requirements.appendChild(requirement);
+    });
+    row.append(documentCell, nameCell, groupCell, requirements);
+    requirementConflictList.appendChild(row);
+  });
   renderRows(items, "status", coherenceList);
-  renderRows(requirementConflicts, "requirement", requirementConflictList);
   updateCoherenceState();
 }
 
@@ -478,17 +557,14 @@ function collectConflictResolutions() {
 }
 
 function collectRequirementConflictResolutions() {
-  return [...requirementConflictList.querySelectorAll(".coherence-conflict-row")]
-    .filter((row) => row.dataset.requirementType)
+  return [...requirementConflictList.querySelectorAll(".requirement-conflict-item")]
+    .filter((row) => row.dataset.requirementType && row.dataset.status)
     .map((row) => {
-      const checked = row.querySelector("input[type=radio]:checked");
-      return checked
-        ? {
-            identification: row.dataset.identification,
-            requirement_type: row.dataset.requirementType,
-            status: checked.value,
-          }
-        : null;
+      return {
+        identification: row.dataset.identification,
+        requirement_type: row.dataset.requirementType,
+        status: row.dataset.status,
+      };
     })
     .filter(Boolean);
 }
