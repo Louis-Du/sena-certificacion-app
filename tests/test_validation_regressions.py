@@ -271,10 +271,19 @@ def test_incorrect_actas_counters_match_preview_and_saved_records(client: TestCl
         {"identification": item["identification"], "status": "CERTIFICADOS"}
         for item in conflicts
     ]
+    requirement_resolutions = [
+        {
+            "identification": item["identification"],
+            "requirement_type": item["requirement_type"],
+            "status": item["evidence_status"],
+        }
+        for item in body["requirement_conflicts"]
+    ]
     confirmed = client.post(
         f"/api/imports/{validation_id}/confirm",
         json={
             "conflict_resolutions": resolutions,
+            "requirement_conflict_resolutions": requirement_resolutions,
             "accept_missing_complementaria": True,
         },
     )
@@ -402,12 +411,80 @@ def test_new_conflicted_learner_is_not_assigned_an_invented_status(
         assert "ACTAS 2026 · PENDIENTES" in learner.data_sources
 
 
+def test_requirement_evidence_mismatch_requires_resolution_and_applies_selected_status(
+    client: TestClient, tmp_path
+):
+    conflict_path = tmp_path / "actas_conflicto_requisito.xlsx"
+    conflict_path.write_bytes(
+        _multi_sheet_xlsx(
+            certificados=[
+                {
+                    "DOCUMENTO": "9001",
+                    "NOMBRES": "Aprendiz Con Incongruencia",
+                    "FICHA": "3001",
+                    "NIVEL": "Tecnólogo",
+                    "ESTADO": "Pendiente Documento",
+                    "MOTIVO DE NO CERTIFICACION": "No anexa T&T",
+                    "Evidencia de la presentación de las pruebas Saber T y T. ( SOLO TGO)": "X",
+                    "Copia del Documento de Identidad vigente": "",
+                }
+            ],
+            pendientes=[],
+        )
+    )
+
+    body = _validate(client, conflict_path, "actas_completo")
+    requirement_conflicts = body["requirement_conflicts"]
+    assert {
+        (item["requirement_type"], item["reason"])
+        for item in requirement_conflicts
+    } == {
+        ("saber_tyt", "motivo_missing_evidence_present"),
+        ("documento_identidad", "evidence_missing_motivo_other"),
+    }
+
+    blocked = client.post(
+        f"/api/imports/{body['validation_id']}/confirm",
+        json={"accept_missing_complementaria": True},
+    )
+    assert blocked.status_code == 400
+    assert "requisito" in blocked.json()["detail"].lower()
+
+    confirmed = client.post(
+        f"/api/imports/{body['validation_id']}/confirm",
+        json={
+            "accept_missing_complementaria": True,
+            "requirement_conflict_resolutions": [
+                {
+                    "identification": "9001",
+                    "requirement_type": "saber_tyt",
+                    "status": "Pendiente",
+                },
+                {
+                    "identification": "9001",
+                    "requirement_type": "documento_identidad",
+                    "status": "Cumplido",
+                },
+            ],
+        },
+    )
+    assert confirmed.status_code == 200
+    with client.session_factory() as session:
+        learner = session.query(Learner).filter_by(identification="9001").one()
+        requirements = {
+            item.requirement_type: item.status
+            for item in learner.requirements
+        }
+        assert requirements["saber_tyt"] == "Pendiente"
+        assert requirements["documento_identidad"] == "Cumplido"
+
+
 def test_correct_actas_expands_complementaria_and_reports_the_breakdown(client: TestClient):
     path = CORRECTOS / "ACTAS_2026_correcto.xlsx"
 
     body = _validate(client, path, "actas_completo")
 
-    assert body["status"] == "ready"
+    assert body["status"] == "warning"
     assert body["records_found"] == 21
     assert body["valid_records"] == 21
     assert body["breakdown"] == {
@@ -427,7 +504,20 @@ def test_correct_actas_expands_complementaria_and_reports_the_breakdown(client: 
     assert preview["records_count"] == 21
     assert preview["new_records"] == 21
 
-    confirmed = client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True}).json()
+    confirmed = client.post(
+        f"/api/imports/{validation_id}/confirm",
+        json={
+            "accept_missing_complementaria": True,
+            "requirement_conflict_resolutions": [
+                {
+                    "identification": item["identification"],
+                    "requirement_type": item["requirement_type"],
+                    "status": item["evidence_status"],
+                }
+                for item in body["requirement_conflicts"]
+            ],
+        },
+    ).json()
     assert confirmed["records_count"] == 21
     assert confirmed["new_records"] == 21
     with client.session_factory() as session:

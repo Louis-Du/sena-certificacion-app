@@ -61,6 +61,13 @@ def test_conflict_panel_only_contains_the_state_decision():
     assert "corrección manual" not in panel
 
 
+def test_requirement_conflicts_are_rendered_and_submitted_with_their_own_statuses():
+    assert "requirementConflicts" in APP_JS
+    assert "requirement_conflict_resolutions" in APP_JS
+    assert "collectRequirementConflictResolutions" in APP_JS
+    assert '[["Cumplido", "Cumplido"], ["Pendiente", "Pendiente"], ["No aplica", "No aplica"]]' in APP_JS
+
+
 def test_second_confirmation_modal_has_required_warning_and_actions():
     assert 'id="conflict-confirm-modal"' in INDEX
     assert "Antes de confirmar" in INDEX
@@ -83,7 +90,7 @@ def test_second_confirmation_modal_has_required_warning_and_actions():
 
 def test_import_post_waits_for_second_confirmation_when_conflicts_exist():
     assert "function openConflictConfirmModal()" in APP_JS
-    assert "resolutions.length > 0 && !conflictConfirmBypass" in APP_JS
+    assert "needsSheetsCleanupConfirmation && !conflictConfirmBypass" in APP_JS
     assert "openConflictConfirmModal();" in APP_JS
     assert "conflictConfirmBypass = true;" in APP_JS
     assert "conflictConfirmBypass = false;" in APP_JS

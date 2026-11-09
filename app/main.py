@@ -113,8 +113,14 @@ class ConflictResolutionRequest(BaseModel):
     identification: str
     status: str
 
+class RequirementConflictResolutionRequest(BaseModel):
+    identification: str
+    requirement_type: str
+    status: str
+
 class ConfirmImportRequest(BaseModel):
     conflict_resolutions: list[ConflictResolutionRequest] = []
+    requirement_conflict_resolutions: list[RequirementConflictResolutionRequest] = []
     accept_missing_complementaria: bool = False
     sheets_manual_cleanup_acknowledged: bool = False
 
@@ -135,11 +141,13 @@ class SheetSyncPreviewRequest(BaseModel):
 class SheetSyncConfirmRequest(BaseModel):
     validation_id: str
     conflict_resolutions: list[ConflictResolutionRequest] = []
+    requirement_conflict_resolutions: list[RequirementConflictResolutionRequest] = []
     accept_missing_complementaria: bool = False
     sheets_manual_cleanup_acknowledged: bool = False
 
 class SheetSyncResolveRequest(BaseModel):
     conflict_resolutions: list[ConflictResolutionRequest] = []
+    requirement_conflict_resolutions: list[RequirementConflictResolutionRequest] = []
     accept_missing_complementaria: bool = False
     sheets_manual_cleanup_acknowledged: bool = False
 
@@ -236,6 +244,14 @@ async def confirm_import_endpoint(
             if request is not None
             else None
         )
+        requirement_resolutions = (
+            [
+                item.model_dump()
+                for item in request.requirement_conflict_resolutions
+            ]
+            if request is not None
+            else None
+        )
         accept_missing_complementaria = (
             request.accept_missing_complementaria if request is not None else False
         )
@@ -248,6 +264,7 @@ async def confirm_import_endpoint(
             resolutions,
             accept_missing_complementaria=accept_missing_complementaria,
             sheets_manual_cleanup_acknowledged=sheets_manual_cleanup_acknowledged,
+            requirement_conflict_resolutions=requirement_resolutions,
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -618,12 +635,16 @@ async def sheets_sync_resolve_endpoint(
     from app.services.sheets_sync import resolve_pending
 
     resolutions = [item.model_dump() for item in request.conflict_resolutions]
+    requirement_resolutions = [
+        item.model_dump() for item in request.requirement_conflict_resolutions
+    ]
     try:
         return resolve_pending(
             session,
             resolutions,
             accept_missing_complementaria=request.accept_missing_complementaria,
             sheets_manual_cleanup_acknowledged=request.sheets_manual_cleanup_acknowledged,
+            requirement_conflict_resolutions=requirement_resolutions,
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -729,6 +750,9 @@ async def sheets_sync_confirm_endpoint(
     from app.services.sheets_sync import confirm_sync
 
     resolutions = [item.model_dump() for item in request.conflict_resolutions]
+    requirement_resolutions = [
+        item.model_dump() for item in request.requirement_conflict_resolutions
+    ]
     try:
         return confirm_sync(
             session,
@@ -736,6 +760,7 @@ async def sheets_sync_confirm_endpoint(
             resolutions,
             accept_missing_complementaria=request.accept_missing_complementaria,
             sheets_manual_cleanup_acknowledged=request.sheets_manual_cleanup_acknowledged,
+            requirement_conflict_resolutions=requirement_resolutions,
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error

@@ -379,31 +379,52 @@ function updateCoherenceState() {
   }
 }
 
-function renderCoherenceConflicts(items, { resolutions = {} } = {}) {
+function renderCoherenceConflicts(
+  items,
+  {
+    resolutions = {},
+    requirementConflicts = [],
+    requirementResolutions = {},
+  } = {},
+) {
   resetCoherenceConflicts();
-  if (!items.length) return;
+  const allItems = [
+    ...items.map((item) => ({ ...item, conflict_kind: "status" })),
+    ...requirementConflicts.map((item) => ({ ...item, conflict_kind: "requirement" })),
+  ];
+  if (!allItems.length) return;
   coherenceSection.hidden = false;
-  coherenceTitle.textContent = `Conflictos de coherencia (${items.length})`;
-  items.forEach((item, index) => {
+  coherenceTitle.textContent = `Conflictos de coherencia (${allItems.length})`;
+  allItems.forEach((item, index) => {
     const row = document.createElement("div");
     row.className = "coherence-conflict-row";
     row.dataset.identification = item.identification;
+    row.dataset.requirementType = item.requirement_type || "";
     const documentCell = document.createElement("strong");
     documentCell.textContent = item.identification;
     const nameCell = document.createElement("span");
     nameCell.textContent = item.name || "Nombre no disponible";
     const groupCell = document.createElement("span");
-    groupCell.textContent = item.group_code ? `Ficha ${item.group_code}` : "Sin ficha";
+    if (item.conflict_kind === "requirement") {
+      groupCell.textContent = `${item.requirement_label}: ${item.reason_label}`;
+    } else {
+      groupCell.textContent = item.group_code ? `Ficha ${item.group_code}` : "Sin ficha";
+    }
     const options = document.createElement("div");
     options.className = "coherence-options";
     const savedResolution = String(
-      resolutions[item.identification] || item.conflict_resolution || "",
-    ).toUpperCase();
-    [["CERTIFICADOS", "Certificado"], ["PENDIENTE", "Pendiente"]].forEach(([value, labelText]) => {
+      item.conflict_kind === "requirement"
+        ? requirementResolutions[`${item.identification}|${item.requirement_type}`]
+        : resolutions[item.identification] || item.conflict_resolution || "",
+    );
+    const optionsForConflict = item.conflict_kind === "requirement"
+      ? [["Cumplido", "Cumplido"], ["Pendiente", "Pendiente"], ["No aplica", "No aplica"]]
+      : [["CERTIFICADOS", "Certificado"], ["PENDIENTE", "Pendiente"]];
+    optionsForConflict.forEach(([value, labelText]) => {
       const label = document.createElement("label");
       const input = document.createElement("input");
       input.type = "radio";
-      input.name = `coherence-${index}`;
+      input.name = `coherence-${item.conflict_kind}-${index}`;
       input.value = value;
       // Un desempate previo se muestra preseleccionado, pero el usuario puede
       // cambiarlo antes de confirmar. No se importa nada sin confirmacion.
@@ -420,10 +441,27 @@ function renderCoherenceConflicts(items, { resolutions = {} } = {}) {
 
 function collectConflictResolutions() {
   return [...coherenceList.querySelectorAll(".coherence-conflict-row")]
+    .filter((row) => row.dataset.requirementType === "")
     .map((row) => {
       const checked = row.querySelector("input[type=radio]:checked");
       return checked
         ? { identification: row.dataset.identification, status: checked.value }
+        : null;
+    })
+    .filter(Boolean);
+}
+
+function collectRequirementConflictResolutions() {
+  return [...coherenceList.querySelectorAll(".coherence-conflict-row")]
+    .filter((row) => row.dataset.requirementType)
+    .map((row) => {
+      const checked = row.querySelector("input[type=radio]:checked");
+      return checked
+        ? {
+            identification: row.dataset.identification,
+            requirement_type: row.dataset.requirementType,
+            status: checked.value,
+          }
         : null;
     })
     .filter(Boolean);
@@ -635,7 +673,10 @@ async function validateFile() {
     );
     renderPreviewBreakdown(preview);
     renderPreviewWarnings(preview.warnings);
-    renderCoherenceConflicts(preview.coherence_conflicts || []);
+    renderCoherenceConflicts(preview.coherence_conflicts || [], {
+      requirementConflicts: preview.requirement_conflicts || [],
+      requirementResolutions: preview.requirement_conflict_resolutions || {},
+    });
     missingComplementariaRequired = Boolean(preview.missing_complementaria);
     if (missingComplementariaRequired) {
       missingComplementariaSection.hidden = false;
@@ -666,7 +707,9 @@ async function confirmImport() {
     return;
   }
   const resolutions = collectConflictResolutions();
-  if (resolutions.length > 0 && !conflictConfirmBypass) {
+  const requirementResolutions = collectRequirementConflictResolutions();
+  const needsSheetsCleanupConfirmation = resolutions.length > 0;
+  if (needsSheetsCleanupConfirmation && !conflictConfirmBypass) {
     // Segunda confirmacion obligatoria: no se envia el POST hasta que el
     // usuario lea la advertencia de solo lectura y confirme de nuevo.
     openConflictConfirmModal();
@@ -686,9 +729,10 @@ async function confirmImport() {
         : `/api/imports/${validationId}/confirm`);
     const payload = {
       conflict_resolutions: resolutions,
+      requirement_conflict_resolutions: requirementResolutions,
       accept_missing_complementaria: acceptMissingComplementaria.checked,
     };
-    if (resolutions.length > 0) {
+    if (needsSheetsCleanupConfirmation) {
       payload.sheets_manual_cleanup_acknowledged = Boolean(sheetsManualCleanup?.checked);
     }
     if (isSheetsSync && !isSheetsResolve) payload.validation_id = validationId;
@@ -2970,6 +3014,8 @@ function showSheetsPreview(data) {
   renderPreviewWarnings(preview.warnings);
   renderCoherenceConflicts(preview.coherence_conflicts || [], {
     resolutions: preview.conflict_resolutions || {},
+    requirementConflicts: preview.requirement_conflicts || [],
+    requirementResolutions: preview.requirement_conflict_resolutions || {},
   });
   missingComplementariaRequired = Boolean(preview.missing_complementaria);
   if (missingComplementariaRequired) missingComplementariaSection.hidden = false;

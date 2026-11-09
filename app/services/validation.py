@@ -9,6 +9,7 @@ import pandas as pd
 
 from app.services import parsers
 from app.services.records import META_VALUE_KEYS, prepare_records
+from app.services.requirement_conflicts import requirement_conflicts
 
 
 MAX_FILE_SIZE = 20 * 1024 * 1024
@@ -79,6 +80,7 @@ class ValidationResult:
     extra_columns: list[str] = field(default_factory=list)
     breakdown: dict[str, dict[str, int]] = field(default_factory=dict)
     coherence_conflicts: list[dict[str, Any]] = field(default_factory=list)
+    requirement_conflicts: list[dict[str, Any]] = field(default_factory=list)
     missing_complementaria: bool = False
 
     def as_dict(self) -> dict:
@@ -98,6 +100,7 @@ class ValidationResult:
             "extra_columns": self.extra_columns,
             "breakdown": self.breakdown,
             "coherence_conflicts": self.coherence_conflicts,
+            "requirement_conflicts": self.requirement_conflicts,
             "missing_complementaria": self.missing_complementaria,
         }
 
@@ -229,6 +232,11 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
             if information_type == "actas_completo"
             else []
         )
+        requirement_coherence = (
+            requirement_conflicts(prepared)
+            if information_type == "actas_completo"
+            else []
+        )
 
         if duplicate_records:
             inconsistencies += 1
@@ -325,6 +333,9 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
 
         if information_type == "actas_completo":
             inconsistencies += _append_actas_warnings(prepared, checks)
+            inconsistencies += _append_requirement_conflict_warnings(
+                requirement_coherence, checks
+            )
 
         if information_type == "informe" and records_found == 0:
             checks.append(
@@ -365,6 +376,7 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
                 extra_columns=extra_columns,
                 breakdown=breakdown,
                 coherence_conflicts=coherence,
+                requirement_conflicts=requirement_coherence,
                 missing_complementaria=missing_complementaria,
             )
 
@@ -393,6 +405,7 @@ def validate_file(file_name: str, content: bytes, information_type: str) -> Vali
             extra_columns=extra_columns,
             breakdown=breakdown,
             coherence_conflicts=coherence,
+            requirement_conflicts=requirement_coherence,
             missing_complementaria=missing_complementaria,
         )
     except Exception as error:
@@ -578,6 +591,34 @@ def _append_actas_warnings(prepared, checks: list[dict[str, str]]) -> int:
                 f"Coherencia: {len(conflicts)} aprendices figuran simultáneamente en "
                 f"CERTIFICADOS y PENDIENTES con la misma ficha ({detail}). Elija el "
                 "estado final de cada uno antes de confirmar."
+            ),
+            "status": "warning",
+        }
+    )
+    return 1
+
+
+def _append_requirement_conflict_warnings(
+    conflicts: list[dict[str, Any]], checks: list[dict[str, str]]
+) -> int:
+    """Resume los requisitos cuya columna de evidencia contradice el motivo."""
+    if not conflicts:
+        return 0
+
+    learners = {item["identification"] for item in conflicts}
+    detail = ", ".join(
+        f"{item['identification']} · {item['requirement_label']}"
+        for item in conflicts[:3]
+    )
+    if len(conflicts) > 3:
+        detail += f" y {len(conflicts) - 3} mas"
+    checks.append(
+        {
+            "label": (
+                f"Coherencia de requisitos: {len(conflicts)} requisito(s) de "
+                f"{len(learners)} aprendiz(es) no coinciden entre las columnas de "
+                f"evidencia y el MOTIVO DE NO CERTIFICACIÓN ({detail}). Elija el "
+                "estado final de cada archivo faltante antes de confirmar."
             ),
             "status": "warning",
         }
