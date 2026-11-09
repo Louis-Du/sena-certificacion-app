@@ -1358,6 +1358,74 @@ body.has-conflict-banner .sidebar {
   font-size: var(--text-md);
 }
 
+/* ---------- Modal de resolución por tipo de conflicto ---------- */
+.conflict-resolution-modal {
+  z-index: 105;
+}
+
+.conflict-resolution-dialog {
+  width: min(980px, 100%);
+  padding: 26px 28px;
+}
+
+.conflict-resolution-header h2 {
+  margin: 2px 0 6px;
+}
+
+.conflict-resolution-header p:last-child {
+  margin: 0;
+  color: var(--muted);
+}
+
+.conflict-resolution-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 22px 0 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.conflict-resolution-tab {
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 11px 14px;
+  font-weight: 800;
+}
+
+.conflict-resolution-tab.is-active {
+  border-bottom-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.conflict-resolution-tab span {
+  color: var(--muted);
+  margin-left: 4px;
+}
+
+.conflict-resolution-panel {
+  padding-top: 18px;
+}
+
+.conflict-resolution-panel h3 {
+  margin: 0 0 6px;
+}
+
+.conflict-resolution-panel > p {
+  color: var(--muted);
+  margin: 0 0 14px;
+}
+
+.conflict-resolution-panel .coherence-conflict-list {
+  max-height: 48vh;
+  overflow: auto;
+}
+
+.conflict-resolution-dialog > .coherence-help {
+  margin-top: 14px;
+}
+
 /* ---------- Modal "Antes de confirmar" ---------- */
 .conflict-confirm-modal {
   z-index: 110;

@@ -54,7 +54,7 @@ def test_conflict_panel_only_contains_the_state_decision():
     end = INDEX.index("</section>", start)
     panel = INDEX[start:end]
 
-    assert "coherence-conflict-list" in panel
+    assert 'id="open-conflict-resolution"' in panel
     assert "Certificado" not in panel  # las opciones las construye app.js
     assert "solo lee Google Sheets" not in panel
     assert "sheets-manual-cleanup" not in panel
@@ -66,6 +66,15 @@ def test_requirement_conflicts_are_rendered_and_submitted_with_their_own_statuse
     assert "requirement_conflict_resolutions" in APP_JS
     assert "collectRequirementConflictResolutions" in APP_JS
     assert '[["Cumplido", "Cumplido"], ["Pendiente", "Pendiente"], ["No aplica", "No aplica"]]' in APP_JS
+
+
+def test_review_has_two_tab_conflict_resolution_modal():
+    assert 'id="conflict-resolution-modal"' in INDEX
+    assert 'id="conflict-tab-status"' in INDEX
+    assert 'id="conflict-tab-requirement"' in INDEX
+    assert 'id="requirement-conflict-list"' in INDEX
+    assert "openConflictResolutionModal" in APP_JS
+    assert "selectConflictResolutionTab" in APP_JS
 
 
 def test_second_confirmation_modal_has_required_warning_and_actions():

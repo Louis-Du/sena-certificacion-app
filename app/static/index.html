@@ -168,8 +168,8 @@
           </section>
           <section class="coherence-conflicts" id="coherence-conflicts" hidden>
             <h3 id="coherence-conflicts-title">Conflictos de coherencia</h3>
-            <p>Resuelva las diferencias detectadas entre las hojas y las evidencias del aprendiz antes de importar.</p>
-            <div class="coherence-conflict-list" id="coherence-conflict-list"></div>
+            <p>Se detectaron conflictos. Use <strong>Resolver conflicto</strong> para revisar y decidir el estado final.</p>
+            <button id="open-conflict-resolution" class="primary-button" type="button">Resolver conflicto</button>
             <p class="coherence-help" id="coherence-help" role="status"></p>
           </section>
           <section class="coherence-conflicts" id="missing-complementaria" hidden>
@@ -462,6 +462,35 @@
       <div class="modal-actions">
         <button id="modal-cancel-button" class="cancel-button" type="button">Cancelar</button>
         <button id="modal-confirm-button" class="primary-button" type="button">✓ &nbsp; Confirmar importación</button>
+      </div>
+    </div>
+  </div>
+  <div id="conflict-resolution-modal" class="modal-root conflict-resolution-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="conflict-resolution-title">
+    <div class="modal-backdrop" data-close-conflict-resolution></div>
+    <div class="modal-dialog conflict-resolution-dialog" tabindex="-1">
+      <button id="conflict-resolution-close" class="modal-close" type="button" aria-label="Cerrar resolución de conflictos">×</button>
+      <div class="conflict-resolution-header">
+        <p class="eyebrow">Resolución de importación</p>
+        <h2 id="conflict-resolution-title">Resolver conflicto</h2>
+        <p>Selecciona una decisión para cada conflicto antes de confirmar la importación.</p>
+      </div>
+      <div class="conflict-resolution-tabs" role="tablist" aria-label="Tipos de conflicto">
+        <button id="conflict-tab-status" class="conflict-resolution-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="conflict-panel-status">Conflictos de estado <span id="conflict-status-count"></span></button>
+        <button id="conflict-tab-requirement" class="conflict-resolution-tab" type="button" role="tab" aria-selected="false" aria-controls="conflict-panel-requirement">Conflictos de requisitos <span id="conflict-requirement-count"></span></button>
+      </div>
+      <section id="conflict-panel-status" class="conflict-resolution-panel is-active" role="tabpanel" aria-labelledby="conflict-tab-status">
+        <h3>Conflictos de estado</h3>
+        <p>El aprendiz aparece con estados diferentes entre CERTIFICADOS y PENDIENTES.</p>
+        <div class="coherence-conflict-list" id="coherence-conflict-list"></div>
+      </section>
+      <section id="conflict-panel-requirement" class="conflict-resolution-panel" role="tabpanel" aria-labelledby="conflict-tab-requirement" hidden>
+        <h3>Conflictos de requisitos</h3>
+        <p>La evidencia y el motivo de no certificación no coinciden. Elige el estado final del requisito.</p>
+        <div class="coherence-conflict-list" id="requirement-conflict-list"></div>
+      </section>
+      <p class="coherence-help" id="coherence-help-modal" role="status"></p>
+      <div class="modal-actions">
+        <button id="close-conflict-resolution" class="cancel-button" type="button">Volver a revisión</button>
       </div>
     </div>
   </div>

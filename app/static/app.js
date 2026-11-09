@@ -36,6 +36,18 @@ const coherenceSection = document.querySelector("#coherence-conflicts");
 const coherenceTitle = document.querySelector("#coherence-conflicts-title");
 const coherenceList = document.querySelector("#coherence-conflict-list");
 const coherenceHelp = document.querySelector("#coherence-help");
+const openConflictResolution = document.querySelector("#open-conflict-resolution");
+const conflictResolutionModal = document.querySelector("#conflict-resolution-modal");
+const conflictResolutionClose = document.querySelector("#conflict-resolution-close");
+const closeConflictResolution = document.querySelector("#close-conflict-resolution");
+const requirementConflictList = document.querySelector("#requirement-conflict-list");
+const conflictResolutionHelp = document.querySelector("#coherence-help-modal");
+const conflictTabStatus = document.querySelector("#conflict-tab-status");
+const conflictTabRequirement = document.querySelector("#conflict-tab-requirement");
+const conflictPanelStatus = document.querySelector("#conflict-panel-status");
+const conflictPanelRequirement = document.querySelector("#conflict-panel-requirement");
+const conflictStatusCount = document.querySelector("#conflict-status-count");
+const conflictRequirementCount = document.querySelector("#conflict-requirement-count");
 const sheetsManualCleanup = document.querySelector("#sheets-manual-cleanup");
 const conflictConfirmModal = document.querySelector("#conflict-confirm-modal");
 const conflictConfirmAccept = document.querySelector("#conflict-confirm-accept");
@@ -337,8 +349,14 @@ function resetCoherenceConflicts() {
   coherenceSection.hidden = true;
   coherenceTitle.textContent = "Conflictos de coherencia";
   coherenceList.replaceChildren();
+  requirementConflictList.replaceChildren();
   coherenceHelp.textContent = "";
+  conflictResolutionHelp.textContent = "";
   coherenceHelp.classList.remove("ready");
+  conflictResolutionHelp.classList.remove("ready");
+  closeConflictResolutionModal();
+  conflictStatusCount.textContent = "";
+  conflictRequirementCount.textContent = "";
   closeConflictConfirmModal();
   conflictConfirmBypass = false;
   if (sheetsManualCleanup) sheetsManualCleanup.checked = false;
@@ -354,18 +372,26 @@ function resetMissingComplementaria() {
 }
 
 function updateCoherenceState() {
-  const rows = [...coherenceList.querySelectorAll(".coherence-conflict-row")];
+  const rows = [
+    ...coherenceList.querySelectorAll(".coherence-conflict-row"),
+    ...requirementConflictList.querySelectorAll(".coherence-conflict-row"),
+  ];
   const pending = rows.filter((row) => !row.querySelector("input[type=radio]:checked")).length;
   const missingPending = missingComplementariaRequired && !acceptMissingComplementaria.checked;
   confirmButton.disabled = pending > 0 || missingPending;
   if (rows.length) {
     coherenceHelp.classList.toggle("ready", pending === 0);
-    coherenceHelp.textContent = pending
+    const message = pending
       ? `Resuelva los ${pending} conflictos para continuar.`
       : "Todos los conflictos fueron resueltos. Puede confirmar la importación.";
+    coherenceHelp.textContent = message;
+    conflictResolutionHelp.classList.toggle("ready", pending === 0);
+    conflictResolutionHelp.textContent = message;
   } else {
     coherenceHelp.textContent = "";
     coherenceHelp.classList.remove("ready");
+    conflictResolutionHelp.textContent = "";
+    conflictResolutionHelp.classList.remove("ready");
   }
   if (missingPending) {
     missingComplementariaHelp.textContent = "Debe aceptar continuar sin la hoja COMPLEMENTARIA.";
@@ -388,24 +414,22 @@ function renderCoherenceConflicts(
   } = {},
 ) {
   resetCoherenceConflicts();
-  const allItems = [
-    ...items.map((item) => ({ ...item, conflict_kind: "status" })),
-    ...requirementConflicts.map((item) => ({ ...item, conflict_kind: "requirement" })),
-  ];
-  if (!allItems.length) return;
+  if (!items.length && !requirementConflicts.length) return;
   coherenceSection.hidden = false;
-  coherenceTitle.textContent = `Conflictos de coherencia (${allItems.length})`;
-  allItems.forEach((item, index) => {
+  coherenceTitle.textContent = `Conflictos de coherencia (${items.length + requirementConflicts.length})`;
+  conflictStatusCount.textContent = items.length ? `(${items.length})` : "";
+  conflictRequirementCount.textContent = requirementConflicts.length ? `(${requirementConflicts.length})` : "";
+  const renderRows = (conflicts, conflictKind, target) => conflicts.forEach((item, index) => {
     const row = document.createElement("div");
     row.className = "coherence-conflict-row";
     row.dataset.identification = item.identification;
-    row.dataset.requirementType = item.requirement_type || "";
+    row.dataset.requirementType = conflictKind === "requirement" ? item.requirement_type : "";
     const documentCell = document.createElement("strong");
     documentCell.textContent = item.identification;
     const nameCell = document.createElement("span");
     nameCell.textContent = item.name || "Nombre no disponible";
     const groupCell = document.createElement("span");
-    if (item.conflict_kind === "requirement") {
+    if (conflictKind === "requirement") {
       groupCell.textContent = `${item.requirement_label}: ${item.reason_label}`;
     } else {
       groupCell.textContent = item.group_code ? `Ficha ${item.group_code}` : "Sin ficha";
@@ -413,18 +437,18 @@ function renderCoherenceConflicts(
     const options = document.createElement("div");
     options.className = "coherence-options";
     const savedResolution = String(
-      item.conflict_kind === "requirement"
+      conflictKind === "requirement"
         ? requirementResolutions[`${item.identification}|${item.requirement_type}`]
         : resolutions[item.identification] || item.conflict_resolution || "",
     );
-    const optionsForConflict = item.conflict_kind === "requirement"
+    const optionsForConflict =     conflictKind === "requirement"
       ? [["Cumplido", "Cumplido"], ["Pendiente", "Pendiente"], ["No aplica", "No aplica"]]
       : [["CERTIFICADOS", "Certificado"], ["PENDIENTE", "Pendiente"]];
     optionsForConflict.forEach(([value, labelText]) => {
       const label = document.createElement("label");
       const input = document.createElement("input");
       input.type = "radio";
-      input.name = `coherence-${item.conflict_kind}-${index}`;
+      input.name = `coherence-${conflictKind}-${index}`;
       input.value = value;
       // Un desempate previo se muestra preseleccionado, pero el usuario puede
       // cambiarlo antes de confirmar. No se importa nada sin confirmacion.
@@ -434,8 +458,10 @@ function renderCoherenceConflicts(
       options.appendChild(label);
     });
     row.append(documentCell, nameCell, groupCell, options);
-    coherenceList.appendChild(row);
+    target.appendChild(row);
   });
+  renderRows(items, "status", coherenceList);
+  renderRows(requirementConflicts, "requirement", requirementConflictList);
   updateCoherenceState();
 }
 
@@ -452,7 +478,7 @@ function collectConflictResolutions() {
 }
 
 function collectRequirementConflictResolutions() {
-  return [...coherenceList.querySelectorAll(".coherence-conflict-row")]
+  return [...requirementConflictList.querySelectorAll(".coherence-conflict-row")]
     .filter((row) => row.dataset.requirementType)
     .map((row) => {
       const checked = row.querySelector("input[type=radio]:checked");
@@ -465,6 +491,30 @@ function collectRequirementConflictResolutions() {
         : null;
     })
     .filter(Boolean);
+}
+
+function openConflictResolutionModal() {
+  if (!conflictResolutionModal) return;
+  conflictResolutionModal.classList.add("is-open");
+  conflictResolutionModal.setAttribute("aria-hidden", "false");
+  conflictResolutionModal.querySelector(".modal-dialog")?.focus?.({ preventScroll: true });
+}
+
+function closeConflictResolutionModal() {
+  if (!conflictResolutionModal) return;
+  conflictResolutionModal.classList.remove("is-open");
+  conflictResolutionModal.setAttribute("aria-hidden", "true");
+  openConflictResolution?.focus?.({ preventScroll: true });
+}
+
+function selectConflictResolutionTab(tab) {
+  const requirements = tab === "requirements";
+  conflictTabStatus.classList.toggle("is-active", !requirements);
+  conflictTabRequirement.classList.toggle("is-active", requirements);
+  conflictTabStatus.setAttribute("aria-selected", String(!requirements));
+  conflictTabRequirement.setAttribute("aria-selected", String(requirements));
+  conflictPanelStatus.hidden = requirements;
+  conflictPanelRequirement.hidden = !requirements;
 }
 
 function openConflictConfirmModal() {
@@ -2814,6 +2864,20 @@ cancelButton.addEventListener("click", () => {
 });
 validateButton.addEventListener("click", validateFile);
 confirmButton.addEventListener("click", confirmImport);
+openConflictResolution?.addEventListener("click", openConflictResolutionModal);
+conflictResolutionClose?.addEventListener("click", closeConflictResolutionModal);
+closeConflictResolution?.addEventListener("click", closeConflictResolutionModal);
+conflictTabStatus?.addEventListener("click", () => selectConflictResolutionTab("status"));
+conflictTabRequirement?.addEventListener("click", () => selectConflictResolutionTab("requirements"));
+conflictResolutionModal?.querySelectorAll("[data-close-conflict-resolution]").forEach((element) => {
+  element.addEventListener("click", closeConflictResolutionModal);
+});
+conflictResolutionModal?.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeConflictResolutionModal();
+  }
+});
 if (conflictConfirmAccept) {
   conflictConfirmAccept.addEventListener("click", () => {
     conflictConfirmBypass = true;
