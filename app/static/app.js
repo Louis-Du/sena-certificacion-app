@@ -1422,33 +1422,30 @@ function toggleLearnerSummary(row, item, button) {
   button.setAttribute("aria-expanded", "true");
 }
 
-// El listado debe responder "cuántos y cuáles faltan" sin abrir la ficha.
+// Cada requisito registrado se muestra como etiqueta seleccionable. Seleccionado
+// significa pendiente; deseleccionado significa que el documento fue entregado.
 function renderPendingRequirementsCell(item) {
   const cell = document.createElement("td");
   cell.className = "pending-requirements-cell";
   const summary = item.requirements_summary || {};
-  const pending = summary.pending || [];
+  const requirements = item.requirements || summary.requirements || [];
+  const pending = requirements.filter(
+    (requirement) => normalizeStatusText(requirement.status) === "pendiente",
+  );
   const total = item.requirements_total ?? requirementSummaryTotal(summary);
 
-  if (!pending.length) {
+  if (!requirements.length) {
     const none = document.createElement("span");
     none.className = "pending-none";
-    if (total === 0) {
-      // Sin matriz cargada: no es lo mismo que una matriz completa sin faltantes.
-      none.classList.add("is-missing");
-      none.textContent = "Sin requisitos registrados";
-      none.title = "Este aprendiz no tiene requisitos asociados en el sistema.";
-      cell.title = "Sin requisitos registrados";
-    } else {
-      none.textContent = "Ninguno";
-      none.title = "Sin requisitos pendientes";
-      cell.title = "Sin requisitos pendientes";
-    }
+    none.classList.add("is-missing");
+    none.textContent = "Sin requisitos registrados";
+    none.title = "Este aprendiz no tiene requisitos asociados en el sistema.";
+    cell.title = "Sin requisitos registrados";
     cell.appendChild(none);
     return cell;
   }
 
-  cell.classList.add("has-pending");
+  cell.classList.toggle("has-pending", pending.length > 0);
   const count = document.createElement("span");
   count.className = "pending-count-badge";
   count.textContent = pending.length;
@@ -1457,71 +1454,54 @@ function renderPendingRequirementsCell(item) {
     `${pending.length} requisito${pending.length === 1 ? "" : "s"} pendiente${pending.length === 1 ? "" : "s"}`,
   );
 
-  const names = document.createElement("span");
-  names.className = "pending-requirement-names";
-  names.textContent = formatRequirementNameList(pending, 2);
-
-  cell.append(count, names);
-  cell.title = `Requisitos pendientes: ${pending.join(", ")}`;
-
-  // El resumen corto no debe obligar a abrir la ficha para ver el resto. El
-  // botón es focusable y aria-expanded anuncia el estado del listado completo.
-  if (pending.length > 2) {
-    const panelId = `pending-details-${item.id}`;
-    const toggle = document.createElement("button");
-    toggle.type = "button";
-    toggle.className = "pending-toggle";
-    toggle.textContent = "Ver pendientes";
-    toggle.setAttribute("aria-expanded", "false");
-    toggle.setAttribute("aria-controls", panelId);
-
-    const panel = document.createElement("ul");
-    panel.className = "pending-list";
-    panel.id = panelId;
-    panel.hidden = true;
-    pending.forEach((label) => {
-      const itemLabel = document.createElement("li");
-      itemLabel.textContent = label;
-      panel.appendChild(itemLabel);
-    });
-
-    const setExpanded = (expanded) => {
-      toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
-      toggle.textContent = expanded ? "Ocultar pendientes" : "Ver pendientes";
-      toggle.setAttribute(
-        "aria-label",
-        `${expanded ? "Ocultar" : "Ver"} los ${pending.length} requisitos pendientes de ${item.name}`,
-      );
-      panel.hidden = !expanded;
-    };
-    setExpanded(false);
-
-    toggle.addEventListener("click", (event) => {
+  const chips = document.createElement("div");
+  chips.className = "requirement-toggle-list";
+  requirements.forEach((requirement) => {
+    const status = normalizeStatusText(requirement.status);
+    const isPending = status === "pendiente";
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = `requirement-toggle-chip ${isPending ? "is-pending" : "is-delivered"}`;
+    chip.setAttribute("role", "checkbox");
+    chip.setAttribute("aria-checked", isPending ? "true" : "false");
+    chip.textContent = `${isPending ? "Falta: " : "Entregado: "}${requirement.label || requirement.requirement_type}`;
+    chip.title = isPending
+      ? "Seleccionado: marcar como documento faltante"
+      : "Deseleccionado: marcar como documento entregado";
+    chip.addEventListener("click", async (event) => {
       event.stopPropagation();
-      setExpanded(toggle.getAttribute("aria-expanded") !== "true");
-    });
-
-    cell.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape" || toggle.getAttribute("aria-expanded") !== "true") {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      setExpanded(false);
-      toggle.focus();
-    });
-
-    cell.addEventListener("focusout", (event) => {
-      if (
-        toggle.getAttribute("aria-expanded") === "true" &&
-        !cell.contains(event.relatedTarget)
-      ) {
-        setExpanded(false);
+      if (status === "no aplica" || status === "sin informacion") return;
+      chip.disabled = true;
+      try {
+        const response = await fetch(
+          `/api/learners/${item.id}/requirements/${requirement.id}`,
+          {
+            method: "PATCH",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+              requirement_type: requirement.requirement_type,
+              status: isPending ? "Cumplido" : "Pendiente",
+            }),
+          },
+        );
+        const result = await readResponse(response);
+        requirement.status = result.status;
+        await loadLearners();
+      } catch (error) {
+        chip.disabled = false;
+        chip.title = error.message;
       }
     });
-
-    cell.append(toggle, panel);
-  }
+    if (status === "no aplica" || status === "sin informacion") {
+      chip.disabled = true;
+      chip.title = `Estado actual: ${requirement.status}`;
+    }
+    chips.appendChild(chip);
+  });
+  cell.append(count, chips);
+  cell.title = pending.length
+    ? `Requisitos pendientes: ${pending.map((requirement) => requirement.label).join(", ")}`
+    : "Sin requisitos pendientes";
 
   return cell;
 }
