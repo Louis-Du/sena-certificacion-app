@@ -640,6 +640,7 @@ def confirm_sync(
     conflict_resolutions: list[dict[str, Any]] | None = None,
     accept_missing_complementaria: bool = False,
     sheets_manual_cleanup_acknowledged: bool = False,
+    requirement_conflict_resolutions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Confirma el lote preparado y actualiza el hash/estado de la sincronización."""
     config = get_config(session)
@@ -669,6 +670,7 @@ def confirm_sync(
                 conflict_resolutions,
                 accept_missing_complementaria=accept_missing_complementaria,
                 sheets_manual_cleanup_acknowledged=sheets_manual_cleanup_acknowledged,
+                requirement_conflict_resolutions=requirement_conflict_resolutions,
             )
         except Exception:
             session.rollback()
@@ -785,6 +787,7 @@ def resolve_pending(
     conflict_resolutions: list[dict[str, Any]] | None = None,
     accept_missing_complementaria: bool = False,
     sheets_manual_cleanup_acknowledged: bool = False,
+    requirement_conflict_resolutions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Resuelve el lote pendiente y completa su importación."""
     config = get_config(session)
@@ -814,6 +817,7 @@ def resolve_pending(
                 conflict_resolutions,
                 accept_missing_complementaria=accept_missing_complementaria,
                 sheets_manual_cleanup_acknowledged=sheets_manual_cleanup_acknowledged,
+                requirement_conflict_resolutions=requirement_conflict_resolutions,
             )
         except Exception:
             session.rollback()
