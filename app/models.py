@@ -207,6 +207,14 @@ class RequirementStatusHistory(Base):
     )
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Origen de una decision de conflicto: user | bulk | rule. Las decisiones
+    # manuales/historicas no lo usan (quedan en NULL).
+    decision_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Huella del contraste columna/motivo que origino la decision. Permite
+    # reaplicarla en una reimportacion solo si el hecho sigue siendo el mismo.
+    conflict_fingerprint: Mapped[str | None] = mapped_column(
+        String(40), nullable=True
+    )
 
     learner: Mapped["Learner"] = relationship(back_populates="requirement_status_history")
 

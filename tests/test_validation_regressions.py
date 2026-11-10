@@ -62,6 +62,28 @@ def _labels(body: dict) -> str:
     return " ".join(check["label"] for check in body["checks"])
 
 
+def _manual_requirement_resolutions(
+    conflicts: list[dict], status: str | None = None
+) -> list[dict]:
+    """Decisiones para los conflictos que requieren intervención humana.
+
+    Los conflictos ``auto_resolved`` no se envían: el backend aplica la regla y
+    deja la auditoría con origen ``rule``. Un estado explícito siempre debe ser
+    uno de los tres válidos; ``Sin información`` no es una decisión.
+    """
+    return [
+        {
+            "identification": item["identification"],
+            "requirement_type": item["requirement_type"],
+            "status": status or item.get("suggested_status") or "Pendiente",
+            "source": "bulk",
+            "conflict_fingerprint": item["fingerprint"],
+        }
+        for item in conflicts
+        if not item.get("auto_resolved")
+    ]
+
+
 @pytest.mark.parametrize(
     "name",
     [
@@ -271,14 +293,9 @@ def test_incorrect_actas_counters_match_preview_and_saved_records(client: TestCl
         {"identification": item["identification"], "status": "CERTIFICADOS"}
         for item in conflicts
     ]
-    requirement_resolutions = [
-        {
-            "identification": item["identification"],
-            "requirement_type": item["requirement_type"],
-            "status": item["evidence_status"],
-        }
-        for item in body["requirement_conflicts"]
-    ]
+    requirement_resolutions = _manual_requirement_resolutions(
+        body["requirement_conflicts"]
+    )
     confirmed = client.post(
         f"/api/imports/{validation_id}/confirm",
         json={
@@ -435,13 +452,17 @@ def test_requirement_evidence_mismatch_requires_resolution_and_applies_selected_
 
     body = _validate(client, conflict_path, "actas_completo")
     requirement_conflicts = body["requirement_conflicts"]
+    # Solo hay una contradicción real: la columna X de Saber TyT contra el motivo
+    # que dice que no anexa T&T. El documento de identidad vacío no crea un
+    # conflicto fantasma porque el motivo no lo nombra.
     assert {
-        (item["requirement_type"], item["reason"])
+        (item["requirement_type"], item["pattern"])
         for item in requirement_conflicts
-    } == {
-        ("saber_tyt", "motivo_missing_evidence_present"),
-        ("documento_identidad", "evidence_missing_motivo_other"),
-    }
+    } == {("saber_tyt", "evidence_fulfilled_motivo_missing")}
+    assert all(
+        item["requirement_type"] != "documento_identidad"
+        for item in requirement_conflicts
+    )
 
     blocked = client.post(
         f"/api/imports/{body['validation_id']}/confirm",
@@ -454,18 +475,9 @@ def test_requirement_evidence_mismatch_requires_resolution_and_applies_selected_
         f"/api/imports/{body['validation_id']}/confirm",
         json={
             "accept_missing_complementaria": True,
-            "requirement_conflict_resolutions": [
-                {
-                    "identification": "9001",
-                    "requirement_type": "saber_tyt",
-                    "status": "Pendiente",
-                },
-                {
-                    "identification": "9001",
-                    "requirement_type": "documento_identidad",
-                    "status": "Cumplido",
-                },
-            ],
+            "requirement_conflict_resolutions": _manual_requirement_resolutions(
+                requirement_conflicts, status="Pendiente"
+            ),
         },
     )
     assert confirmed.status_code == 200
@@ -476,7 +488,9 @@ def test_requirement_evidence_mismatch_requires_resolution_and_applies_selected_
             for item in learner.requirements
         }
         assert requirements["saber_tyt"] == "Pendiente"
-        assert requirements["documento_identidad"] == "Cumplido"
+        # La celda vacía se conserva como Sin información; el motivo no nombra
+        # el documento de identidad, así que no se inventa un estado.
+        assert requirements["documento_identidad"] == "Sin información"
 
 
 def test_correct_actas_expands_complementaria_and_reports_the_breakdown(client: TestClient):
@@ -508,14 +522,9 @@ def test_correct_actas_expands_complementaria_and_reports_the_breakdown(client: 
         f"/api/imports/{validation_id}/confirm",
         json={
             "accept_missing_complementaria": True,
-            "requirement_conflict_resolutions": [
-                {
-                    "identification": item["identification"],
-                    "requirement_type": item["requirement_type"],
-                    "status": item["evidence_status"],
-                }
-                for item in body["requirement_conflicts"]
-            ],
+            "requirement_conflict_resolutions": _manual_requirement_resolutions(
+                body["requirement_conflicts"]
+            ),
         },
     ).json()
     assert confirmed["records_count"] == 21

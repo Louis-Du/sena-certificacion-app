@@ -68,6 +68,11 @@ def _upgrade_sqlite_schema(bind: Engine | None = None) -> None:
         if inspector.has_table("sheet_sync_config")
         else set()
     )
+    requirement_history_columns = (
+        _table_columns(inspector, "requirement_status_history")
+        if inspector.has_table("requirement_status_history")
+        else set()
+    )
     migrations = {
         "error_count": (
             "error_count",
@@ -210,6 +215,21 @@ def _upgrade_sqlite_schema(bind: Engine | None = None) -> None:
             "notified_at",
             "ALTER TABLE sheet_sync_config ADD COLUMN notified_at DATETIME",
             sheet_sync_columns,
+        ),
+        # Auditoria de una decision de conflicto columna/motivo. ``source`` ya
+        # identifica el evento de historial; ``decision_source`` distingue si
+        # lo decidio el usuario, una accion por lote o una regla automatica.
+        "decision_source": (
+            "decision_source",
+            "ALTER TABLE requirement_status_history ADD COLUMN decision_source VARCHAR(20)",
+            requirement_history_columns,
+        ),
+        # Huella del contraste original. Una reimportacion reutiliza la decision
+        # solo mientras la columna, el motivo y el nivel no cambien.
+        "conflict_fingerprint": (
+            "conflict_fingerprint",
+            "ALTER TABLE requirement_status_history ADD COLUMN conflict_fingerprint VARCHAR(40)",
+            requirement_history_columns,
         ),
     }
     with target.begin() as connection:

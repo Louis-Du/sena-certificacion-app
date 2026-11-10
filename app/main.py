@@ -112,11 +112,17 @@ class ActLearnerRequest(BaseModel):
 class ConflictResolutionRequest(BaseModel):
     identification: str
     status: str
+    source: str | None = None
 
 class RequirementConflictResolutionRequest(BaseModel):
     identification: str
     requirement_type: str
-    status: str
+    # ``status`` es el nombre historico. ``chosen_status`` es el nombre del
+    # contrato nuevo; se acepta cualquiera de los dos.
+    status: str | None = None
+    chosen_status: str | None = None
+    source: str | None = None
+    conflict_fingerprint: str | None = None
 
 class ConfirmImportRequest(BaseModel):
     conflict_resolutions: list[ConflictResolutionRequest] = []

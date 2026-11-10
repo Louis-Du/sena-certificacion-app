@@ -167,9 +167,9 @@
             <div class="confirm-warning-list" id="confirm-warnings"></div>
           </section>
           <section class="coherence-conflicts" id="coherence-conflicts" hidden>
-            <h3 id="coherence-conflicts-title">Conflictos de coherencia</h3>
-            <p>Se detectaron conflictos. Use <strong>Resolver conflicto</strong> para revisar y decidir el estado final.</p>
-            <button id="open-conflict-resolution" class="primary-button" type="button">Resolver conflicto</button>
+            <h3 id="coherence-conflicts-title">Conflictos de importación</h3>
+            <p>Se detectaron conflictos de estado o de requisitos. Use <strong>Resolver conflictos</strong> para revisar el contraste, decidir cada caso y continuar a la confirmación.</p>
+            <button id="open-conflict-resolution" class="primary-button" type="button">Resolver conflictos</button>
             <p class="coherence-help" id="coherence-help" role="status"></p>
           </section>
           <section class="coherence-conflicts" id="missing-complementaria" hidden>
@@ -469,29 +469,91 @@
     <div class="modal-backdrop" data-close-conflict-resolution></div>
     <div class="modal-dialog conflict-resolution-dialog" tabindex="-1">
       <button id="conflict-resolution-close" class="modal-close" type="button" aria-label="Cerrar resolución de conflictos">×</button>
-      <div class="conflict-resolution-header">
-        <p class="eyebrow">Resolución de importación</p>
-        <h2 id="conflict-resolution-title">Resolver conflicto</h2>
-        <p>Selecciona una decisión para cada conflicto antes de confirmar la importación.</p>
+      <header class="conflict-resolution-header">
+        <div class="conflict-resolution-heading">
+          <div>
+            <p class="eyebrow">Resolución de importación</p>
+            <h2 id="conflict-resolution-title">Resolver conflictos</h2>
+            <p>Cada requisito necesita una decisión explícita: <strong>Pendiente</strong>, <strong>Cumplido</strong> o <strong>No aplica</strong>. No tocar una opción deja el conflicto sin resolver y bloquea la confirmación.</p>
+          </div>
+          <div class="conflict-resolution-legend" aria-label="Estados disponibles">
+            <span class="conflict-status-chip is-pending">Pendiente</span>
+            <span class="conflict-status-chip is-fulfilled">Cumplido</span>
+            <span class="conflict-status-chip is-na">No aplica</span>
+          </div>
+        </div>
+        <div id="conflict-progress" class="conflict-progress" role="status" aria-live="polite">
+          <div class="conflict-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Avance de resolución">
+            <span id="conflict-progress-bar" class="conflict-progress-bar"></span>
+          </div>
+          <p id="conflict-progress-text" class="conflict-progress-text">Estados: 0/0 resueltos · Requisitos: 0 por regla, 0 manuales, 0 sin resolver</p>
+        </div>
+        <div class="conflict-resolution-tabs" role="tablist" aria-label="Tipos de conflicto">
+          <button id="conflict-tab-status" class="conflict-resolution-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="conflict-panel-status">Estados de certificación <span id="conflict-status-count" class="conflict-tab-count"></span></button>
+          <button id="conflict-tab-requirement" class="conflict-resolution-tab" type="button" role="tab" aria-selected="false" aria-controls="conflict-panel-requirement">Requisitos y evidencias <span id="conflict-requirement-count" class="conflict-tab-count"></span></button>
+        </div>
+      </header>
+      <div class="conflict-resolution-body">
+        <section id="conflict-panel-status" class="conflict-resolution-panel is-active" role="tabpanel" aria-labelledby="conflict-tab-status">
+          <div class="conflict-panel-intro">
+            <h3>Estados de certificación</h3>
+            <p>El aprendiz aparece con estados diferentes entre CERTIFICADOS y PENDIENTES. Elige el estado final que se guardará en la app.</p>
+          </div>
+          <div class="coherence-conflict-list" id="coherence-conflict-list"></div>
+          <p class="conflict-panel-empty" id="status-conflict-empty" hidden>No hay conflictos de estado en este lote.</p>
+        </section>
+        <section id="conflict-panel-requirement" class="conflict-resolution-panel" role="tabpanel" aria-labelledby="conflict-tab-requirement" hidden>
+          <div class="conflict-panel-intro">
+            <h3>Requisitos y evidencias</h3>
+            <p>La columna de evidencias y el motivo de no certificación no coinciden. Los conflictos se agrupan por confianza para que puedas resolver primero los casos claros y dejar para el final los que requieren revisión.</p>
+          </div>
+          <div class="requirement-conflict-toolbar">
+            <label class="requirement-search-field">Buscar
+              <input id="requirement-conflict-search" type="search" placeholder="Documento, nombre o requisito" autocomplete="off">
+            </label>
+            <label>Grupo
+              <select id="requirement-conflict-group-filter">
+                <option value="all">Todos los grupos</option>
+                <option value="high">Alta confianza / auto-sugerible</option>
+                <option value="medium">Media</option>
+                <option value="review">Requiere revisión</option>
+              </select>
+            </label>
+            <label>Requisito
+              <select id="requirement-conflict-type-filter">
+                <option value="all">Todos los requisitos</option>
+              </select>
+            </label>
+            <label>Estado
+              <select id="requirement-conflict-state-filter">
+                <option value="all">Todas las decisiones</option>
+                <option value="unresolved">Sin resolver</option>
+                <option value="resolved">Resueltos</option>
+                <option value="rule">Por regla automática</option>
+                <option value="manual">Manuales o guardados</option>
+              </select>
+            </label>
+            <span id="requirement-conflict-visible-count" class="requirement-visible-count" aria-live="polite"></span>
+          </div>
+          <div class="requirement-batch-bar" role="group" aria-label="Acciones por lote sobre los conflictos visibles">
+            <span class="requirement-batch-title">Acciones por lote</span>
+            <button id="requirement-batch-suggest" type="button" class="batch-button">Aplicar sugerencia</button>
+            <button id="requirement-batch-motivo" type="button" class="batch-button">El motivo manda</button>
+            <button id="requirement-batch-column" type="button" class="batch-button">La columna manda</button>
+            <button id="requirement-batch-tyt" type="button" class="batch-button">TyT no TGO → No aplica</button>
+            <span class="requirement-batch-hint">Se aplican solo a los conflictos visibles con el filtro actual.</span>
+          </div>
+          <div class="requirement-conflict-groups" id="requirement-conflict-list"></div>
+          <p class="conflict-panel-empty" id="requirement-conflict-empty" hidden>No hay requisitos que coincidan con los filtros seleccionados.</p>
+        </section>
       </div>
-      <div class="conflict-resolution-tabs" role="tablist" aria-label="Tipos de conflicto">
-        <button id="conflict-tab-status" class="conflict-resolution-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="conflict-panel-status">Conflictos de estado <span id="conflict-status-count"></span></button>
-        <button id="conflict-tab-requirement" class="conflict-resolution-tab" type="button" role="tab" aria-selected="false" aria-controls="conflict-panel-requirement">Conflictos de requisitos <span id="conflict-requirement-count"></span></button>
-      </div>
-      <section id="conflict-panel-status" class="conflict-resolution-panel is-active" role="tabpanel" aria-labelledby="conflict-tab-status">
-        <h3>Conflictos de estado</h3>
-        <p>El aprendiz aparece con estados diferentes entre CERTIFICADOS y PENDIENTES.</p>
-        <div class="coherence-conflict-list" id="coherence-conflict-list"></div>
-      </section>
-      <section id="conflict-panel-requirement" class="conflict-resolution-panel" role="tabpanel" aria-labelledby="conflict-tab-requirement" hidden>
-        <h3>Conflictos de requisitos</h3>
-        <p>La evidencia y el motivo de no certificación no coinciden. Elige el estado final del requisito.</p>
-        <div class="coherence-conflict-list" id="requirement-conflict-list"></div>
-      </section>
-      <p class="coherence-help" id="coherence-help-modal" role="status"></p>
-      <div class="modal-actions">
-        <button id="close-conflict-resolution" class="cancel-button" type="button">Volver a revisión</button>
-      </div>
+      <footer class="conflict-resolution-footer">
+        <p class="coherence-help" id="coherence-help-modal" role="status"></p>
+        <div class="modal-actions conflict-resolution-actions">
+          <button id="close-conflict-resolution" class="cancel-button" type="button">Volver a revisión</button>
+          <button id="conflict-continue" class="primary-button" type="button">Continuar a confirmación</button>
+        </div>
+      </footer>
     </div>
   </div>
   <div id="conflict-confirm-modal" class="modal-root conflict-confirm-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="conflict-confirm-title">
@@ -505,11 +567,14 @@
         </div>
       </div>
       <div class="conflict-confirm-body">
-        <p>Resolvió conflictos de coherencia en este lote. Esa decisión se guardará solo en SENA Certificación App.</p>
-        <p>Esta aplicación solo lee Google Sheets y los archivos de origen: no puede modificar, borrar ni actualizar filas en la hoja.</p>
-        <p>Si el aprendiz sigue en CERTIFICADOS y PENDIENTES a la vez en Google Sheets, el cruce permanecerá allí. Para alinear la hoja, corríjala o elimine el registro duplicado de forma manual.</p>
-        <p>Si más adelante la hoja deja de presentar el cruce y el aprendiz aparece solo en una lista, la app tomará ese estado y descartará el desempate anterior.</p>
-        <div class="conflict-confirm-ack">
+        <p id="conflict-confirm-intro">Resolvió conflictos en este lote. Esa decisión se guardará solo en SENA Certificación App.</p>
+        <div id="conflict-confirm-summary" class="conflict-confirm-summary" aria-live="polite"></div>
+        <div id="conflict-confirm-sheets-copy">
+          <p>Esta aplicación solo lee Google Sheets y los archivos de origen: no puede modificar, borrar ni actualizar filas en la hoja.</p>
+          <p>Si el aprendiz sigue en CERTIFICADOS y PENDIENTES a la vez en Google Sheets, el cruce permanecerá allí. Para alinear la hoja, corríjala o elimine el registro duplicado de forma manual.</p>
+          <p>Si más adelante la hoja deja de presentar el cruce y el aprendiz aparece solo en una lista, la app tomará ese estado y descartará el desempate anterior.</p>
+        </div>
+        <div class="conflict-confirm-ack" id="conflict-confirm-ack">
           <label for="sheets-manual-cleanup"><input type="checkbox" id="sheets-manual-cleanup"> Ya corregí o eliminé el registro duplicado en Google Sheets (acción manual)</label>
           <small>Solo documental en la app; no modifica Google Sheets.</small>
         </div>

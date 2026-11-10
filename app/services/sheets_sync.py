@@ -18,6 +18,7 @@ from app.services.imports import (
     get_staged,
     import_preview,
     split_conflicts_by_resolution,
+    split_requirement_conflicts_by_resolution,
     stage_file,
 )
 
@@ -103,22 +104,32 @@ def _json_default(value: Any) -> Any:
 
 
 def _fingerprint_conflicts(conflicts: list[dict[str, Any]]) -> str | None:
-    """Huella estable del conjunto de documentos en conflicto.
+    """Huella estable del conjunto de conflictos pendientes.
 
-    Se ordena y deduplica por documento para que el mismo conjunto produzca
-    siempre el mismo valor aunque cambie el orden de las filas de la hoja.
+    Para los cruces de estado se usa el documento. Para los conflictos de
+    requisitos se usa ``documento|requisito`` para que un cambio en el motivo o
+    en la columna de un requisito no herede la marca de notificación anterior.
     """
-    documents = sorted(
+    identities = sorted(
         {
-            str(item.get("identification") or "").strip()
+            (
+                f"{str(item.get('identification') or '').strip()}|"
+                f"{str(item.get('requirement_type') or '').strip()}"
+            )
+            if item.get("requirement_type")
+            else str(item.get("identification") or "").strip()
             for item in conflicts
             if str(item.get("identification") or "").strip()
         }
     )
-    if not documents:
+    if not identities:
         return None
-    payload = "\n".join(documents).encode("utf-8")
+    payload = "\n".join(identities).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def _is_requirement_conflict(item: dict[str, Any]) -> bool:
+    return bool(item.get("requirement_type"))
 
 
 def _pending_conflicts(config: SheetSyncConfig) -> list[dict[str, Any]]:
@@ -372,14 +383,27 @@ def _run_sync_impl(session: Session) -> SheetSyncConfig:
     # no cambio desde ese lote y aun hay documentos sin desempate, no se vuelve
     # a validar ni a notificar. Si todos los cruces ya fueron decididos, el
     # flujo continua y el lote se importa reutilizando esas decisiones.
+    backend_pending = _pending_conflicts(config)
     if config.last_status == "conflict_pending" and config.pending_hash == new_hash:
+        # Los conflictos de estado y de requisitos se evalúan por separado: una
+        # decisión de requisito no destraba el desempate entre hojas ni al revés.
+        pending_status = [
+            item for item in backend_pending if not _is_requirement_conflict(item)
+        ]
+        pending_requirements = [
+            item for item in backend_pending if _is_requirement_conflict(item)
+        ]
         unresolved_pending, _ = split_conflicts_by_resolution(
-            session, _pending_conflicts(config)
+            session, pending_status
         )
-        if unresolved_pending:
+        unresolved_requirements, _ = split_requirement_conflicts_by_resolution(
+            session, pending_requirements
+        )
+        if unresolved_pending or unresolved_requirements:
+            total = len(unresolved_pending) + len(unresolved_requirements)
             config.last_message = (
-                f"Hay {len(unresolved_pending)} conflicto(s) entre CERTIFICADOS "
-                "y PENDIENTES pendientes de resolución. El lote no se reimportará solo."
+                f"Hay {total} conflicto(s) entre CERTIFICADOS y PENDIENTES o de "
+                "requisitos pendientes de resolución. El lote no se reimportará solo."
             )
             session.commit()
             return config
@@ -416,11 +440,21 @@ def _run_sync_impl(session: Session) -> SheetSyncConfig:
         # que aun no tienen un desempate requieren intervencion y notificacion.
         unresolved_conflicts, _ = split_conflicts_by_resolution(session, conflicts)
 
-    if unresolved_conflicts:
-        # La sincronizacion automatica no decide por el usuario: si hay
-        # aprendices sin desempate en CERTIFICADOS y PENDIENTES, se deja el lote
-        # pendiente, se conserva el hash anterior y se solicita la notificacion
-        # nativa (una sola vez por conjunto de documentos).
+    requirement_items = getattr(result, "requirement_conflicts", None) or []
+    unresolved_requirements: list[dict[str, Any]] = []
+    if requirement_items:
+        # Las reglas automaticas (por ejemplo TyT fuera de TGO) y las decisiones
+        # guardadas no bloquean la sincronizacion. Solo los conflictos manuales
+        # sin decision dejan el lote pendiente.
+        unresolved_requirements, _ = split_requirement_conflicts_by_resolution(
+            session, requirement_items
+        )
+
+    if unresolved_conflicts or unresolved_requirements:        # La sincronizacion automatica no decide por el usuario: si hay
+        # aprendices sin desempate en CERTIFICADOS y PENDIENTES, o requisitos
+        # manuales sin decision, se deja el lote pendiente, se conserva el hash
+        # anterior y se solicita la notificacion nativa (una sola vez por
+        # conjunto de conflictos).
         preview: dict[str, Any] | None = None
         try:
             preview = import_preview(staged, session)
@@ -431,13 +465,24 @@ def _run_sync_impl(session: Session) -> SheetSyncConfig:
             staged=staged,
             sheet_hash=new_hash,
             file_name=file_name,
-            conflicts=unresolved_conflicts,
+            conflicts=[*unresolved_conflicts, *unresolved_requirements],
             preview=preview,
         )
+        parts = []
+        if unresolved_conflicts:
+            parts.append(
+                f"{len(unresolved_conflicts)} conflicto(s) entre CERTIFICADOS y "
+                "PENDIENTES"
+            )
+        if unresolved_requirements:
+            parts.append(
+                f"{len(unresolved_requirements)} requisito(s) cuya columna y "
+                "motivo no coinciden"
+            )
         config.last_message = (
-            f"Se detectaron {len(unresolved_conflicts)} conflicto(s) entre "
-            "CERTIFICADOS y PENDIENTES. Abra 'Resolver ahora' para elegir el "
-            "estado final de cada aprendiz; el lote no se importará automáticamente."
+            f"Se detectaron {' y '.join(parts)}. Abra 'Resolver ahora' para "
+            "elegir el estado final de cada conflicto; el lote no se importará "
+            "automáticamente."
         )
         session.commit()
         return config
@@ -708,7 +753,13 @@ def pending_conflicts_payload(session: Session) -> dict[str, Any]:
             "config": config_to_status(config),
         }
 
-    conflicts = _pending_conflicts(config)
+    stored_conflicts = _pending_conflicts(config)
+    conflicts = [
+        item for item in stored_conflicts if not _is_requirement_conflict(item)
+    ]
+    pending_requirements = [
+        item for item in stored_conflicts if _is_requirement_conflict(item)
+    ]
     preview = _pending_preview(config)
     staged = _restore_staged(config)
     live_loaded = False
@@ -716,12 +767,23 @@ def pending_conflicts_payload(session: Session) -> dict[str, Any]:
         try:
             live_preview = import_preview(staged, session)
             live_conflicts = live_preview.get("coherence_conflicts") or []
+            # La UI solo pide decision para los cruces que siguen sin
+            # desempate; los ya decididos se reaplican al confirmar.
             if live_conflicts:
-                # La UI solo pide decision para los cruces que siguen sin
-                # desempate; los ya decididos se reaplican al confirmar.
                 conflicts, _ = split_conflicts_by_resolution(
                     session, live_conflicts
                 )
+            else:
+                conflicts = []
+            live_requirements = live_preview.get("requirement_conflicts") or []
+            if live_requirements:
+                pending_requirements, _ = (
+                    split_requirement_conflicts_by_resolution(
+                        session, live_requirements
+                    )
+                )
+            else:
+                pending_requirements = []
             preview = live_preview
             live_loaded = True
         except Exception:
@@ -730,13 +792,15 @@ def pending_conflicts_payload(session: Session) -> dict[str, Any]:
             pass
 
     pending_count = (
-        len(conflicts)
+        len(conflicts) + len(pending_requirements)
         if live_loaded
         else int(config.pending_conflict_count or 0)
     )
     if isinstance(preview, dict):
         # El modal de resolucion solo muestra los cruces que aun esperan
-        # decision; los ya desempatados se reaplican al confirmar.
+        # decision; los ya desempatados se reaplican al confirmar. Los
+        # conflictos de requisitos conservan su clasificacion completa para
+        # que la barra de progreso distinga reglas de decisiones manuales.
         preview["coherence_conflicts"] = conflicts
     payload = {
         "status": "conflict_pending",
@@ -748,6 +812,7 @@ def pending_conflicts_payload(session: Session) -> dict[str, Any]:
         "pending_conflict_fingerprint": config.pending_conflict_fingerprint,
         "conflicts": conflicts,
         "coherence_conflicts": conflicts,
+        "requirement_conflicts": pending_requirements,
         "preview": preview,
         "staged_available": staged is not None,
         "notified_at": _iso(config.notified_at),

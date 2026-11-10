@@ -37,7 +37,9 @@ from app.services.records import (
 from app.services.requirement_conflicts import (
     EVIDENCE_FIELDS,
     REQUIREMENT_CONFLICT_STATUSES,
+    RESOLUTION_SOURCES,
     requirement_conflict_key,
+    requirement_conflict_summary,
     requirement_conflicts,
 )
 from app.services.validation import (
@@ -219,10 +221,18 @@ def _clear_inactive_conflict_resolutions(
     return cleared
 
 
-# Origen con el que se guarda una decision manual de incongruencia entre una
-# columna de evidencias y el MOTIVO DE NO CERTIFICACION. No se agrega una
-# columna nueva al aprendiz: el historial de requisitos ya conserva el hecho.
+# Origen con el que se guarda una decision de incongruencia entre una columna
+# de evidencias y el MOTIVO DE NO CERTIFICACION. No se agrega una columna nueva
+# al aprendiz: el historial de requisitos ya conserva el hecho.
 REQUIREMENT_CONFLICT_SOURCE = "conflict:requirement"
+
+_DECISION_SOURCE_LABELS = {
+    "user": "Usuario",
+    "bulk": "Acción por lote",
+    "rule": "Regla automática",
+    "saved": "Decisión guardada",
+}
+_EXPLICIT_DECISION_SOURCES = set(RESOLUTION_SOURCES) - {"saved"}
 
 
 def _normalize_requirement_conflict_status(value: Any) -> str | None:
@@ -234,14 +244,44 @@ def _normalize_requirement_conflict_status(value: Any) -> str | None:
     return None
 
 
+def _normalize_decision_source(value: Any, default: str = "user") -> str | None:
+    text = str(value or "").strip().lower()
+    if not text:
+        return default
+    return text if text in _EXPLICIT_DECISION_SOURCES else None
+
+
+def _requirement_conflict_note(
+    item: dict[str, Any],
+    status: str,
+    source: str,
+    import_file: str | None = None,
+) -> str:
+    """Nota legible con el contraste previo y el origen de la decision."""
+    raw = str(item.get("evidence_raw") or "").strip() or "vacía"
+    evidence = str(item.get("evidence_status") or "Sin información")
+    motivo = " ".join(str(item.get("motivo") or "").split())[:240]
+    parts = [
+        f"Conflicto resuelto: {status}",
+        f"Origen: {_DECISION_SOURCE_LABELS.get(source, source)}",
+        f"Columna: «{raw}» ({evidence})",
+        f"Motivo: «{motivo}»",
+    ]
+    if import_file:
+        parts.append(f"Lote: {import_file}")
+    return " · ".join(parts)
+
+
 def _explicit_requirement_conflict_resolutions(
     conflicts: list[dict[str, Any]],
     raw_resolutions: list[dict[str, Any]] | None,
-) -> dict[str, str]:
+) -> dict[str, dict[str, str]]:
     """Lee y valida las decisiones de requisitos enviadas por la UI.
 
     La llave es ``documento|tipo_requisito`` para que un mismo aprendiz pueda
-    tener varias decisiones en el mismo lote sin que se pisen entre si.
+    tener varias decisiones en el mismo lote sin que se pisen entre si. Si la UI
+    envia la huella del conflicto y esta ya no coincide con el lote recalculado,
+    la decision se rechaza para no aplicar un estado a un hecho distinto.
     """
     required = {
         requirement_conflict_key(item["identification"], item["requirement_type"]): item
@@ -250,8 +290,9 @@ def _explicit_requirement_conflict_resolutions(
     if not required:
         return {}
 
-    resolutions: dict[str, str] = {}
+    resolutions: dict[str, dict[str, str]] = {}
     invalid: list[str] = []
+    stale: list[str] = []
     for item in raw_resolutions or []:
         identification = str(item.get("identification") or "").strip()
         requirement_type = str(item.get("requirement_type") or "").strip()
@@ -259,32 +300,55 @@ def _explicit_requirement_conflict_resolutions(
         if key not in required:
             # Una decision de otro lote no debe romper la importacion actual.
             continue
-        status = _normalize_requirement_conflict_status(item.get("status"))
+        expected = str(required[key].get("fingerprint") or "")
+        provided = str(item.get("conflict_fingerprint") or "").strip()
+        if provided and expected and provided != expected:
+            stale.append(f"{identification} · {required[key]['requirement_label']}")
+            continue
+        status_value = item.get("status")
+        if status_value is None:
+            status_value = item.get("chosen_status")
+        status = _normalize_requirement_conflict_status(status_value)
         if status is None:
             invalid.append(
                 f"{identification} · {requirement_type}: "
-                f"{str(item.get('status') or '').strip() or 'sin estado'}"
+                f"{str(status_value or '').strip() or 'sin estado'}"
             )
             continue
-        resolutions[key] = status
+        source = _normalize_decision_source(item.get("source"))
+        if source is None:
+            invalid.append(
+                f"{identification} · {requirement_type}: origen "
+                f"«{str(item.get('source') or '').strip()}» no válido"
+            )
+            continue
+        resolutions[key] = {"status": status, "source": source}
 
+    if stale:
+        raise ValueError(
+            "El conflicto cambió desde que se abrió el modal. Vuelva a revisar "
+            f"antes de confirmar: {', '.join(stale)}."
+        )
     if invalid:
         raise ValueError(
             "Resolucion de requisito no valida para "
-            f"{', '.join(invalid)}. Use Cumplido, Pendiente o No aplica."
+            f"{', '.join(invalid)}. Use Cumplido, Pendiente o No aplica y un "
+            "origen user, bulk o rule."
         )
     return resolutions
 
 
 def stored_requirement_conflict_resolutions(
     session: Session, conflicts: list[dict[str, Any]]
-) -> dict[str, str]:
-    """Ultima decision manual guardada para cada requisito en conflicto.
+) -> dict[str, dict[str, str]]:
+    """Ultima decision guardada para cada requisito en conflicto.
 
     Se apoya en ``RequirementStatusHistory`` con origen
-    ``conflict:requirement``. Asi una reimportacion del mismo consolidado no
-    vuelve a interrumpir al usuario y, si el requisito cambia de estado mas
-    adelante, la decision historica se conserva como referencia.
+    ``conflict:requirement``. La decision se reutiliza solo si su huella de
+    contraste coincide con la del lote actual. Si la columna, el motivo o el
+    nivel cambiaron, el conflicto se reabre en lugar de aplicar una decision
+    vieja a un hecho distinto. Las decisiones anteriores a la huella (bases
+    antiguas) se conservan por compatibilidad.
     """
     if not conflicts:
         return {}
@@ -308,6 +372,10 @@ def stored_requirement_conflict_resolutions(
     if not learner_by_id:
         return {}
 
+    items_by_key = {
+        requirement_conflict_key(item["identification"], item["requirement_type"]): item
+        for item in conflicts
+    }
     types_by_learner: dict[int, set[str]] = {}
     for item in conflicts:
         learner = learner_by_document.get(
@@ -334,7 +402,7 @@ def stored_requirement_conflict_resolutions(
         )
     ).all()
 
-    resolutions: dict[str, str] = {}
+    resolutions: dict[str, dict[str, str]] = {}
     for event in events:
         learner = learner_by_id.get(event.learner_id)
         if learner is None:
@@ -344,21 +412,41 @@ def stored_requirement_conflict_resolutions(
         key = requirement_conflict_key(learner.identification, event.requirement_type)
         if key in resolutions:
             continue
+        item = items_by_key.get(key)
+        if item is None:
+            continue
+        stored_fingerprint = getattr(event, "conflict_fingerprint", None)
+        current_fingerprint = item.get("fingerprint")
+        if (
+            stored_fingerprint
+            and current_fingerprint
+            and stored_fingerprint != current_fingerprint
+        ):
+            # El hecho cambio: la decision anterior ya no es coherente.
+            continue
         status = _normalize_requirement_conflict_status(event.status)
         if status is not None:
-            resolutions[key] = status
+            resolutions[key] = {
+                "status": status,
+                "source": getattr(event, "decision_source", None) or "user",
+            }
     return resolutions
 
 
 def split_requirement_conflicts_by_resolution(
     session: Session, conflicts: list[dict[str, Any]]
-) -> tuple[list[dict[str, Any]], dict[str, str]]:
-    """Separa los requisitos que aun requieren decision de los ya resueltos."""
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, str]]]:
+    """Separa los requisitos que aun requieren decision de los ya resueltos.
+
+    Las reglas automaticas (por ejemplo TyT no TGO) no bloquean la importacion:
+    se aplican en la confirmacion y quedan auditadas como ``rule``.
+    """
     saved = stored_requirement_conflict_resolutions(session, conflicts)
     unresolved = [
         item
         for item in conflicts
-        if requirement_conflict_key(
+        if not item.get("auto_resolved")
+        and requirement_conflict_key(
             item.get("identification"), item.get("requirement_type")
         )
         not in saved
@@ -370,12 +458,12 @@ def _resolve_requirement_conflict_decisions(
     session: Session,
     conflicts: list[dict[str, Any]],
     raw_resolutions: list[dict[str, Any]] | None,
-) -> tuple[dict[str, str], dict[str, str]]:
-    """Combina decisiones nuevas con las guardadas y exige cubrir el lote.
+) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]]]:
+    """Combina decisiones nuevas, guardadas y automaticas.
 
-    Devuelve ``(decisiones_efectivas, decisiones_explicitas)``. La segunda
-    tupla permite distinguir en el historial entre una resolucion manual y una
-    decision previa reaplicada en silencio.
+    Prioridad: decision explicita > decision guardada vigente > regla automatica.
+    Solo las decisiones explicitas se consideran "nuevas" para el resumen de
+    auditoria; las guardadas se reaplican en silencio.
     """
     required = {
         requirement_conflict_key(item["identification"], item["requirement_type"]): item
@@ -385,10 +473,21 @@ def _resolve_requirement_conflict_decisions(
         return {}, {}
 
     explicit = _explicit_requirement_conflict_resolutions(conflicts, raw_resolutions)
-    effective = {
+    effective: dict[str, dict[str, str]] = {
         **stored_requirement_conflict_resolutions(session, conflicts),
         **explicit,
     }
+    # Las reglas automaticas solo completan lo que no tenga una decision
+    # explicita o guardada. Nunca pisan una eleccion humana.
+    for key, item in required.items():
+        if key in effective:
+            continue
+        if item.get("auto_resolved") and item.get("suggested_status"):
+            effective[key] = {
+                "status": str(item["suggested_status"]),
+                "source": "rule",
+            }
+
     missing = [key for key in required if key not in effective]
     if missing:
         labels = [
@@ -406,10 +505,16 @@ def _resolve_requirement_conflict_decisions(
 def _apply_requirement_conflict_resolutions(
     session: Session,
     conflicts: list[dict[str, Any]],
-    resolutions: dict[str, str],
+    resolutions: dict[str, dict[str, str]],
     recorded_at: datetime | None = None,
+    import_file: str | None = None,
 ) -> int:
-    """Fija el estado elegido y deja un evento de historial trazable."""
+    """Fija el estado elegido y deja un evento de historial trazable.
+
+    Cada decision guarda el estado final, el origen (usuario, lote o regla), el
+    contraste columna/motivo y la huella que permite decidir si se reabre en
+    una reimportacion.
+    """
     from app.services.requirements import upsert_requirement_status
 
     if not resolutions:
@@ -433,12 +538,14 @@ def _apply_requirement_conflict_resolutions(
         key = requirement_conflict_key(
             item["identification"], item["requirement_type"]
         )
-        status = resolutions.get(key)
-        if status is None:
+        decision = resolutions.get(key)
+        if decision is None:
             continue
         learner = by_document.get(item["identification"])
         if learner is None:
             continue
+        status = str(decision.get("status") or "")
+        source = str(decision.get("source") or "user")
         upsert_requirement_status(
             session,
             learner_id=learner.id,
@@ -446,9 +553,13 @@ def _apply_requirement_conflict_resolutions(
             status=status,
             source=REQUIREMENT_CONFLICT_SOURCE,
             recorded_at=recorded_at,
-            note=f"Conflicto resuelto: {status}",
+            note=_requirement_conflict_note(
+                item, status, source, import_file=import_file
+            ),
             force_history=True,
             dedupe_history=True,
+            decision_source=source,
+            conflict_fingerprint=str(item.get("fingerprint") or "") or None,
         )
         count += 1
     return count
@@ -513,10 +624,37 @@ def import_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
         if staged.information_type == "actas_completo"
         else []
     )
-    saved_requirement_resolutions = (
+    saved_requirement_decisions = (
         stored_requirement_conflict_resolutions(session, requirement_items)
         if requirement_items
         else {}
+    )
+    # La UI historica espera un mapa llave -> estado. El origen y la huella se
+    # envian aparte para poder pintar "Decisión guardada" sin reenviarla.
+    saved_requirement_resolutions = {
+        key: decision["status"]
+        for key, decision in saved_requirement_decisions.items()
+    }
+    saved_requirement_sources = {
+        key: decision.get("source") or "saved"
+        for key, decision in saved_requirement_decisions.items()
+    }
+    saved_requirement_fingerprints = {
+        key: item.get("fingerprint")
+        for item in requirement_items
+        for key in [requirement_conflict_key(item["identification"], item["requirement_type"])]
+        if key in saved_requirement_decisions
+    }
+    requirement_summary = requirement_conflict_summary(requirement_items)
+    requirement_summary["resolved_saved"] = len(saved_requirement_decisions)
+    requirement_summary["unresolved"] = sum(
+        1
+        for item in requirement_items
+        if not item.get("auto_resolved")
+        and requirement_conflict_key(
+            item["identification"], item["requirement_type"]
+        )
+        not in saved_requirement_decisions
     )
     preview = {
         "validation_id": staged.validation_id,
@@ -533,14 +671,21 @@ def import_preview(staged: StagedImport, session: Session) -> dict[str, Any]:
         "detected_columns": staged.result.detected_columns,
         "missing_columns": staged.result.missing_columns,
         "breakdown": prepared.breakdown(),
+        # ``status_conflicts`` es el nombre del nuevo contrato; se conserva
+        # ``coherence_conflicts`` para clientes y pruebas anteriores.
+        "status_conflicts": conflicts,
         "coherence_conflicts": conflicts,
+        "status_conflict_summary": {"total": len(conflicts)},
         # Mapa documento -> desempate guardado. La UI lo usa para preseleccionar
         # la decision previa sin alterar el contrato de ``coherence_conflicts``.
         "conflict_resolutions": saved_resolutions,
         # Incongruencias entre cada columna de evidencias y el motivo de no
         # certificacion. La llave de una decision es ``documento|requisito``.
         "requirement_conflicts": requirement_items,
+        "requirement_conflict_summary": requirement_summary,
         "requirement_conflict_resolutions": saved_requirement_resolutions,
+        "requirement_conflict_resolution_sources": saved_requirement_sources,
+        "requirement_conflict_resolution_fingerprints": saved_requirement_fingerprints,
         "missing_complementaria": getattr(staged.result, "missing_complementaria", False),
     }
     if staged.information_type == "acta":
@@ -795,7 +940,8 @@ def confirm_import(
 
         # Las columnas de evidencias de CERTIFICADOS/PENDIENTES se convierten en
         # requisitos del aprendiz (X -> Cumplido, N.A -> No aplica, vacio ->
-        # Pendiente). El motivo de no certificacion ya quedo en el aprendiz.
+        # Sin información). El motivo de no certificacion ya quedo en el
+        # aprendiz y las decisiones del modal se aplican despues.
         evidence_records = [
             record
             for record, rtype in final_records
@@ -819,18 +965,30 @@ def confirm_import(
                 requirement_items,
                 requirement_resolutions,
                 recorded_at=sync_recorded_at,
+                import_file=staged.file_name,
             )
             if applied_requirement_conflicts:
-                if explicit_requirement_resolutions:
-                    history.message = (
-                        f"{history.message} Conflictos de requisitos resueltos "
-                        f"manualmente: {applied_requirement_conflicts}."
-                    )
-                else:
-                    history.message = (
-                        f"{history.message} Decisiones de requisitos guardadas "
-                        f"reaplicadas: {applied_requirement_conflicts}."
-                    )
+                rule_count = sum(
+                    1
+                    for decision in requirement_resolutions.values()
+                    if decision.get("source") == "rule"
+                )
+                explicit_count = len(explicit_requirement_resolutions)
+                saved_count = max(
+                    applied_requirement_conflicts - explicit_count - rule_count, 0
+                )
+                detail = []
+                if explicit_count:
+                    detail.append(f"{explicit_count} con decisión manual/lote")
+                if rule_count:
+                    detail.append(f"{rule_count} por regla automática")
+                if saved_count:
+                    detail.append(f"{saved_count} guardadas reaplicadas")
+                summary = ", ".join(detail) if detail else "sin detalle"
+                history.message = (
+                    f"{history.message} Conflictos de requisitos aplicados: "
+                    f"{applied_requirement_conflicts} ({summary})."
+                )
 
         requisitos_records = [
             record for record, rtype in final_records if rtype == "requisitos"
@@ -1156,8 +1314,11 @@ def _sync_actas_requirements(
 
     Cada columna de checklist de CERTIFICADOS/PENDIENTES es un requisito del
     aprendiz con el estado leido en la celda: ``X`` -> Cumplido, ``N.A`` -> No
-    aplica, vacio u otro -> Pendiente. Solo se procesan las columnas que existen
-    en la hoja; una columna ausente no genera un requisito inventado.
+    aplica, texto explicito -> Pendiente y celda vacia -> Sin información. Una
+    celda vacia no se convierte en Pendiente por omision: la decision de
+    negocio se resuelve en el modal de conflictos o por una regla automatica.
+    Solo se procesan las columnas que existen en la hoja; una columna ausente
+    no genera un requisito inventado.
 
     Para biblioteca, bienestar y almacen, si el requisito esta cumplido y la
     hoja trae la fecha real de recibido, el evento de historial usa esa fecha

@@ -9,7 +9,10 @@ import pandas as pd
 
 from app.services import parsers
 from app.services.records import META_VALUE_KEYS, prepare_records
-from app.services.requirement_conflicts import requirement_conflicts
+from app.services.requirement_conflicts import (
+    requirement_conflict_summary,
+    requirement_conflicts,
+)
 
 
 MAX_FILE_SIZE = 20 * 1024 * 1024
@@ -99,8 +102,13 @@ class ValidationResult:
             "missing_columns": self.missing_columns,
             "extra_columns": self.extra_columns,
             "breakdown": self.breakdown,
+            "status_conflicts": self.coherence_conflicts,
             "coherence_conflicts": self.coherence_conflicts,
+            "status_conflict_summary": {"total": len(self.coherence_conflicts)},
             "requirement_conflicts": self.requirement_conflicts,
+            "requirement_conflict_summary": requirement_conflict_summary(
+                self.requirement_conflicts
+            ),
             "missing_complementaria": self.missing_complementaria,
         }
 
@@ -601,28 +609,45 @@ def _append_actas_warnings(prepared, checks: list[dict[str, str]]) -> int:
 def _append_requirement_conflict_warnings(
     conflicts: list[dict[str, Any]], checks: list[dict[str, str]]
 ) -> int:
-    """Resume los requisitos cuya columna de evidencia contradice el motivo."""
+    """Resume los requisitos cuya columna de evidencia contradice el motivo.
+
+    Las reglas automaticas (por ejemplo TyT no aplica al nivel) no se presentan
+    como pendientes de decision: se informan aparte para que el resumen no
+    infle el trabajo manual.
+    """
     if not conflicts:
         return 0
 
-    learners = {item["identification"] for item in conflicts}
-    detail = ", ".join(
-        f"{item['identification']} · {item['requirement_label']}"
-        for item in conflicts[:3]
-    )
-    if len(conflicts) > 3:
-        detail += f" y {len(conflicts) - 3} mas"
-    checks.append(
-        {
-            "label": (
-                f"Coherencia de requisitos: {len(conflicts)} requisito(s) de "
-                f"{len(learners)} aprendiz(es) no coinciden entre las columnas de "
-                f"evidencia y el MOTIVO DE NO CERTIFICACIÓN ({detail}). Elija el "
-                "estado final de cada archivo faltante antes de confirmar."
-            ),
-            "status": "warning",
-        }
-    )
+    auto = [item for item in conflicts if item.get("auto_resolved")]
+    manual = [item for item in conflicts if not item.get("auto_resolved")]
+    if not manual and not auto:
+        return 0
+
+    if manual:
+        learners = {item["identification"] for item in manual}
+        detail = ", ".join(
+            f"{item['identification']} · {item['requirement_label']}"
+            for item in manual[:3]
+        )
+        if len(manual) > 3:
+            detail += f" y {len(manual) - 3} mas"
+        label = (
+            f"Coherencia de requisitos: {len(manual)} requisito(s) de "
+            f"{len(learners)} aprendiz(es) requieren decisión porque la columna "
+            f"de evidencia y el MOTIVO DE NO CERTIFICACIÓN no coinciden ({detail})."
+        )
+        if auto:
+            label += (
+                f" Además, {len(auto)} requisito(s) se resolverán por regla "
+                "automática (por ejemplo, Saber TyT fuera de TGO)."
+            )
+    else:
+        label = (
+            f"Coherencia de requisitos: {len(auto)} requisito(s) se resolverán "
+            "por regla automática (por ejemplo, Saber TyT fuera de TGO)."
+        )
+
+    checks.append({"label": label, "status": "warning"})
     return 1
 
 

@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+  <Worksheet ss:Name="DF-14A">
+    <Table>
+      <Row><Cell><Data ss:Type="String">DF-14A_</Data></Cell></Row>
+      <Row><Cell><Data ss:Type="String">MATRICULADOS_RESUMEN_POR_FICHA</Data></Cell></Row>
+      <Row><Cell><Data ss:Type="String">23-09-2026</Data></Cell></Row>
+      <Row>
+        <Cell><Data ss:Type="String">CODIGO_REGIONAL</Data></Cell>
+        <Cell><Data ss:Type="String">PROGRAMA</Data></Cell>
+        <Cell><Data ss:Type="String">NIVEL_FORMACION</Data></Cell>
+        <Cell><Data ss:Type="String">CODIGO_CURSO</Data></Cell> <!-- Falta FICHA -->
+        <Cell><Data ss:Type="String">POR_CERTIFICAR</Data></Cell>
+        <Cell><Data ss:Type="String">CERTIFICADO</Data></Cell>
+      </Row>
+      <Row>
+        <Cell><Data ss:Type="String">13</Data></Cell>
+        <Cell><Data ss:Type="String">CURSO CORTO DE SOLDADURA</Data></Cell>
+        <Cell><Data ss:Type="String">OPERARIO</Data></Cell> <!-- Nivel sin clasificar -->
+        <Cell><Data ss:Type="String">9999001</Data></Cell>
+        <Cell><Data ss:Type="String">2</Data></Cell>
+        <Cell><Data ss:Type="String">10</Data></Cell>
+      </Row>
+      <Row>
+        <Cell><Data ss:Type="String">13</Data></Cell>
+        <Cell><Data ss:Type="String">TALLER ESPECIAL</Data></Cell>
+        <Cell><Data ss:Type="String">COMPLEMENTARIA VIRTUAL</Data></Cell> <!-- Nivel sin clasificar -->
+        <Cell><Data ss:Type="String">9999002</Data></Cell>
+        <Cell><Data ss:Type="String">5</Data></Cell>
+        <Cell><Data ss:Type="String">15</Data></Cell>
+      </Row>
+    </Table>
+  </Worksheet>
+</Workbook>

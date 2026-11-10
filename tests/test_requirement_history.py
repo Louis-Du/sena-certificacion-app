@@ -94,7 +94,8 @@ def test_requirement_history_first_import_and_same_status_is_not_duplicated(clie
     assert len(history) == 2
     by_type = {item["requirement_type"]: item for item in history}
     assert by_type["biblioteca"]["status"] == "Cumplido"
-    assert by_type["almacen"]["status"] == "Pendiente"
+    # Una celda vacía no se interpreta como Pendiente: queda Sin información.
+    assert by_type["almacen"]["status"] == "Sin información"
     assert all(item["source"] == "import:actas_completo" for item in history)
     assert all(item["recorded_at"] for item in history)
 
@@ -152,7 +153,7 @@ def test_requirement_history_change_via_import_and_manual_keeps_current_status(c
     _import_actas(client, [row])
     learner_id = client.get("/api/learners").json()["items"][0]["id"]
 
-    # Cambio por importacion: Pendiente -> Cumplido.
+    # Cambio por importacion: Sin información -> Cumplido.
     row["ALMACEN"] = "X"
     _import_actas(client, [row])
 
@@ -160,7 +161,7 @@ def test_requirement_history_change_via_import_and_manual_keeps_current_status(c
     history = [
         item for item in detail["requirement_history"] if item["requirement_type"] == "almacen"
     ]
-    assert [item["status"] for item in history] == ["Cumplido", "Pendiente"]
+    assert [item["status"] for item in history] == ["Cumplido", "Sin información"]
     assert history[0]["source"] == "import:actas_completo"
     assert next(
         item for item in detail["requirements"] if item["requirement_type"] == "almacen"
@@ -185,7 +186,11 @@ def test_requirement_history_change_via_import_and_manual_keeps_current_status(c
         item for item in detail["requirement_history"] if item["requirement_type"] == "almacen"
     ]
     assert len(history) == 3
-    assert [item["status"] for item in history] == ["No aplica", "Cumplido", "Pendiente"]
+    assert [item["status"] for item in history] == [
+        "No aplica",
+        "Cumplido",
+        "Sin información",
+    ]
     assert history[0]["source"] == "manual"
     assert history[0]["requirement_label"] == "Paz y salvo almacén"
     assert next(
@@ -314,14 +319,15 @@ def test_actas_import_date_without_mark_does_not_mark_fulfilled(client: TestClie
     requirements = {
         item["requirement_type"]: item["status"] for item in detail["requirements"]
     }
-    assert requirements["almacen"] == "Pendiente"
+    # La fecha aislada no convierte una celda vacía en Pendiente ni en Cumplido.
+    assert requirements["almacen"] == "Sin información"
 
     almacen_events = [
         item
         for item in detail["requirement_history"]
         if item["requirement_type"] == "almacen"
     ]
-    assert [item["status"] for item in almacen_events] == ["Pendiente"]
+    assert [item["status"] for item in almacen_events] == ["Sin información"]
     assert not almacen_events[0]["recorded_at"].startswith("2025-02-28")
     assert almacen_events[0]["note"] is None
 

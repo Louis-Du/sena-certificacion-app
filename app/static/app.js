@@ -41,6 +41,8 @@ const conflictResolutionModal = document.querySelector("#conflict-resolution-mod
 const conflictResolutionClose = document.querySelector("#conflict-resolution-close");
 const closeConflictResolution = document.querySelector("#close-conflict-resolution");
 const requirementConflictList = document.querySelector("#requirement-conflict-list");
+const requirementConflictEmpty = document.querySelector("#requirement-conflict-empty");
+const statusConflictEmpty = document.querySelector("#status-conflict-empty");
 const conflictResolutionHelp = document.querySelector("#coherence-help-modal");
 const conflictTabStatus = document.querySelector("#conflict-tab-status");
 const conflictTabRequirement = document.querySelector("#conflict-tab-requirement");
@@ -48,10 +50,27 @@ const conflictPanelStatus = document.querySelector("#conflict-panel-status");
 const conflictPanelRequirement = document.querySelector("#conflict-panel-requirement");
 const conflictStatusCount = document.querySelector("#conflict-status-count");
 const conflictRequirementCount = document.querySelector("#conflict-requirement-count");
+const conflictProgressBar = document.querySelector("#conflict-progress-bar");
+const conflictProgressTrack = document.querySelector("#conflict-progress .conflict-progress-track");
+const conflictProgressText = document.querySelector("#conflict-progress-text");
+const conflictContinue = document.querySelector("#conflict-continue");
+const requirementSearchInput = document.querySelector("#requirement-conflict-search");
+const requirementGroupFilter = document.querySelector("#requirement-conflict-group-filter");
+const requirementTypeFilter = document.querySelector("#requirement-conflict-type-filter");
+const requirementStateFilter = document.querySelector("#requirement-conflict-state-filter");
+const requirementVisibleCount = document.querySelector("#requirement-conflict-visible-count");
+const requirementBatchSuggest = document.querySelector("#requirement-batch-suggest");
+const requirementBatchMotivo = document.querySelector("#requirement-batch-motivo");
+const requirementBatchColumn = document.querySelector("#requirement-batch-column");
+const requirementBatchTyt = document.querySelector("#requirement-batch-tyt");
 const sheetsManualCleanup = document.querySelector("#sheets-manual-cleanup");
 const conflictConfirmModal = document.querySelector("#conflict-confirm-modal");
 const conflictConfirmAccept = document.querySelector("#conflict-confirm-accept");
 const conflictConfirmBack = document.querySelector("#conflict-confirm-back");
+const conflictConfirmIntro = document.querySelector("#conflict-confirm-intro");
+const conflictConfirmSummary = document.querySelector("#conflict-confirm-summary");
+const conflictConfirmSheetsCopy = document.querySelector("#conflict-confirm-sheets-copy");
+const conflictConfirmAck = document.querySelector("#conflict-confirm-ack");
 const missingComplementariaSection = document.querySelector("#missing-complementaria");
 const acceptMissingComplementaria = document.querySelector("#accept-missing-complementaria");
 const missingComplementariaHelp = document.querySelector("#missing-complementaria-help");
@@ -131,6 +150,44 @@ let conflictDismissedFingerprint = (() => {
 let nativeNotificationFingerprint = null;
 let conflictConfirmBypass = false;
 let conflictResolutionLoading = false;
+
+// Estados finales posibles de un requisito en conflicto. La decisión nunca se
+// deduce de "no tocar": las tres opciones son explícitas y excluyentes.
+const REQUIREMENT_CONFLICT_STATUS_OPTIONS = ["Pendiente", "Cumplido", "No aplica"];
+const REQUIREMENT_CONFLICT_GROUP_META = {
+  high: {
+    label: "Alta confianza / auto-sugerible",
+    description: "Contrastes claros o reglas automáticas. Revísalos primero.",
+  },
+  medium: {
+    label: "Media",
+    description: "La columna no trae evidencia y el motivo sí nombra el requisito.",
+  },
+  review: {
+    label: "Requiere revisión",
+    description: "Casos ambiguos: confirma el contraste antes de decidir.",
+  },
+};
+const REQUIREMENT_CONFLICT_SOURCE_LABELS = {
+  user: "Elegido por ti",
+  bulk: "Acción por lote",
+  rule: "Regla automática",
+  saved: "Decisión guardada",
+};
+let statusConflictItems = [];
+let requirementConflictItems = [];
+// Llave documento|requisito -> {status, source, explicit, saved}.
+// ``explicit`` distingue una decisión tomada en esta sesión (se envía al
+// confirmar) de una regla o decisión guardada que el backend reaplicará solo.
+let requirementConflictDecisions = new Map();
+let requirementConflictFilters = {
+  search: "",
+  group: "all",
+  type: "all",
+  state: "all",
+};
+const requirementGroupOpenState = new Map();
+let lastConflictSummary = null;
 
 const importSuccessViews = {
   acta: { view: "actas", label: "Ver actas" },
@@ -345,22 +402,152 @@ async function readResponse(response) {
   return result;
 }
 
+function foldConflictText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function requirementConflictKey(item) {
+  return `${item.identification}|${item.requirement_type}`;
+}
+
+function requirementConflictDecision(item) {
+  return requirementConflictDecisions.get(requirementConflictKey(item)) || null;
+}
+
+function isRequirementDecisionResolved(decision) {
+  return Boolean(
+    decision
+    && decision.status
+    && REQUIREMENT_CONFLICT_STATUS_OPTIONS.includes(decision.status),
+  );
+}
+
+function isRequirementRuleDecision(decision) {
+  return Boolean(
+    isRequirementDecisionResolved(decision)
+    && !decision.explicit
+    && !decision.saved
+    && decision.source === "rule",
+  );
+}
+
+function isRequirementManualDecision(decision) {
+  return Boolean(
+    isRequirementDecisionResolved(decision)
+    && (decision.explicit || decision.saved),
+  );
+}
+
+function conflictCounters() {
+  const statusTotal = statusConflictItems.length;
+  const statusResolved = coherenceList
+    ? coherenceList.querySelectorAll(".status-conflict-row input[type=radio]:checked").length
+    : 0;
+  let rule = 0;
+  let manual = 0;
+  let unresolved = 0;
+  requirementConflictItems.forEach((item) => {
+    const decision = requirementConflictDecision(item);
+    if (!isRequirementDecisionResolved(decision)) {
+      unresolved += 1;
+    } else if (isRequirementRuleDecision(decision)) {
+      rule += 1;
+    } else if (isRequirementManualDecision(decision)) {
+      manual += 1;
+    }
+  });
+  return {
+    statusTotal,
+    statusResolved,
+    statusPending: Math.max(statusTotal - statusResolved, 0),
+    requirementTotal: requirementConflictItems.length,
+    rule,
+    manual,
+    unresolved,
+    total: statusTotal + requirementConflictItems.length,
+    resolved: statusResolved + requirementConflictItems.length - unresolved,
+  };
+}
+
+function conflictProgressMessage(counters) {
+  return (
+    `Estados: ${counters.statusResolved}/${counters.statusTotal} resueltos · `
+    + `Requisitos: ${counters.rule} por regla, ${counters.manual} manuales, `
+    + `${counters.unresolved} sin resolver`
+  );
+}
+
+function updateConflictProgress(counters) {
+  const percent = counters.total
+    ? Math.round((counters.resolved / counters.total) * 100)
+    : 0;
+  if (conflictProgressBar) conflictProgressBar.style.width = `${percent}%`;
+  if (conflictProgressTrack) {
+    conflictProgressTrack.setAttribute("aria-valuenow", String(percent));
+  }
+  if (conflictProgressText) {
+    conflictProgressText.textContent = conflictProgressMessage(counters);
+  }
+  if (conflictStatusCount) {
+    conflictStatusCount.textContent = counters.statusTotal
+      ? `(${counters.statusPending} sin resolver / ${counters.statusTotal})`
+      : "";
+  }
+  if (conflictRequirementCount) {
+    conflictRequirementCount.textContent = counters.requirementTotal
+      ? `(${counters.unresolved} sin resolver / ${counters.requirementTotal})`
+      : "";
+  }
+}
+
 function resetCoherenceConflicts() {
+  statusConflictItems = [];
+  requirementConflictItems = [];
+  requirementConflictDecisions = new Map();
+  requirementConflictFilters = {
+    search: "",
+    group: "all",
+    type: "all",
+    state: "all",
+  };
+  lastConflictSummary = null;
   coherenceSection.hidden = true;
-  coherenceTitle.textContent = "Conflictos de coherencia";
+  coherenceTitle.textContent = "Conflictos de importación";
   coherenceList.replaceChildren();
   requirementConflictList.replaceChildren();
+  if (requirementConflictEmpty) requirementConflictEmpty.hidden = true;
+  if (statusConflictEmpty) statusConflictEmpty.hidden = true;
   coherenceHelp.textContent = "";
   conflictResolutionHelp.textContent = "";
   coherenceHelp.classList.remove("ready");
   conflictResolutionHelp.classList.remove("ready");
   closeConflictResolutionModal();
-  conflictStatusCount.textContent = "";
-  conflictRequirementCount.textContent = "";
+  if (conflictStatusCount) conflictStatusCount.textContent = "";
+  if (conflictRequirementCount) conflictRequirementCount.textContent = "";
+  if (requirementSearchInput) requirementSearchInput.value = "";
+  if (requirementGroupFilter) requirementGroupFilter.value = "all";
+  if (requirementTypeFilter) requirementTypeFilter.value = "all";
+  if (requirementStateFilter) requirementStateFilter.value = "all";
+  if (requirementVisibleCount) requirementVisibleCount.textContent = "";
+  updateConflictProgress({
+    statusTotal: 0,
+    statusResolved: 0,
+    statusPending: 0,
+    requirementTotal: 0,
+    rule: 0,
+    manual: 0,
+    unresolved: 0,
+    total: 0,
+    resolved: 0,
+  });
   closeConflictConfirmModal();
   conflictConfirmBypass = false;
   if (sheetsManualCleanup) sheetsManualCleanup.checked = false;
-  confirmButton.disabled = false;
+  if (confirmButton) confirmButton.disabled = false;
 }
 
 function resetMissingComplementaria() {
@@ -372,32 +559,38 @@ function resetMissingComplementaria() {
 }
 
 function updateCoherenceState() {
-  const rows = [
-    ...coherenceList.querySelectorAll(".coherence-conflict-row"),
-    ...requirementConflictList.querySelectorAll(".requirement-conflict-item"),
-  ];
-  const pending = rows.filter((row) => {
-    if (row.classList.contains("requirement-conflict-item")) {
-      return !row.dataset.status;
-    }
-    return !row.querySelector("input[type=radio]:checked");
-  }).length;
+  const counters = conflictCounters();
+  const pending = counters.statusPending + counters.unresolved;
   const missingPending = missingComplementariaRequired && !acceptMissingComplementaria.checked;
-  confirmButton.disabled = pending > 0 || missingPending;
-  if (rows.length) {
-    coherenceHelp.classList.toggle("ready", pending === 0);
-    const message = pending
-      ? `Resuelva los ${pending} conflictos para continuar.`
-      : "Todos los conflictos fueron resueltos. Puede confirmar la importación.";
-    coherenceHelp.textContent = message;
-    conflictResolutionHelp.classList.toggle("ready", pending === 0);
-    conflictResolutionHelp.textContent = message;
-  } else {
-    coherenceHelp.textContent = "";
-    coherenceHelp.classList.remove("ready");
-    conflictResolutionHelp.textContent = "";
-    conflictResolutionHelp.classList.remove("ready");
+  lastConflictSummary = counters;
+  updateConflictProgress(counters);
+  if (confirmButton) confirmButton.disabled = pending > 0 || missingPending;
+  if (conflictContinue) conflictContinue.disabled = pending > 0;
+  if (conflictConfirmAccept) {
+    conflictConfirmAccept.disabled = pending > 0 || missingPending;
   }
+
+  const hasAnyConflict = counters.total > 0;
+  let message = "";
+  if (hasAnyConflict) {
+    if (pending > 0) {
+      message = (
+        `Faltan ${pending} decisiones: ${counters.statusPending} de estado y `
+        + `${counters.unresolved} de requisitos. No tocar una opción no resuelve el conflicto.`
+      );
+    } else {
+      message = (
+        "Todos los conflictos fueron resueltos. "
+        + `${counters.rule} quedaron por regla automática y `
+        + `${counters.manual} por decisión manual o guardada.`
+      );
+    }
+  }
+  coherenceHelp.classList.toggle("ready", hasAnyConflict && pending === 0);
+  coherenceHelp.textContent = message;
+  conflictResolutionHelp.classList.toggle("ready", hasAnyConflict && pending === 0);
+  conflictResolutionHelp.textContent = message;
+
   if (missingPending) {
     missingComplementariaHelp.textContent = "Debe aceptar continuar sin la hoja COMPLEMENTARIA.";
     missingComplementariaHelp.classList.remove("ready");
@@ -410,143 +603,404 @@ function updateCoherenceState() {
   }
 }
 
-function renderCoherenceConflicts(
+function renderStatusConflictRows(items, resolutions = {}) {
+  statusConflictItems = items.slice();
+  items.forEach((item, index) => {
+    const row = document.createElement("div");
+    row.className = "coherence-conflict-row status-conflict-row";
+    row.dataset.identification = item.identification;
+    const documentCell = document.createElement("strong");
+    documentCell.textContent = item.identification;
+    const nameCell = document.createElement("span");
+    nameCell.className = "status-conflict-name";
+    nameCell.textContent = item.name || "Nombre no disponible";
+    const groupCell = document.createElement("span");
+    groupCell.className = "status-conflict-meta";
+    groupCell.textContent = item.group_code ? `Ficha ${item.group_code}` : "Sin ficha";
+    const options = document.createElement("div");
+    options.className = "coherence-options";
+    const savedResolution = String(
+      resolutions[item.identification] || item.conflict_resolution || "",
+    );
+    [["CERTIFICADOS", "Certificado"], ["PENDIENTE", "Pendiente"]].forEach(
+      ([value, labelText]) => {
+        const label = document.createElement("label");
+        const input = document.createElement("input");
+        input.type = "radio";
+        input.name = `coherence-status-${index}`;
+        input.value = value;
+        if (savedResolution === value) input.checked = true;
+        input.addEventListener("change", updateCoherenceState);
+        label.append(input, document.createTextNode(labelText));
+        options.appendChild(label);
+      },
+    );
+    row.append(documentCell, nameCell, groupCell, options);
+    coherenceList.appendChild(row);
+  });
+  if (statusConflictEmpty) statusConflictEmpty.hidden = items.length > 0;
+}
+
+function requirementOptionClass(status) {
+  if (status === "Pendiente") return "is-pending";
+  if (status === "Cumplido") return "is-fulfilled";
+  return "is-na";
+}
+
+function requirementSourceLabel(decision) {
+  if (!isRequirementDecisionResolved(decision)) return "Sin resolver";
+  if (decision.explicit) {
+    return REQUIREMENT_CONFLICT_SOURCE_LABELS[decision.source] || "Elegido por ti";
+  }
+  if (decision.saved) return REQUIREMENT_CONFLICT_SOURCE_LABELS.saved;
+  if (decision.source === "rule") return REQUIREMENT_CONFLICT_SOURCE_LABELS.rule;
+  return REQUIREMENT_CONFLICT_SOURCE_LABELS[decision.source]
+    || REQUIREMENT_CONFLICT_SOURCE_LABELS.saved;
+}
+
+function requirementSourceClass(decision) {
+  if (!isRequirementDecisionResolved(decision)) return "is-unresolved";
+  if (isRequirementRuleDecision(decision)) return "is-rule";
+  if (decision.explicit) return "is-user";
+  return "is-saved";
+}
+
+function updateRequirementConflictCard(card, item) {
+  const decision = requirementConflictDecision(item);
+  const status = isRequirementDecisionResolved(decision) ? decision.status : "";
+  card.dataset.status = status;
+  card.dataset.source = decision?.source || "";
+  card.classList.toggle("is-resolved", Boolean(status));
+  card.classList.toggle("is-unresolved", !status);
+  card.classList.toggle("is-rule", isRequirementRuleDecision(decision));
+  card.classList.toggle("is-saved", Boolean(decision?.saved));
+  card.querySelectorAll("[data-status-option]").forEach((button) => {
+    const pressed = button.dataset.statusOption === status;
+    button.setAttribute("aria-pressed", String(pressed));
+    button.classList.toggle("is-selected", pressed);
+  });
+  const origin = card.querySelector("[data-origin]");
+  if (origin) {
+    origin.textContent = requirementSourceLabel(decision);
+    origin.className = `requirement-conflict-origin ${requirementSourceClass(decision)}`;
+  }
+  const suggestion = card.querySelector("[data-suggestion]");
+  if (suggestion) {
+    if (status) {
+      suggestion.textContent = `Decisión actual: ${status}`;
+    } else if (item.suggested_status) {
+      suggestion.textContent = `Sugerencia: ${item.suggested_status}`;
+    } else {
+      suggestion.textContent = "Sin sugerencia: requiere revisión";
+    }
+  }
+}
+
+function setRequirementConflictDecision(item, status, source) {
+  if (!REQUIREMENT_CONFLICT_STATUS_OPTIONS.includes(status)) return;
+  requirementConflictDecisions.set(
+    requirementConflictKey(item),
+    {
+      status,
+      source,
+      explicit: true,
+      saved: false,
+    },
+  );
+}
+
+function createRequirementConflictCard(item) {
+  const key = requirementConflictKey(item);
+  const card = document.createElement("article");
+  card.className = "requirement-conflict-card";
+  card.dataset.conflictKey = key;
+  card.dataset.identification = item.identification;
+  card.dataset.requirementType = item.requirement_type;
+  card.dataset.group = item.group || "";
+  card.dataset.fingerprint = item.fingerprint || "";
+
+  const top = document.createElement("div");
+  top.className = "requirement-conflict-card-top";
+  const learner = document.createElement("div");
+  learner.className = "requirement-conflict-learner-data";
+  const documentCell = document.createElement("strong");
+  documentCell.textContent = item.identification;
+  const nameCell = document.createElement("span");
+  nameCell.textContent = item.name || "Nombre no disponible";
+  const meta = document.createElement("small");
+  meta.textContent = [
+    item.group_code ? `Ficha ${item.group_code}` : "Sin ficha",
+    item.level ? `Nivel ${item.level}` : null,
+    item.source === "pendientes" ? "Hoja PENDIENTES" : "Hoja CERTIFICADOS",
+  ].filter(Boolean).join(" · ");
+  learner.append(documentCell, nameCell, meta);
+  const origin = document.createElement("span");
+  origin.dataset.origin = "";
+  top.append(learner, origin);
+
+  const heading = document.createElement("div");
+  heading.className = "requirement-conflict-card-heading";
+  const pattern = document.createElement("span");
+  pattern.className = "requirement-conflict-pattern";
+  pattern.textContent = item.pattern_short || "Conflicto";
+  const title = document.createElement("strong");
+  title.textContent = item.requirement_label || item.requirement_type;
+  heading.append(pattern, title);
+
+  const contrast = document.createElement("div");
+  contrast.className = "requirement-conflict-contrast";
+  const columnValue = document.createElement("span");
+  columnValue.className = "requirement-contrast-value";
+  columnValue.innerHTML = "<small>Columna</small>";
+  const columnText = document.createElement("span");
+  columnText.textContent = `${item.evidence_label || "vacía"} · ${item.evidence_status || "Sin información"}`;
+  columnValue.appendChild(columnText);
+  const arrow = document.createElement("span");
+  arrow.className = "requirement-contrast-arrow";
+  arrow.setAttribute("aria-hidden", "true");
+  arrow.textContent = "↔";
+  const motivoValue = document.createElement("span");
+  motivoValue.className = "requirement-contrast-value";
+  motivoValue.innerHTML = "<small>Motivo</small>";
+  const motivoText = document.createElement("span");
+  motivoText.textContent = `«${item.motivo || "Sin motivo"}»`;
+  motivoText.title = item.motivo || "";
+  motivoValue.appendChild(motivoText);
+  contrast.append(columnValue, arrow, motivoValue);
+
+  const reason = document.createElement("p");
+  reason.className = "requirement-conflict-reason";
+  reason.textContent = item.reason_label || item.suggestion_reason || "";
+
+  const footer = document.createElement("div");
+  footer.className = "requirement-conflict-card-footer";
+  const options = document.createElement("div");
+  options.className = "requirement-conflict-options";
+  options.setAttribute("role", "group");
+  options.setAttribute(
+    "aria-label",
+    `Estado de ${item.requirement_label || item.requirement_type} de ${item.name || item.identification}`,
+  );
+  REQUIREMENT_CONFLICT_STATUS_OPTIONS.forEach((status) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `requirement-status-option ${requirementOptionClass(status)}`;
+    button.dataset.statusOption = status;
+    button.textContent = status;
+    button.setAttribute("aria-pressed", "false");
+    button.addEventListener("click", () => {
+      setRequirementConflictDecision(item, status, "user");
+      updateRequirementConflictCard(card, item);
+      updateCoherenceState();
+      if (requirementConflictFilters.state !== "all") {
+        renderRequirementConflictGroups();
+      }
+    });
+    options.appendChild(button);
+  });
+  const suggestion = document.createElement("span");
+  suggestion.dataset.suggestion = "";
+  suggestion.className = "requirement-conflict-suggestion";
+  footer.append(options, suggestion);
+
+  card.append(top, heading, contrast, reason, footer);
+  updateRequirementConflictCard(card, item);
+  return card;
+}
+
+function requirementItemMatchesFilters(item) {
+  const decision = requirementConflictDecision(item);
+  const filters = requirementConflictFilters;
+  if (filters.group !== "all" && item.group !== filters.group) return false;
+  if (filters.type !== "all" && item.requirement_type !== filters.type) return false;
+  if (filters.state === "unresolved" && isRequirementDecisionResolved(decision)) return false;
+  if (filters.state === "resolved" && !isRequirementDecisionResolved(decision)) return false;
+  if (filters.state === "rule" && !isRequirementRuleDecision(decision)) return false;
+  if (filters.state === "manual" && !isRequirementManualDecision(decision)) return false;
+  const search = foldConflictText(filters.search);
+  if (!search) return true;
+  return [
+    item.identification,
+    item.name,
+    item.group_code,
+    item.requirement_label,
+    item.requirement_type,
+    item.pattern_short,
+    item.pattern_label,
+    item.motivo,
+    item.evidence_raw,
+    item.evidence_status,
+  ].some((value) => foldConflictText(value).includes(search));
+}
+
+function visibleRequirementConflictItems() {
+  return requirementConflictItems.filter(requirementItemMatchesFilters);
+}
+
+function renderRequirementConflictGroups() {
+  if (!requirementConflictList) return;
+  const visible = visibleRequirementConflictItems();
+  const groups = new Map();
+  visible.forEach((item) => {
+    const group = item.group || "review";
+    if (!groups.has(group)) groups.set(group, []);
+    groups.get(group).push(item);
+  });
+
+  const groupOrder = ["high", "medium", "review"];
+  const fragments = groupOrder
+    .filter((group) => groups.has(group))
+    .map((group) => {
+      const items = groups.get(group);
+      const meta = REQUIREMENT_CONFLICT_GROUP_META[group] || {
+        label: group,
+        description: "",
+      };
+      const unresolved = items.filter(
+        (item) => !isRequirementDecisionResolved(requirementConflictDecision(item)),
+      ).length;
+      const details = document.createElement("details");
+      details.className = `requirement-conflict-group group-${group}`;
+      details.open = requirementGroupOpenState.get(group) !== false;
+      details.addEventListener("toggle", () => {
+        requirementGroupOpenState.set(group, details.open);
+      });
+      const summary = document.createElement("summary");
+      summary.className = "requirement-conflict-group-header";
+      const summaryCopy = document.createElement("span");
+      summaryCopy.className = "requirement-conflict-group-copy";
+      const summaryTitle = document.createElement("strong");
+      summaryTitle.textContent = meta.label;
+      const summaryDescription = document.createElement("small");
+      summaryDescription.textContent = meta.description;
+      summaryCopy.append(summaryTitle, summaryDescription);
+      const summaryCount = document.createElement("span");
+      summaryCount.className = "requirement-conflict-group-count";
+      summaryCount.textContent = unresolved
+        ? `${items.length} requisitos · ${unresolved} sin resolver`
+        : `${items.length} requisitos · resueltos`;
+      summary.append(summaryCopy, summaryCount);
+      const body = document.createElement("div");
+      body.className = "requirement-conflict-group-body";
+      items.forEach((item) => {
+        body.appendChild(createRequirementConflictCard(item));
+      });
+      details.append(summary, body);
+      return details;
+    });
+
+  requirementConflictList.replaceChildren(...fragments);
+  if (requirementConflictEmpty) {
+    requirementConflictEmpty.hidden = visible.length > 0;
+    requirementConflictEmpty.textContent = requirementConflictItems.length
+      ? "No hay conflictos que coincidan con los filtros seleccionados."
+      : "No hay conflictos de requisitos en este lote.";
+  }
+  if (requirementVisibleCount) {
+    requirementVisibleCount.textContent = requirementConflictItems.length
+      ? `Mostrando ${visible.length} de ${requirementConflictItems.length}`
+      : "";
+  }
+}
+
+function populateRequirementTypeFilter() {
+  if (!requirementTypeFilter) return;
+  const current = requirementTypeFilter.value || "all";
+  const types = new Map();
+  requirementConflictItems.forEach((item) => {
+    if (item.requirement_type) {
+      types.set(item.requirement_type, item.requirement_label || item.requirement_type);
+    }
+  });
+  const options = [document.createElement("option")];
+  options[0].value = "all";
+  options[0].textContent = "Todos los requisitos";
+  [...types.entries()]
+    .sort((a, b) => String(a[1]).localeCompare(String(b[1]), "es"))
+    .forEach(([value, label]) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      options.push(option);
+    });
+  requirementTypeFilter.replaceChildren(...options);
+  requirementTypeFilter.value = types.has(current) ? current : "all";
+  if (requirementConflictFilters.type !== requirementTypeFilter.value) {
+    requirementConflictFilters.type = requirementTypeFilter.value;
+  }
+}
+
+function initializeRequirementConflictDecisions(
   items,
+  resolutions = {},
+  sources = {},
+) {
+  requirementConflictDecisions = new Map();
+  items.forEach((item) => {
+    const key = requirementConflictKey(item);
+    const savedStatus = String(resolutions[key] || "");
+    if (REQUIREMENT_CONFLICT_STATUS_OPTIONS.includes(savedStatus)) {
+      requirementConflictDecisions.set(key, {
+        status: savedStatus,
+        source: String(sources[key] || "saved"),
+        explicit: false,
+        saved: true,
+      });
+      return;
+    }
+    if (
+      item.auto_resolved
+      && REQUIREMENT_CONFLICT_STATUS_OPTIONS.includes(item.suggested_status)
+    ) {
+      requirementConflictDecisions.set(key, {
+        status: item.suggested_status,
+        source: "rule",
+        explicit: false,
+        saved: false,
+      });
+      return;
+    }
+    requirementConflictDecisions.set(key, {
+      status: null,
+      source: null,
+      explicit: false,
+      saved: false,
+    });
+  });
+}
+
+function renderCoherenceConflicts(
+  items = [],
   {
     resolutions = {},
     requirementConflicts = [],
     requirementResolutions = {},
+    requirementResolutionSources = {},
   } = {},
 ) {
   resetCoherenceConflicts();
+  statusConflictItems = items.slice();
+  requirementConflictItems = requirementConflicts.slice();
+  initializeRequirementConflictDecisions(
+    requirementConflictItems,
+    requirementResolutions,
+    requirementResolutionSources,
+  );
   if (!items.length && !requirementConflicts.length) return;
-  coherenceSection.hidden = false;
-  coherenceTitle.textContent = `Conflictos de coherencia (${items.length + requirementConflicts.length})`;
-  conflictStatusCount.textContent = items.length ? `(${items.length})` : "";
-  conflictRequirementCount.textContent = requirementConflicts.length ? `(${requirementConflicts.length})` : "";
-  const renderRows = (conflicts, conflictKind, target) => conflicts.forEach((item, index) => {
-    const row = document.createElement("div");
-    row.className = "coherence-conflict-row";
-    row.dataset.identification = item.identification;
-    row.dataset.requirementType = conflictKind === "requirement" ? item.requirement_type : "";
-    const documentCell = document.createElement("strong");
-    documentCell.textContent = item.identification;
-    const nameCell = document.createElement("span");
-    nameCell.textContent = item.name || "Nombre no disponible";
-    const groupCell = document.createElement("span");
-    if (conflictKind === "requirement") {
-      groupCell.textContent = `${item.requirement_label}: ${item.reason_label}`;
-    } else {
-      groupCell.textContent = item.group_code ? `Ficha ${item.group_code}` : "Sin ficha";
-    }
-    const options = document.createElement("div");
-    options.className = "coherence-options";
-    const savedResolution = String(
-      conflictKind === "requirement"
-        ? requirementResolutions[`${item.identification}|${item.requirement_type}`]
-        : resolutions[item.identification] || item.conflict_resolution || "",
-    );
-    const optionsForConflict =     conflictKind === "requirement"
-      ? [["Cumplido", "Cumplido"], ["Pendiente", "Pendiente"], ["No aplica", "No aplica"]]
-      : [["CERTIFICADOS", "Certificado"], ["PENDIENTE", "Pendiente"]];
-    optionsForConflict.forEach(([value, labelText]) => {
-      const label = document.createElement("label");
-      const input = document.createElement("input");
-      input.type = "radio";
-      input.name = `coherence-${conflictKind}-${index}`;
-      input.value = value;
-      // Un desempate previo se muestra preseleccionado, pero el usuario puede
-      // cambiarlo antes de confirmar. No se importa nada sin confirmacion.
-      if (savedResolution === value) input.checked = true;
-      input.addEventListener("change", updateCoherenceState);
-      label.append(input, document.createTextNode(labelText));
-      options.appendChild(label);
-    });
-    row.append(documentCell, nameCell, groupCell, options);
-    target.appendChild(row);
-  });
-  const groupedRequirements = new Map();
-  requirementConflicts.forEach((item) => {
-    const key = item.identification;
-    if (!groupedRequirements.has(key)) {
-      groupedRequirements.set(key, {
-        identification: item.identification,
-        name: item.name,
-        group_code: item.group_code,
-        items: [],
-      });
-    }
-    groupedRequirements.get(key).items.push(item);
-  });
-  [...groupedRequirements.values()].forEach((learner, learnerIndex) => {
-    const row = document.createElement("div");
-    row.className = "coherence-conflict-row requirement-conflict-learner";
-    row.dataset.identification = learner.identification;
-    const documentCell = document.createElement("strong");
-    documentCell.textContent = learner.identification;
-    const nameCell = document.createElement("span");
-    nameCell.textContent = learner.name || "Nombre no disponible";
-    const groupCell = document.createElement("span");
-    groupCell.textContent = learner.group_code ? `Ficha ${learner.group_code}` : "Sin ficha";
-    const requirements = document.createElement("div");
-    requirements.className = "requirement-conflict-items";
-    learner.items.forEach((item, itemIndex) => {
-      const requirement = document.createElement("div");
-      requirement.className = "requirement-conflict-item";
-      requirement.dataset.identification = item.identification;
-      requirement.dataset.requirementType = item.requirement_type;
-      const key = `${item.identification}|${item.requirement_type}`;
-      const savedResolution = String(requirementResolutions[key] || "");
-      const initialStatus = savedResolution || (
-        item.evidence_status === "Pendiente" ? "Pendiente" : "Cumplido"
-      );
-      requirement.dataset.status = initialStatus;
 
-      const tag = document.createElement("label");
-      tag.className = "requirement-conflict-tag";
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.checked = initialStatus === "Pendiente";
-      checkbox.setAttribute("aria-label", `${item.requirement_label} de ${learner.name || learner.identification}`);
-      const tagText = document.createElement("span");
-      tagText.textContent = item.requirement_label;
-      tag.append(checkbox, tagText);
-      const reason = document.createElement("small");
-      reason.textContent = item.reason_label;
-      const noApply = document.createElement("button");
-      noApply.type = "button";
-      noApply.className = "requirement-conflict-no-apply";
-      noApply.textContent = "No aplica";
-      noApply.setAttribute("aria-pressed", String(initialStatus === "No aplica"));
-      const setStatus = (status) => {
-        requirement.dataset.status = status;
-        checkbox.checked = status === "Pendiente";
-        tag.classList.toggle("is-pending", status === "Pendiente");
-        tag.classList.toggle("is-fulfilled", status === "Cumplido");
-        tag.classList.toggle("is-na", status === "No aplica");
-        noApply.setAttribute("aria-pressed", String(status === "No aplica"));
-        updateCoherenceState();
-      };
-      checkbox.addEventListener("change", () => {
-        setStatus(checkbox.checked ? "Pendiente" : "Cumplido");
-      });
-      noApply.addEventListener("click", () => {
-        setStatus(requirement.dataset.status === "No aplica" ? "Cumplido" : "No aplica");
-      });
-      setStatus(initialStatus);
-      requirement.append(tag, reason, noApply);
-      requirements.appendChild(requirement);
-    });
-    row.append(documentCell, nameCell, groupCell, requirements);
-    requirementConflictList.appendChild(row);
-  });
-  renderRows(items, "status", coherenceList);
+  coherenceSection.hidden = false;
+  coherenceTitle.textContent = (
+    `Conflictos de importación (${items.length + requirementConflicts.length})`
+  );
+  renderStatusConflictRows(items, resolutions);
+  populateRequirementTypeFilter();
+  renderRequirementConflictGroups();
+  selectConflictResolutionTab(items.length ? "status" : "requirements");
   updateCoherenceState();
 }
 
 function collectConflictResolutions() {
-  return [...coherenceList.querySelectorAll(".coherence-conflict-row")]
-    .filter((row) => row.dataset.requirementType === "")
+  return [...coherenceList.querySelectorAll(".status-conflict-row")]
     .map((row) => {
       const checked = row.querySelector("input[type=radio]:checked");
       return checked
@@ -557,20 +1011,121 @@ function collectConflictResolutions() {
 }
 
 function collectRequirementConflictResolutions() {
-  return [...requirementConflictList.querySelectorAll(".requirement-conflict-item")]
-    .filter((row) => row.dataset.requirementType && row.dataset.status)
-    .map((row) => {
+  return requirementConflictItems
+    .map((item) => {
+      const decision = requirementConflictDecision(item);
+      if (!decision || !decision.explicit || !isRequirementDecisionResolved(decision)) {
+        return null;
+      }
       return {
-        identification: row.dataset.identification,
-        requirement_type: row.dataset.requirementType,
-        status: row.dataset.status,
+        identification: item.identification,
+        requirement_type: item.requirement_type,
+        status: decision.status,
+        source: decision.source === "bulk" ? "bulk" : "user",
+        conflict_fingerprint: item.fingerprint || undefined,
       };
     })
     .filter(Boolean);
 }
 
+function applyRequirementBulkAction(action) {
+  const visible = visibleRequirementConflictItems();
+  let applied = 0;
+  let skipped = 0;
+  visible.forEach((item) => {
+    const decision = requirementConflictDecision(item);
+    const alreadyRule = (
+      isRequirementRuleDecision(decision)
+      && !decision?.explicit
+    );
+    let status = null;
+
+    if (action === "suggest") {
+      if (!item.suggested_status) {
+        skipped += 1;
+        return;
+      }
+      if (alreadyRule && decision.status === item.suggested_status) {
+        skipped += 1;
+        return;
+      }
+      status = item.suggested_status;
+    } else if (action === "motivo") {
+      if (alreadyRule || !item.motivo_mentions) {
+        skipped += 1;
+        return;
+      }
+      status = "Pendiente";
+    } else if (action === "column") {
+      if (alreadyRule) {
+        skipped += 1;
+        return;
+      }
+      status = {
+        Cumplido: "Cumplido",
+        "No aplica": "No aplica",
+        Pendiente: "Pendiente",
+      }[item.evidence_status] || null;
+      if (!status) {
+        skipped += 1;
+        return;
+      }
+    } else if (action === "tyt") {
+      if (
+        item.requirement_type !== "saber_tyt"
+        || item.level_applies !== false
+      ) {
+        skipped += 1;
+        return;
+      }
+      if (alreadyRule && decision.status === "No aplica") {
+        skipped += 1;
+        return;
+      }
+      status = "No aplica";
+    }
+
+    if (!status || !REQUIREMENT_CONFLICT_STATUS_OPTIONS.includes(status)) {
+      skipped += 1;
+      return;
+    }
+    setRequirementConflictDecision(item, status, "bulk");
+    applied += 1;
+  });
+
+  renderRequirementConflictGroups();
+  updateCoherenceState();
+  if (typeof window.showToast === "function") {
+    const labels = {
+      suggest: "sugerencias aplicadas",
+      motivo: "decisiones por motivo aplicadas",
+      column: "decisiones por columna aplicadas",
+      tyt: "TyT fuera de TGO marcados como No aplica",
+    };
+    if (applied) {
+      window.showToast(
+        `${applied} ${labels[action] || "decisiones aplicadas"}`
+          + (skipped ? ` · ${skipped} sin cambio` : ""),
+        "success",
+        { duration: 4200 },
+      );
+    } else {
+      window.showToast(
+        "No hay conflictos visibles a los que aplicar esta acción.",
+        "info",
+        { duration: 4200 },
+      );
+    }
+  }
+}
+
 function openConflictResolutionModal() {
   if (!conflictResolutionModal) return;
+  if (!statusConflictItems.length && !requirementConflictItems.length) return;
+  selectConflictResolutionTab(
+    statusConflictItems.length ? "status" : "requirements",
+  );
+  updateCoherenceState();
   conflictResolutionModal.classList.add("is-open");
   conflictResolutionModal.setAttribute("aria-hidden", "false");
   conflictResolutionModal.querySelector(".modal-dialog")?.focus?.({ preventScroll: true });
@@ -589,13 +1144,80 @@ function selectConflictResolutionTab(tab) {
   conflictTabRequirement.classList.toggle("is-active", requirements);
   conflictTabStatus.setAttribute("aria-selected", String(!requirements));
   conflictTabRequirement.setAttribute("aria-selected", String(requirements));
+  conflictTabStatus.tabIndex = requirements ? -1 : 0;
+  conflictTabRequirement.tabIndex = requirements ? 0 : -1;
   conflictPanelStatus.hidden = requirements;
+  conflictPanelStatus.classList.toggle("is-active", !requirements);
   conflictPanelRequirement.hidden = !requirements;
+  conflictPanelRequirement.classList.toggle("is-active", requirements);
+}
+
+function conflictConfirmSummaryCounters() {
+  return conflictCounters();
 }
 
 function openConflictConfirmModal() {
   if (!conflictConfirmModal) return;
   if (sheetsManualCleanup) sheetsManualCleanup.checked = false;
+  const counters = conflictConfirmSummaryCounters();
+  const hasStatusConflicts = counters.statusTotal > 0;
+  const hasRequirementConflicts = counters.requirementTotal > 0;
+
+  if (conflictConfirmIntro) {
+    if (hasStatusConflicts && hasRequirementConflicts) {
+      conflictConfirmIntro.textContent = (
+        "Resolvió conflictos de estado y de requisitos en este lote. "
+        + "Las decisiones se guardarán solo en SENA Certificación App."
+      );
+    } else if (hasStatusConflicts) {
+      conflictConfirmIntro.textContent = (
+        "Resolvió conflictos de coherencia en este lote. "
+        + "Esa decisión se guardará solo en SENA Certificación App."
+      );
+    } else {
+      conflictConfirmIntro.textContent = (
+        "Resolvió conflictos de requisitos en este lote. "
+        + "Las decisiones se guardarán solo en SENA Certificación App."
+      );
+    }
+  }
+
+  if (conflictConfirmSummary) {
+    const rows = [
+      ["Estados resueltos", `${counters.statusResolved}/${counters.statusTotal}`],
+      ["Por regla automática", String(counters.rule)],
+      ["Manuales o guardados", String(counters.manual)],
+      ["Sin resolver", String(counters.unresolved)],
+    ];
+    const title = document.createElement("strong");
+    title.textContent = "Resumen antes de confirmar";
+    const list = document.createElement("div");
+    list.className = "conflict-confirm-summary-grid";
+    rows.forEach(([label, value]) => {
+      const item = document.createElement("span");
+      const itemLabel = document.createElement("small");
+      itemLabel.textContent = label;
+      const itemValue = document.createElement("b");
+      itemValue.textContent = value;
+      item.append(itemLabel, itemValue);
+      list.appendChild(item);
+    });
+    conflictConfirmSummary.replaceChildren(title, list);
+  }
+
+  if (conflictConfirmSheetsCopy) {
+    conflictConfirmSheetsCopy.hidden = !hasStatusConflicts;
+  }
+  if (conflictConfirmAck) {
+    conflictConfirmAck.hidden = !hasStatusConflicts;
+  }
+  if (conflictConfirmAccept) {
+    conflictConfirmAccept.textContent = hasStatusConflicts
+      ? "Confirmar de todos modos"
+      : "Confirmar importación";
+    conflictConfirmAccept.disabled = counters.statusPending > 0 || counters.unresolved > 0;
+  }
+
   conflictConfirmModal.classList.add("is-open");
   conflictConfirmModal.setAttribute("aria-hidden", "false");
   window.setTimeout(() => {
@@ -800,8 +1422,10 @@ async function validateFile() {
     renderPreviewBreakdown(preview);
     renderPreviewWarnings(preview.warnings);
     renderCoherenceConflicts(preview.coherence_conflicts || [], {
+      resolutions: preview.conflict_resolutions || {},
       requirementConflicts: preview.requirement_conflicts || [],
       requirementResolutions: preview.requirement_conflict_resolutions || {},
+      requirementResolutionSources: preview.requirement_conflict_resolution_sources || {},
     });
     missingComplementariaRequired = Boolean(preview.missing_complementaria);
     if (missingComplementariaRequired) {
@@ -834,10 +1458,23 @@ async function confirmImport() {
   }
   const resolutions = collectConflictResolutions();
   const requirementResolutions = collectRequirementConflictResolutions();
-  const needsSheetsCleanupConfirmation = resolutions.length > 0;
-  if (needsSheetsCleanupConfirmation && !conflictConfirmBypass) {
-    // Segunda confirmacion obligatoria: no se envia el POST hasta que el
-    // usuario lea la advertencia de solo lectura y confirme de nuevo.
+  const counters = conflictCounters();
+  const pendingDecisions = counters.statusPending + counters.unresolved;
+  if (pendingDecisions > 0) {
+    // No tocar una opcion deja el requisito sin resolver: no se envia nada.
+    updateCoherenceState();
+    openConflictResolutionModal();
+    showFeedback(
+      `Faltan ${pendingDecisions} decisiones de conflicto. Resuelve cada caso antes de confirmar.`,
+      true,
+    );
+    return;
+  }
+  const needsConflictConfirmation = counters.total > 0;
+  const needsSheetsCleanupConfirmation = statusConflictItems.length > 0;
+  if (needsConflictConfirmation && !conflictConfirmBypass) {
+    // Segunda confirmacion obligatoria: incluye el resumen de decisiones por
+    // regla vs manuales y, si hay cruce de hojas, la advertencia de solo lectura.
     openConflictConfirmModal();
     return;
   }
@@ -1498,8 +2135,9 @@ function toggleLearnerSummary(row, item, button) {
   button.setAttribute("aria-expanded", "true");
 }
 
-// Cada requisito registrado se muestra como etiqueta seleccionable. Seleccionado
-// significa pendiente; deseleccionado significa que el documento fue entregado.
+// La columna del listado es de solo lectura: resume cuantos requisitos faltan y
+// cuales son. La correccion del estado se hace en el detalle del aprendiz o en
+// el modal de conflictos de importacion, donde queda auditada.
 function renderPendingRequirementsCell(item) {
   const cell = document.createElement("td");
   cell.className = "pending-requirements-cell";
@@ -1508,7 +2146,6 @@ function renderPendingRequirementsCell(item) {
   const pending = requirements.filter(
     (requirement) => normalizeStatusText(requirement.status) === "pendiente",
   );
-  const total = item.requirements_total ?? requirementSummaryTotal(summary);
 
   if (!requirements.length) {
     const none = document.createElement("span");
@@ -1521,7 +2158,17 @@ function renderPendingRequirementsCell(item) {
     return cell;
   }
 
-  cell.classList.toggle("has-pending", pending.length > 0);
+  if (!pending.length) {
+    const none = document.createElement("span");
+    none.className = "pending-none";
+    none.textContent = "Ninguno";
+    none.title = "Este aprendiz no tiene requisitos pendientes.";
+    cell.title = "Sin requisitos pendientes";
+    cell.appendChild(none);
+    return cell;
+  }
+
+  cell.classList.add("has-pending");
   const count = document.createElement("span");
   count.className = "pending-count-badge";
   count.textContent = pending.length;
@@ -1530,55 +2177,63 @@ function renderPendingRequirementsCell(item) {
     `${pending.length} requisito${pending.length === 1 ? "" : "s"} pendiente${pending.length === 1 ? "" : "s"}`,
   );
 
-  const chips = document.createElement("div");
-  chips.className = "requirement-toggle-list";
-  requirements.forEach((requirement) => {
-    const status = normalizeStatusText(requirement.status);
-    const isPending = status === "pendiente";
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = `requirement-toggle-chip ${isPending ? "is-pending" : "is-delivered"}`;
-    chip.setAttribute("role", "checkbox");
-    chip.setAttribute("aria-checked", isPending ? "true" : "false");
-    chip.textContent = `${isPending ? "Falta: " : "Entregado: "}${requirement.label || requirement.requirement_type}`;
-    chip.title = isPending
-      ? "Seleccionado: marcar como documento faltante"
-      : "Deseleccionado: marcar como documento entregado";
-    chip.addEventListener("click", async (event) => {
+  const labels = pending.map(
+    (requirement) => requirement.label || requirement.requirement_type || "Requisito",
+  );
+  const names = document.createElement("span");
+  names.className = "pending-requirement-names";
+  const preview = labels.slice(0, 2).join(", ");
+  const remaining = labels.length - 2;
+  names.textContent = remaining > 0 ? `${preview} y ${remaining} más` : preview;
+
+  cell.append(count, names);
+
+  // Con muchos pendientes se ofrece el listado completo sin abrir la ficha.
+  // Es navegacion/consulta, no mutacion del estado.
+  if (labels.length > 2) {
+    const list = document.createElement("ul");
+    list.className = "pending-list";
+    list.hidden = true;
+    labels.forEach((label) => {
+      const entry = document.createElement("li");
+      entry.textContent = label;
+      list.appendChild(entry);
+    });
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "pending-toggle";
+    toggle.textContent = "Ver todos";
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.setAttribute(
+      "aria-label",
+      `Ver todos los requisitos pendientes de ${item.name}`,
+    );
+    const setOpen = (open) => {
+      list.hidden = !open;
+      toggle.setAttribute("aria-expanded", String(open));
+      toggle.textContent = open ? "Ver menos" : "Ver todos";
+    };
+    toggle.addEventListener("click", (event) => {
       event.stopPropagation();
-      if (status === "no aplica" || status === "sin informacion") return;
-      chip.disabled = true;
-      try {
-        const response = await fetch(
-          `/api/learners/${item.id}/requirements/${requirement.id}`,
-          {
-            method: "PATCH",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({
-              requirement_type: requirement.requirement_type,
-              status: isPending ? "Cumplido" : "Pendiente",
-            }),
-          },
-        );
-        const result = await readResponse(response);
-        requirement.status = result.status;
-        await loadLearners();
-      } catch (error) {
-        chip.disabled = false;
-        chip.title = error.message;
+      setOpen(list.hidden);
+    });
+    // Escape cierra y devuelve el foco al control; perder el foco tambien cierra
+    // para no dejar listados abiertos al navegar por la tabla.
+    cell.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !list.hidden) {
+        event.stopPropagation();
+        setOpen(false);
+        toggle.focus();
       }
     });
-    if (status === "no aplica" || status === "sin informacion") {
-      chip.disabled = true;
-      chip.title = `Estado actual: ${requirement.status}`;
-    }
-    chips.appendChild(chip);
-  });
-  cell.append(count, chips);
-  cell.title = pending.length
-    ? `Requisitos pendientes: ${pending.map((requirement) => requirement.label).join(", ")}`
-    : "Sin requisitos pendientes";
+    cell.addEventListener("focusout", (event) => {
+      if (!cell.contains(event.relatedTarget)) setOpen(false);
+    });
+    cell.append(toggle, list);
+  }
 
+  cell.title = `Requisitos pendientes: ${labels.join(", ")}`;
   return cell;
 }
 
@@ -2925,6 +3580,45 @@ conflictResolutionClose?.addEventListener("click", closeConflictResolutionModal)
 closeConflictResolution?.addEventListener("click", closeConflictResolutionModal);
 conflictTabStatus?.addEventListener("click", () => selectConflictResolutionTab("status"));
 conflictTabRequirement?.addEventListener("click", () => selectConflictResolutionTab("requirements"));
+const refreshRequirementFilters = () => {
+  requirementConflictFilters.search = requirementSearchInput?.value || "";
+  requirementConflictFilters.group = requirementGroupFilter?.value || "all";
+  requirementConflictFilters.type = requirementTypeFilter?.value || "all";
+  requirementConflictFilters.state = requirementStateFilter?.value || "all";
+  renderRequirementConflictGroups();
+};
+requirementSearchInput?.addEventListener("input", refreshRequirementFilters);
+requirementGroupFilter?.addEventListener("change", refreshRequirementFilters);
+requirementTypeFilter?.addEventListener("change", refreshRequirementFilters);
+requirementStateFilter?.addEventListener("change", refreshRequirementFilters);
+requirementBatchSuggest?.addEventListener("click", () => applyRequirementBulkAction("suggest"));
+requirementBatchMotivo?.addEventListener("click", () => applyRequirementBulkAction("motivo"));
+requirementBatchColumn?.addEventListener("click", () => applyRequirementBulkAction("column"));
+requirementBatchTyt?.addEventListener("click", () => applyRequirementBulkAction("tyt"));
+if (conflictContinue) {
+  conflictContinue.addEventListener("click", () => {
+    const counters = conflictCounters();
+    const pending = counters.statusPending + counters.unresolved;
+    if (pending > 0) {
+      updateCoherenceState();
+      window.showToast?.(
+        `Faltan ${pending} decisiones por resolver antes de continuar.`,
+        "warning",
+        { duration: 4800 },
+      );
+      return;
+    }
+    closeConflictResolutionModal();
+    updateCoherenceState();
+    revealValidationResult(confirmSummary);
+    confirmButton?.focus?.({ preventScroll: true });
+    window.showToast?.(
+      "Conflictos resueltos. Revisa el resumen y confirma la importación.",
+      "success",
+      { duration: 4800 },
+    );
+  });
+}
 conflictResolutionModal?.querySelectorAll("[data-close-conflict-resolution]").forEach((element) => {
   element.addEventListener("click", closeConflictResolutionModal);
 });
@@ -3136,6 +3830,7 @@ function showSheetsPreview(data) {
     resolutions: preview.conflict_resolutions || {},
     requirementConflicts: preview.requirement_conflicts || [],
     requirementResolutions: preview.requirement_conflict_resolutions || {},
+    requirementResolutionSources: preview.requirement_conflict_resolution_sources || {},
   });
   missingComplementariaRequired = Boolean(preview.missing_complementaria);
   if (missingComplementariaRequired) missingComplementariaSection.hidden = false;
@@ -3313,7 +4008,7 @@ async function openPendingConflictResolution() {
     window.setTimeout(() => window.SenaUI?.openImportModal?.(), 80);
     window.showToast?.(
       `${conflictCountLabel(Number(data.pending_conflict_count || 0))}. `
-        + "Elige Certificado o Pendiente para cada aprendiz.",
+        + "Elige el estado final de cada conflicto de estado o de requisito.",
       "warning",
       { duration: 6500 },
     );

@@ -182,11 +182,15 @@ def test_preview_then_confirm_imports_with_conflict_resolution(client):
         {"identification": item["identification"], "status": "CERTIFICADOS"}
         for item in data["preview"]["coherence_conflicts"]
     ]
+    requirement_resolutions = _requirement_resolutions(
+        data["preview"]["requirement_conflicts"]
+    )
     confirm = client.post(
         "/api/sheets/sync/confirm",
         json={
             "validation_id": data["validation_id"],
             "conflict_resolutions": resolutions,
+            "requirement_conflict_resolutions": requirement_resolutions,
             "accept_missing_complementaria": True,
         },
     )
@@ -264,6 +268,23 @@ def _resolutions(conflicts: list[dict]) -> list[dict]:
     return [
         {"identification": item["identification"], "status": "CERTIFICADOS"}
         for item in conflicts
+    ]
+
+
+def _requirement_resolutions(
+    requirements: list[dict], status: str | None = None
+) -> list[dict]:
+    """Decisiones para los requisitos que no se resuelven por regla automática."""
+    return [
+        {
+            "identification": item["identification"],
+            "requirement_type": item["requirement_type"],
+            "status": status or item.get("suggested_status") or "Pendiente",
+            "source": "bulk",
+            "conflict_fingerprint": item["fingerprint"],
+        }
+        for item in requirements
+        if not item.get("auto_resolved")
     ]
 
 
@@ -398,6 +419,9 @@ def test_resolve_pending_imports_lot_and_clears_state(client):
         "/api/sheets/sync/resolve",
         json={
             "conflict_resolutions": _resolutions(pending["conflicts"]),
+            "requirement_conflict_resolutions": _requirement_resolutions(
+                pending["requirement_conflicts"]
+            ),
             "accept_missing_complementaria": True,
         },
     )
@@ -437,6 +461,9 @@ def test_resolve_records_manual_sheets_cleanup_acknowledgement(client):
         "/api/sheets/sync/resolve",
         json={
             "conflict_resolutions": _resolutions(pending["conflicts"]),
+            "requirement_conflict_resolutions": _requirement_resolutions(
+                pending["requirement_conflicts"]
+            ),
             "accept_missing_complementaria": True,
             "sheets_manual_cleanup_acknowledged": True,
         },
@@ -477,6 +504,9 @@ def test_resolution_recovers_staged_lot_after_restart(client):
         "/api/sheets/sync/resolve",
         json={
             "conflict_resolutions": _resolutions(pending["conflicts"]),
+            "requirement_conflict_resolutions": _requirement_resolutions(
+                pending["requirement_conflicts"]
+            ),
             "accept_missing_complementaria": True,
         },
     )
@@ -580,6 +610,9 @@ def _resolve_all_pending(client, status: str = "CERTIFICADOS") -> dict:
                 {"identification": item["identification"], "status": status}
                 for item in pending["conflicts"]
             ],
+            "requirement_conflict_resolutions": _requirement_resolutions(
+                pending["requirement_conflicts"]
+            ),
             "accept_missing_complementaria": True,
         },
     )
@@ -698,6 +731,8 @@ def test_new_conflict_after_resolved_one_only_requests_the_new_document(client):
 
 def test_pending_lot_imports_when_resolution_is_already_saved(client):
     """Aunque el hash no cambie, un cruce ya decidido no debe quedar bloqueado."""
+    from app.models import RequirementStatusHistory
+
     content = _run_conflict_sync(client)
     pending = client.get("/api/sheets/sync/pending-conflicts").json()
     document = pending["conflicts"][0]["identification"]
@@ -707,8 +742,32 @@ def test_pending_lot_imports_when_resolution_is_already_saved(client):
         if learner is None:
             learner = Learner(identification=document, name="Aprendiz en conflicto")
             session.add(learner)
+            session.flush()
         learner.conflict_resolution = "CERTIFICADOS"
         learner.last_conflict_resolution = "CERTIFICADOS"
+        # Las decisiones de requisitos guardadas también se reaplican sin
+        # intervención: el lote no debe quedar bloqueado por ellas.
+        for item in pending["requirement_conflicts"]:
+            requirement_learner = session.query(Learner).filter_by(
+                identification=item["identification"]
+            ).one_or_none()
+            if requirement_learner is None:
+                requirement_learner = Learner(
+                    identification=item["identification"],
+                    name=item.get("name") or "Aprendiz en conflicto",
+                )
+                session.add(requirement_learner)
+                session.flush()
+            session.add(
+                RequirementStatusHistory(
+                    learner_id=requirement_learner.id,
+                    requirement_type=item["requirement_type"],
+                    status=item.get("suggested_status") or "Pendiente",
+                    source="conflict:requirement",
+                    decision_source="user",
+                    conflict_fingerprint=item["fingerprint"],
+                )
+            )
         session.commit()
 
     with _fake_download(content):

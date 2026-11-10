@@ -346,7 +346,27 @@ def test_actas_2026_pendientes_persist_reason_and_build_evidence_requirements(cl
     # Un archivo con solo la hoja PENDIENTES valida con advertencia (faltan las
     # demas hojas del paquete), no como error: los registros siguen importables.
     assert validated.json()["status"] in {"ready", "warning"}
-    client.post(f"/api/imports/{validated.json()['validation_id']}/confirm", json={"accept_missing_complementaria": True})
+    requirement_conflicts = validated.json()["requirement_conflicts"]
+    assert [(item["requirement_type"], item["pattern"]) for item in requirement_conflicts] == [
+        ("carnet", "evidence_fulfilled_motivo_missing"),
+    ]
+    confirmed = client.post(
+        f"/api/imports/{validated.json()['validation_id']}/confirm",
+        json={
+            "accept_missing_complementaria": True,
+            "requirement_conflict_resolutions": [
+                {
+                    "identification": item["identification"],
+                    "requirement_type": item["requirement_type"],
+                    "status": "Pendiente",
+                    "source": "user",
+                    "conflict_fingerprint": item["fingerprint"],
+                }
+                for item in requirement_conflicts
+            ],
+        },
+    )
+    assert confirmed.status_code == 200, confirmed.text
 
     items = {item["identification"]: item for item in client.get("/api/learners").json()["items"]}
     maria = items["9001"]
@@ -359,19 +379,20 @@ def test_actas_2026_pendientes_persist_reason_and_build_evidence_requirements(cl
     assert detail["basic_info"]["phone"] == "3001234567"
 
     # Cada columna de evidencia se convierte en un requisito con el estado leido:
-    # X -> Cumplido, N.A -> No aplica, vacio -> Pendiente.
+    # X -> Cumplido, N.A -> No aplica, vacio -> Sin información (no Pendiente).
     reqs = {r["requirement_type"]: r["status"] for r in detail["requirements"]}
     assert reqs["biblioteca"] == "Cumplido"
     assert reqs["bienestar"] == "No aplica"
-    assert reqs["almacen"] == "Pendiente"
-    assert reqs["carnet"] == "Cumplido"
-    assert reqs["certificado_empresa"] == "Pendiente"
+    assert reqs["almacen"] == "Sin información"
+    # La decision del modal resolvio el contraste X vs motivo: queda Pendiente.
+    assert reqs["carnet"] == "Pendiente"
+    assert reqs["certificado_empresa"] == "Sin información"
     # No se marca "Cumplido" si la celda no trae una "X".
     assert reqs["certificado_empresa"] != "Cumplido"
 
-    # El listado cuenta solo los requisitos realmente en Pendiente (almacen y
-    # certificado_empresa); el motivo no se usa como si fuera un conteo.
-    assert maria["pending_count"] == 2
+    # El listado cuenta solo los requisitos realmente en Pendiente (carnet); el
+    # motivo no se usa como si fuera un conteo ni una celda vacía es Pendiente.
+    assert maria["pending_count"] == 1
     pending = client.get("/api/learners/with-pending-requirements").json()["items"]
     assert [p["identification"] for p in pending] == ["9001"]
 
