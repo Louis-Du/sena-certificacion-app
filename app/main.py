@@ -618,10 +618,18 @@ async def informes_word_endpoint(
     year: int | None = Query(default=None, ge=2000, le=2100),
     quarter: int = Query(default=2, ge=1, le=4),
     cutoff: date | None = Query(default=None),
+    session: Session = Depends(get_db),
 ) -> Response:
     from app.services.report_word import generate_report_docx
     try:
-        content = generate_report_docx(year=year, quarter=quarter, cutoff=cutoff, summary={"Actas": 0})
+        from app.services.informes import consolidate_report_dataset
+        dataset = consolidate_report_dataset(session, year=year)
+        summary = {
+            "Actas registradas": dataset.get("resumen_ejecutivo", {}).get("actas", "N/D"),
+            "Aprendices vinculados": dataset.get("resumen_ejecutivo", {}).get("aprendices", "N/D"),
+            "Periodo": dataset.get("periodo", "N/D"),
+        }
+        content = generate_report_docx(year=year, quarter=quarter, cutoff=cutoff, summary=summary)
     except FileNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     filename = f"informe_gestion_{year or date.today().year}_T{quarter}.docx"
