@@ -531,7 +531,7 @@ async def informes_consolidado_resumen_endpoint(
 @app.get("/api/informes/export")
 async def informes_export_endpoint(
     report_type: str = Query(default="consolidado", alias="type"),
-    format: str = Query(default="xlsx", pattern="^(pdf|xlsx|csv)$"),
+    format: str = Query(default="xlsx", pattern="^(pdf|xlsx|csv|docx)$"),
     year: int | None = Query(default=None, ge=2000, le=2100),
     scope: str = Query(default="consolidado", pattern="^(consolidado|filtrado)$"),
     detail: str = Query(default="completo", pattern="^(completo|ejecutivo)$"),
@@ -566,6 +566,11 @@ async def informes_export_endpoint(
             )
             media_type = "application/pdf"
             filename = f"informe_{report_type}.pdf"
+        elif format == "docx":
+            from app.services.report_word import generate_report_docx
+            content = generate_report_docx(year=year, quarter=2, cutoff=None)
+            media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            filename = f"informe_gestion_{year or date.today().year}_T2.docx"
         else:
             content = export_report_xlsx(
                 session,

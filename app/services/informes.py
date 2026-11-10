@@ -74,8 +74,8 @@ REPORT_DETAILS = {
 }
 
 REPORT_FORMATS = {
-    "consolidado": ["pdf", "xlsx"],
-    "general": ["pdf", "xlsx"],
+    "consolidado": ["pdf", "xlsx", "docx"],
+    "general": ["pdf", "xlsx", "docx"],
     "ejecutivo": ["pdf", "xlsx", "csv"],
     "aprendices": ["pdf", "xlsx", "csv"],
     "pendientes": ["pdf", "xlsx", "csv"],
