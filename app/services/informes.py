@@ -21,6 +21,7 @@ Reglas de alcance
 
 from __future__ import annotations
 
+from datetime import date
 from io import BytesIO, StringIO
 from typing import Any
 
@@ -333,6 +334,29 @@ def export_report_pdf(
     return build_report_pdf(dataset, report_type, detail=detail)
 
 
+def export_report_docx(
+    session: Session,
+    *,
+    report_type: str = "consolidado",
+    year: int | None = None,
+    quarter: int = 2,
+    cutoff: date | None = None,
+) -> bytes:
+    if report_type not in {"consolidado", "general"}:
+        raise ValueError("El informe de gestión Word está disponible para el informe consolidado.")
+    dataset = consolidate_report_dataset(session, year=year)
+    if not dataset.get("datos_suficientes"):
+        raise ValueError("No hay datos para exportar.")
+    from app.services.report_word import generate_report_docx
+
+    return generate_report_docx(
+        dataset,
+        year=year,
+        quarter=quarter,
+        cutoff=cutoff,
+    )
+
+
 # Compatibilidad con nombres historicos
 def export_consolidated_xlsx(session: Session, *, year: int | None = None, **kwargs: Any) -> bytes:
     return export_report_xlsx(session, report_type="consolidado", year=year, **kwargs)
@@ -378,6 +402,7 @@ __all__ = [
     "export_report_csv",
     "export_report_xlsx",
     "export_report_pdf",
+    "export_report_docx",
     "export_consolidated_xlsx",
     "export_consolidated_pdf",
 ]

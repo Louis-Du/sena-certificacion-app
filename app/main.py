@@ -540,7 +540,12 @@ async def informes_export_endpoint(
     session: Session = Depends(get_db),
 ) -> Response:
     """Exporta un informe estructurado en PDF, XLSX o CSV."""
-    from app.services.informes import export_report_csv, export_report_pdf, export_report_xlsx
+    from app.services.informes import (
+        export_report_csv,
+        export_report_docx,
+        export_report_pdf,
+        export_report_xlsx,
+    )
     try:
         if format == "csv":
             content = export_report_csv(
@@ -567,10 +572,14 @@ async def informes_export_endpoint(
             media_type = "application/pdf"
             filename = f"informe_{report_type}.pdf"
         elif format == "docx":
-            from app.services.report_word import generate_report_docx
-            content = generate_report_docx(year=year, quarter=2, cutoff=None)
+            content = export_report_docx(
+                session,
+                report_type=report_type,
+                year=year,
+                quarter=2,
+            )
             media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            filename = f"informe_gestion_{year or date.today().year}_T2.docx"
+            filename = f"informe_gestion_{year or 2026}_T2.docx"
         else:
             content = export_report_xlsx(
                 session,
@@ -625,16 +634,16 @@ async def informes_word_endpoint(
     cutoff: date | None = Query(default=None),
     session: Session = Depends(get_db),
 ) -> Response:
-    from app.services.report_word import generate_report_docx
     try:
-        from app.services.informes import consolidate_report_dataset
-        dataset = consolidate_report_dataset(session, year=year)
-        summary = {
-            "Actas registradas": dataset.get("resumen_ejecutivo", {}).get("actas", "N/D"),
-            "Aprendices vinculados": dataset.get("resumen_ejecutivo", {}).get("aprendices", "N/D"),
-            "Periodo": dataset.get("periodo", "N/D"),
-        }
-        content = generate_report_docx(year=year, quarter=quarter, cutoff=cutoff, summary=summary)
+        from app.services.informes import export_report_docx
+        content = export_report_docx(
+            session,
+            year=year,
+            quarter=quarter,
+            cutoff=cutoff,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except FileNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     filename = f"informe_gestion_{year or date.today().year}_T{quarter}.docx"

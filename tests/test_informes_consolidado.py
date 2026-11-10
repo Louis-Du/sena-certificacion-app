@@ -286,7 +286,7 @@ def test_exporta_csv_y_catalogo_de_informes(client):
 
     consolidated_catalog = client.get("/api/informes/formats?type=consolidado")
     assert consolidated_catalog.status_code == 200
-    assert consolidated_catalog.json()["formats"] == ["pdf", "xlsx"]
+    assert consolidated_catalog.json()["formats"] == ["pdf", "xlsx", "docx"]
 
     response = client.get("/api/informes/export?type=causas&format=csv")
     assert response.status_code == 200
@@ -329,6 +329,87 @@ def test_exporta_csv_y_catalogo_de_informes(client):
     assert consolidated_pdf.status_code == 200
     assert consolidated_pdf.headers["content-type"].startswith("application/pdf")
     assert consolidated_pdf.content.startswith(b"%PDF")
+
+
+def test_export_docx_usa_datos_cargados_y_omite_anexos(client):
+    from docx import Document
+
+    with client.session_factory() as session:
+        _seed(
+            session,
+            "certificados",
+            [
+                _certificado("1", "TECNÓLOGO"),
+                _certificado("2", "TÉCNICO"),
+                _certificado("3", "MEDIA TÉCNICA"),
+            ],
+        )
+        _seed(
+            session,
+            "meta",
+            [_meta(superior=10, tecnica=20, articulacion=30, complementaria=100)],
+        )
+        _seed(
+            session,
+            "complementaria",
+            [
+                {"canal": "presencial", "fecha": "2026-02-01", "cantidad": 7},
+                {"canal": "virtual", "fecha": "2026-03-01", "cantidad": 3},
+            ],
+        )
+
+    response = client.get("/api/informes/export?type=consolidado&format=docx")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    document = Document(BytesIO(response.content))
+    indicators = document.tables[1]
+    assert [cell.text for cell in indicators.rows[1].cells[1:]] == ["10", "1", "9", "10"]
+    assert [cell.text for cell in indicators.rows[2].cells[1:]] == ["20", "1", "19", "5"]
+    assert [cell.text for cell in indicators.rows[3].cells[1:]] == ["30", "1", "29", "3,3"]
+    assert [cell.text for cell in indicators.rows[10].cells[1:]] == ["100", "10", "90", "10"]
+    assert [cell.text for cell in indicators.rows[11].cells[1:]] == ["100", "10", "90", "10"]
+    text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+    assert "no se agregan actividades no registradas" in text
+    assert "presencial: 7" in text
+    assert "virtual: 3" in text
+    assert "ANEXO 1." not in text
+    assert "943 aprendices" not in text
+    assert "566 aprendices" not in text
+    assert [paragraph.text for paragraph in document.paragraphs].count("ANEXOS") == 1
+    assert document.paragraphs[-1].text == "ANEXOS"
+
+
+def test_export_docx_marca_complementaria_no_cargada_como_no_disponible(client):
+    from docx import Document
+
+    with client.session_factory() as session:
+        _seed(session, "certificados", [_certificado("1", "TECNÓLOGO")])
+        _seed(session, "meta", [_meta(superior=10, tecnica=20, articulacion=30, complementaria=100)])
+
+    response = client.get("/api/informes/export?type=consolidado&format=docx")
+    assert response.status_code == 200
+    document = Document(BytesIO(response.content))
+    indicators = document.tables[1]
+    assert [cell.text for cell in indicators.rows[10].cells[1:]] == [
+        "100",
+        "No disponible",
+        "No disponible",
+        "No disponible",
+    ]
+    assert [cell.text for cell in indicators.rows[12].cells[1:]] == [
+        "160",
+        "No disponible",
+        "No disponible",
+        "No disponible",
+    ]
+
+
+def test_export_docx_sin_datos_no_genera_cifras_historicas(client):
+    response = client.get("/api/informes/export?type=consolidado&format=docx")
+    assert response.status_code == 400
+    assert response.json()["detail"] == "No hay datos para exportar."
 
 
 def test_listados_de_informes_conservan_columnas_de_negocio():
