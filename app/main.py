@@ -612,6 +612,25 @@ async def informes_catalog_endpoint() -> list[dict]:
     from app.services.informes import report_catalog
     return report_catalog()
 
+
+@app.get("/api/informes/word")
+async def informes_word_endpoint(
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    quarter: int = Query(default=2, ge=1, le=4),
+    cutoff: date | None = Query(default=None),
+) -> Response:
+    from app.services.report_word import generate_report_docx
+    try:
+        content = generate_report_docx(year=year, quarter=quarter, cutoff=cutoff, summary={"Actas": 0})
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    filename = f"informe_gestion_{year or date.today().year}_T{quarter}.docx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
 # ---------------------------------------------------------------------------
 # Sincronizacion automatica desde Google Sheets
 # ---------------------------------------------------------------------------
