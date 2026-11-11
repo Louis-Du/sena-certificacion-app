@@ -64,6 +64,56 @@ def _format_date(value: date) -> str:
     return f"{value.day} de {MONTHS_ES[value.month - 1]} de {value.year}"
 
 
+def _periodo_contexto(dataset: dict[str, Any]) -> dict[str, Any]:
+    """Resume el periodo elegido para redactar el Word sin textos fijos."""
+    try:
+        trimestre = int(dataset.get("trimestre") or 3)
+    except (TypeError, ValueError):
+        trimestre = 3
+    trimestre = trimestre if trimestre in (1, 2, 3, 4) else 3
+    romano = dataset.get("trimestre_romano") or {1: "I", 2: "II", 3: "III", 4: "IV"}[trimestre]
+    ordinal = dataset.get("trimestre_ordinal") or {
+        1: "primer",
+        2: "segundo",
+        3: "tercer",
+        4: "cuarto",
+    }[trimestre]
+    anio = dataset.get("year") or dataset.get("anio") or date.today().year
+    etiqueta_trimestre = (
+        dataset.get("trimestre_etiqueta") or f"Trimestre {romano} {anio}"
+    )
+    try:
+        inicio = date.fromisoformat(str(dataset.get("periodo_inicio")))
+    except (TypeError, ValueError):
+        inicio = date(int(anio), 1, 1)
+    try:
+        fin = date.fromisoformat(str(dataset.get("periodo_fin")))
+    except (TypeError, ValueError):
+        fin = date(int(anio), 9, 30)
+    modo = dataset.get("modo") or "acumulado"
+    periodo = dataset.get("periodo") or f"{MONTHS_ES[inicio.month - 1].capitalize()} - {MONTHS_ES[fin.month - 1].capitalize()} {anio}"
+    modo_texto = (
+        "acumulado desde el 1 de enero"
+        if modo == "acumulado"
+        else "solo los tres meses del trimestre"
+    )
+    rango_texto = f"del {_format_date(inicio)} al {_format_date(fin)}"
+    return {
+        "trimestre": trimestre,
+        "romano": romano,
+        "ordinal": ordinal,
+        "anio": anio,
+        "etiqueta_trimestre": etiqueta_trimestre,
+        "etiqueta_periodo": f"{periodo}, {modo_texto}",
+        "modo": modo,
+        "modo_texto": modo_texto,
+        "periodo": periodo,
+        "inicio": inicio,
+        "fin": fin,
+        "rango_texto": rango_texto,
+    }
+
+
 def _metric_map(dataset: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {
         item["category"]: item
@@ -209,7 +259,10 @@ def _category_summary(dataset: dict[str, Any], category: str) -> str:
 
 
 def _update_narrative(doc, dataset: dict[str, Any], cutoff: date) -> None:
-    period = dataset.get("periodo") or "periodo disponible"
+    contexto = _periodo_contexto(dataset)
+    trimestre_etiqueta = contexto["etiqueta_trimestre"]
+    etiqueta_periodo = contexto["etiqueta_periodo"]
+    rango_texto = contexto["rango_texto"]
     total_summary = _category_summary(dataset, "total")
     replacements = (
         ("Junio 30 de 2026", _format_date(cutoff)),
@@ -225,26 +278,33 @@ def _update_narrative(doc, dataset: dict[str, Any], cutoff: date) -> None:
             _set_paragraph_text(
                 paragraph,
                 f"Presentar los resultados de certificación registrados en el sistema "
-                f"para el periodo {period}, con base en las fuentes institucionales cargadas.",
+                f"para el {trimestre_etiqueta}, correspondientes al periodo "
+                f"{etiqueta_periodo}, con base en las fuentes institucionales cargadas.",
             )
         elif text.startswith("Este informe incluye la gestión realizada"):
             _set_paragraph_text(
                 paragraph,
-                f"Este informe presenta los resultados de certificación disponibles para "
-                f"{period} en el Centro de Comercio y Servicios de la Regional Bolívar.",
+                f"Este informe incluye la gestión realizada en el {trimestre_etiqueta} "
+                f"({rango_texto}) en relación con los procesos de certificación, "
+                "incluyendo formación titulada y complementaria, en el Centro de "
+                "Comercio y Servicios de la Regional Bolívar.",
             )
         elif text.startswith("A continuación, se presenta la gestión llevada"):
             _set_paragraph_text(
                 paragraph,
-                f"A continuación, se presentan los resultados del periodo {period}, "
-                "calculados a partir de los datos cargados en el sistema.",
+                f"A continuación, se presentan los resultados del {trimestre_etiqueta} "
+                f"(periodo {etiqueta_periodo}), calculados a partir de los datos "
+                "cargados en el sistema.",
             )
         elif text.startswith("Fuente:"):
             _set_paragraph_text(
                 paragraph,
                 "Fuente: consolidado ACTAS 2026 y registros institucionales cargados en el sistema.",
             )
-        elif text.startswith("¿Cómo fue la gestión en el periodo II para el Indicador"):
+        elif (
+            text.startswith("¿Cómo fue la gestión en el periodo")
+            and "Educación Superior" in text
+        ):
             _set_paragraph_text(
                 paragraph,
                 "Resultados del indicador: Certificación - Educación Superior",
@@ -290,7 +350,10 @@ def _update_narrative(doc, dataset: dict[str, Any], cutoff: date) -> None:
                 paragraph,
                 "No se registran actividades narrativas de articulación en las fuentes cargadas.",
             )
-        elif text.startswith("¿Cómo fue la gestión en el periodo para el Indicador: “Certificación - formación Complementaria”"):
+        elif (
+            text.startswith("¿Cómo fue la gestión en el periodo")
+            and "formación Complementaria" in text
+        ):
             _set_paragraph_text(paragraph, "Resultados del indicador: Certificación - Formación Complementaria")
         elif text.startswith("Con una meta anual de"):
             _set_paragraph_text(paragraph, _category_summary(dataset, "complementaria"))
@@ -307,7 +370,7 @@ def _update_narrative(doc, dataset: dict[str, Any], cutoff: date) -> None:
                 paragraph,
                 "No se registran actividades narrativas de formación complementaria en las fuentes cargadas.",
             )
-        elif text.startswith("¿Cómo fue la gestión en el periodo para el Indicador: “Certificación TOTAL"):
+        elif (text.startswith("¿Cómo fue la gestión en el periodo") and "Certificación TOTAL" in text):
             _set_paragraph_text(
                 paragraph,
                 f"Resultados del indicador: Certificación total - Centros de Formación. "
@@ -348,7 +411,7 @@ def _update_narrative(doc, dataset: dict[str, Any], cutoff: date) -> None:
         elif text.startswith("Se evidenció la gestión desarrollada"):
             _set_paragraph_text(
                 paragraph,
-                f"Para el periodo {period}, con base en el consolidado institucional "
+                f"Para el {trimestre_etiqueta}, con base en el consolidado institucional "
                 f"disponible, {total_summary[0].lower() + total_summary[1:] if total_summary else 'no hay resultados calculables.'}",
             )
         elif text.startswith(
@@ -394,17 +457,21 @@ def generate_report_docx(
 
     doc = Document(str(TEMPLATE_PATH))
 
-    year = year or int(dataset.get("year") or date.today().year)
-    quarter = quarter or 2
-    period_end = dataset.get("periodo_fin")
-    if cutoff is None and period_end:
-        cutoff = date.fromisoformat(period_end)
-    cutoff = cutoff or date.today()
+    contexto = _periodo_contexto(dataset)
+    year = year or int(contexto["anio"])
+    if cutoff is None:
+        cutoff = contexto["fin"]
 
-    roman = {1: "I", 2: "II", 3: "III", 4: "IV"}.get(quarter, str(quarter))
+    roman = contexto["romano"]
+    ordinal = contexto["ordinal"]
     replacements = {
         "Trimestre II de": f"Trimestre {roman} de",
+        "Trimestre II 2026": f"Trimestre {roman} {year}",
         "trimestre II 2026": f"trimestre {roman} {year}",
+        "II Trimestre 2026": f"{roman} Trimestre {year}",
+        "segundo trimestre": f"{ordinal} trimestre",
+        "Segundo trimestre": f"{ordinal.capitalize()} trimestre",
+        "periodo II": f"periodo {roman}",
         "II 2026": f"{roman} {year}",
     }
     for paragraph in doc.paragraphs:

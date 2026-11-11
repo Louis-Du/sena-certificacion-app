@@ -600,9 +600,18 @@
       <div class="report-options" role="radiogroup" aria-label="Tipo de informe" id="report-type-options"></div>
       <p id="report-type-description" class="report-modal-feedback" style="margin-top:12px;"></p>
       <div class="report-settings">
+        <label>Trimestre
+          <select id="report-quarter">
+            <option value="T1">Trimestre I 2026</option>
+            <option value="T2">Trimestre II 2026</option>
+            <option value="T3" selected>Trimestre III 2026</option>
+            <option value="T4">Trimestre IV 2026</option>
+          </select>
+        </label>
         <label>Periodo
-          <select id="report-period" disabled>
-            <option value="2026">Enero – Septiembre 2026 (periodo del consolidado)</option>
+          <select id="report-mode">
+            <option value="acumulado" selected>Acumulado hasta el trimestre</option>
+            <option value="solo_trimestre">Solo el trimestre</option>
           </select>
         </label>
         <label>Alcance

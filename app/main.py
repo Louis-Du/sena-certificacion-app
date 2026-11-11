@@ -476,25 +476,50 @@ async def unlink_act_learner(
 
 
 @app.get("/api/indicadores")
-async def indicadores_endpoint(session: Session = Depends(get_db)) -> dict:
+async def indicadores_endpoint(
+    trimestre: str | None = Query(default=None, description="T1, T2, T3 o T4. Default T3."),
+    modo: str | None = Query(
+        default=None,
+        description="acumulado (default) o solo_trimestre.",
+    ),
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    session: Session = Depends(get_db),
+) -> dict:
     from app.services.indicadores import compute_indicadores_2026
-    return compute_indicadores_2026(session)
+    try:
+        return compute_indicadores_2026(
+            session, trimestre=trimestre, modo=modo, anio=year
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get("/api/indicadores/certificados-por-mes")
-async def certificados_por_mes_endpoint(session: Session = Depends(get_db)) -> dict:
+async def certificados_por_mes_endpoint(
+    trimestre: str | None = Query(default=None, description="T1, T2, T3 o T4. Default T3."),
+    modo: str | None = Query(default=None, description="acumulado o solo_trimestre."),
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    session: Session = Depends(get_db),
+) -> dict:
     """Certificados por MES DE CERTIFICACION del consolidado vigente.
 
     No usa ``Learner.certification_month`` (padron local) ni la fecha de
     importacion. La UI debe etiquetarlo como consolidado ACTAS 2026.
     """
     from app.services.indicadores import compute_certificados_por_mes
-    return compute_certificados_por_mes(session)
+    try:
+        return compute_certificados_por_mes(
+            session, trimestre=trimestre, modo=modo, anio=year
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get("/api/informes/consolidado")
 async def informes_consolidado_endpoint(
     year: int | None = Query(default=None, ge=2000, le=2100),
+    trimestre: str | None = Query(default=None, description="T1, T2, T3 o T4. Default T3."),
+    modo: str | None = Query(default=None, description="acumulado o solo_trimestre."),
     session: Session = Depends(get_db),
 ) -> dict:
     """Dataset consolidado de informe v1 desde el lote vigente de ACTAS 2026.
@@ -503,22 +528,39 @@ async def informes_consolidado_endpoint(
     lote vigente responde de forma segura con totales vacios/null.
     """
     from app.services.informes import consolidate_report_dataset
-    return consolidate_report_dataset(session, year=year)
+    try:
+        return consolidate_report_dataset(
+            session, year=year, trimestre=trimestre, modo=modo
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get("/api/informes/consolidado/resumen")
 async def informes_consolidado_resumen_endpoint(
     year: int | None = Query(default=None, ge=2000, le=2100),
+    trimestre: str | None = Query(default=None, description="T1, T2, T3 o T4. Default T3."),
+    modo: str | None = Query(default=None, description="acumulado o solo_trimestre."),
     session: Session = Depends(get_db),
 ) -> dict:
     """Metadatos + KPIs del dataset consolidado (version liviana)."""
     from app.services.informes import consolidate_report_dataset
-    data = consolidate_report_dataset(session, year=year)
+    try:
+        data = consolidate_report_dataset(
+            session, year=year, trimestre=trimestre, modo=modo
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     return {
         "generated_at": data["generated_at"],
         "periodo": data["periodo"],
         "periodo_inicio": data["periodo_inicio"],
         "periodo_fin": data["periodo_fin"],
+        "trimestre": data.get("trimestre"),
+        "trimestre_codigo": data.get("trimestre_codigo"),
+        "trimestre_etiqueta": data.get("trimestre_etiqueta"),
+        "modo": data.get("modo"),
+        "fecha_corte_texto": data.get("fecha_corte_texto"),
         "source": data["source"],
         "import_id": data["import_id"],
         "file_name": data["file_name"],
@@ -537,9 +579,15 @@ async def informes_export_endpoint(
     detail: str = Query(default="completo", pattern="^(completo|ejecutivo)$"),
     search: str = Query(default=""),
     status: str = Query(default=""),
+    trimestre: str | None = Query(default=None, description="T1, T2, T3 o T4. Default T3."),
+    modo: str | None = Query(default=None, description="acumulado o solo_trimestre."),
     session: Session = Depends(get_db),
 ) -> Response:
-    """Exporta un informe estructurado en PDF, XLSX o CSV."""
+    """Exporta un informe estructurado en PDF, XLSX, CSV o DOCX.
+
+    Para el informe consolidado, ``trimestre`` y ``modo`` filtran el periodo.
+    Sin parámetros se mantiene el corte histórico T3 acumulado (Ene-Sep).
+    """
     from app.services.informes import (
         export_report_csv,
         export_report_docx,
@@ -556,6 +604,8 @@ async def informes_export_endpoint(
                 detail=detail,
                 search=search,
                 status=status,
+                trimestre=trimestre,
+                modo=modo,
             )
             media_type = "text/csv; charset=utf-8"
             filename = f"informe_{report_type}.csv"
@@ -568,6 +618,8 @@ async def informes_export_endpoint(
                 detail=detail,
                 search=search,
                 status=status,
+                trimestre=trimestre,
+                modo=modo,
             )
             media_type = "application/pdf"
             filename = f"informe_{report_type}.pdf"
@@ -576,10 +628,12 @@ async def informes_export_endpoint(
                 session,
                 report_type=report_type,
                 year=year,
-                quarter=2,
+                trimestre=trimestre,
+                modo=modo,
             )
             media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            filename = f"informe_gestion_{year or 2026}_T2.docx"
+            codigo = (trimestre or "T3").upper()
+            filename = f"informe_gestion_{year or 2026}_{codigo}_{modo or 'acumulado'}.docx"
         else:
             content = export_report_xlsx(
                 session,
@@ -589,6 +643,8 @@ async def informes_export_endpoint(
                 detail=detail,
                 search=search,
                 status=status,
+                trimestre=trimestre,
+                modo=modo,
             )
             media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             filename = (
@@ -630,7 +686,20 @@ async def informes_catalog_endpoint() -> list[dict]:
 @app.get("/api/informes/word")
 async def informes_word_endpoint(
     year: int | None = Query(default=None, ge=2000, le=2100),
-    quarter: int = Query(default=2, ge=1, le=4),
+    trimestre: str | None = Query(
+        default=None,
+        description="T1, T2, T3 o T4. Si se omite, se usa T3 (compatibilidad).",
+    ),
+    modo: str | None = Query(
+        default=None,
+        description="acumulado (default): ene → fin del trimestre; solo_trimestre: solo esos 3 meses.",
+    ),
+    quarter: int | None = Query(
+        default=None,
+        ge=1,
+        le=4,
+        description="Compatibilidad: equivale a trimestre=T{quarter}.",
+    ),
     cutoff: date | None = Query(default=None),
     session: Session = Depends(get_db),
 ) -> Response:
@@ -640,13 +709,16 @@ async def informes_word_endpoint(
             session,
             year=year,
             quarter=quarter,
+            trimestre=trimestre,
+            modo=modo,
             cutoff=cutoff,
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except FileNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
-    filename = f"informe_gestion_{year or date.today().year}_T{quarter}.docx"
+    codigo = (trimestre or (f"T{quarter}" if quarter else "T3")).upper()
+    filename = f"informe_gestion_{year or date.today().year}_{codigo}_{modo or 'acumulado'}.docx"
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",

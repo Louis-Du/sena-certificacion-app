@@ -69,6 +69,8 @@
   const reportScope = document.getElementById("report-scope");
   const reportDetail = document.getElementById("report-detail");
   const reportFormat = document.getElementById("report-format");
+  const reportQuarter = document.getElementById("report-quarter");
+  const reportMode = document.getElementById("report-mode");
   let selectedReportType = "consolidado";
   let reportCatalog = [];
   let isGenerating = false;
@@ -184,6 +186,8 @@
         format,
         scope,
         detail,
+        trimestre: reportQuarter?.value || "T3",
+        modo: reportMode?.value || "acumulado",
       });
       if (scope === "filtrado") {
         const filters = getLearnerFilters();

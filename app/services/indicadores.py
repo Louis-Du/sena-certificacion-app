@@ -36,7 +36,9 @@ Conceptos importantes para quien mantenga el codigo
 from __future__ import annotations
 
 import json
+from calendar import monthrange
 from collections import Counter
+from datetime import date
 from typing import Any
 
 from sqlalchemy import select
@@ -49,27 +51,8 @@ from app.services import parsers
 # Constantes del periodo y de la clasificacion misional
 # ---------------------------------------------------------------------------
 
-PERIODO_INICIO = "2026-01-01"
-PERIODO_FIN = "2026-09-30"
-PERIODO_LABEL = "Enero - Septiembre 2026"
-
-# Meses (en texto normalizado) que pertenecen al periodo solicitado. La hoja
-# CERTIFICADOS escribe el mes con palabras; por eso no se puede comparar como
-# fecha. OCTUBRE queda fuera a proposito.
-MESES_DEL_PERIODO = {
-    "enero",
-    "febrero",
-    "marzo",
-    "abril",
-    "mayo",
-    "junio",
-    "julio",
-    "agosto",
-    "septiembre",
-}
-
-# Orden y etiqueta visible de los meses del corte. Se usan para el grafico de
-# certificados por mes y para no depender del orden en que lleguen las filas.
+# Meses del ano en texto normalizado y en orden cronologico. La hoja
+# CERTIFICADOS escribe el mes con palabras; por eso no se compara como fecha.
 MESES_ORDEN: tuple[tuple[str, str], ...] = (
     ("enero", "Enero"),
     ("febrero", "Febrero"),
@@ -80,7 +63,171 @@ MESES_ORDEN: tuple[tuple[str, str], ...] = (
     ("julio", "Julio"),
     ("agosto", "Agosto"),
     ("septiembre", "Septiembre"),
+    ("octubre", "Octubre"),
+    ("noviembre", "Noviembre"),
+    ("diciembre", "Diciembre"),
 )
+
+_NOMBRES_MES = tuple(nombre for nombre, _ in MESES_ORDEN)
+_MESES_POR_TRIMESTRE = {
+    1: (1, 2, 3),
+    2: (4, 5, 6),
+    3: (7, 8, 9),
+    4: (10, 11, 12),
+}
+_ROMANOS_TRIMESTRE = {1: "I", 2: "II", 3: "III", 4: "IV"}
+_ORDINALES_TRIMESTRE = {
+    1: "primer",
+    2: "segundo",
+    3: "tercer",
+    4: "cuarto",
+}
+_MODOS_PERIODO = {"acumulado", "solo_trimestre"}
+
+# Default compatible con el informe institucional previo: T3 acumulado
+# (1 de enero al 30 de septiembre). Los clientes que no envian ``trimestre``
+# siguen recibiendo el mismo corte Ene-Sep.
+TRIMESTRE_DEFAULT = 3
+MODO_PERIODO_DEFAULT = "acumulado"
+ANIO_DEFAULT = 2026
+
+
+def _normalizar_trimestre(value: Any) -> int:
+    """Acepta ``3``, ``"3"``, ``"T3"`` o ``"III"`` y devuelve 1..4."""
+    if value is None or str(value).strip() == "":
+        return TRIMESTRE_DEFAULT
+    texto = str(value).strip().upper()
+    if texto.startswith("T") and texto[1:].isdigit():
+        texto = texto[1:]
+    romanos = {romano: numero for numero, romano in _ROMANOS_TRIMESTRE.items()}
+    if texto in romanos:
+        return romanos[texto]
+    try:
+        numero = int(texto)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            "Trimestre no válido. Use T1, T2, T3 o T4."
+        ) from error
+    if numero not in _MESES_POR_TRIMESTRE:
+        raise ValueError("Trimestre no válido. Use T1, T2, T3 o T4.")
+    return numero
+
+
+def _normalizar_modo(value: Any) -> str:
+    """Normaliza ``acumulado`` / ``solo_trimestre`` (con sinónimos tolerados)."""
+    texto = str(value or MODO_PERIODO_DEFAULT).strip().lower().replace("-", "_")
+    equivalencias = {
+        "acumulado": "acumulado",
+        "acumulada": "acumulado",
+        "acumulado_trimestre": "acumulado",
+        "solo_trimestre": "solo_trimestre",
+        "solo": "solo_trimestre",
+        "trimestre": "solo_trimestre",
+        "solo_t": "solo_trimestre",
+    }
+    modo = equivalencias.get(texto)
+    if modo not in _MODOS_PERIODO:
+        raise ValueError(
+            "Modo de periodo no válido. Use 'acumulado' o 'solo_trimestre'."
+        )
+    return modo
+
+
+def _fin_de_mes(anio: int, mes: int) -> date:
+    return date(anio, mes, monthrange(anio, mes)[1])
+
+
+def resolver_periodo(
+    trimestre: Any = None,
+    modo: Any = None,
+    anio: int | None = None,
+) -> dict[str, Any]:
+    """Resuelve el rango de fechas, meses y etiquetas del informe.
+
+    Parámetros
+    ----------
+    trimestre:
+        ``T1``..``T4`` (también acepta 1..4). Por compatibilidad, sin valor se
+        usa T3.
+    modo:
+        ``acumulado`` (default): del 1 de enero al último día del trimestre.
+        ``solo_trimestre``: los tres meses del trimestre elegido.
+    anio:
+        Año del corte. Default 2026 (vigencia del consolidado ACTAS 2026).
+
+    Devuelve un diccionario con fechas ISO, meses en texto normalizado,
+    etiquetas para UI/Word y el texto de la fecha de corte.
+    """
+    numero = _normalizar_trimestre(trimestre)
+    modo_normalizado = _normalizar_modo(modo)
+    try:
+        anio_numero = int(anio) if anio is not None else ANIO_DEFAULT
+    except (TypeError, ValueError) as error:
+        raise ValueError("Año no válido para el periodo del informe.") from error
+    if not 2000 <= anio_numero <= 2100:
+        raise ValueError("Año no válido para el periodo del informe.")
+
+    meses_trimestre = _MESES_POR_TRIMESTRE[numero]
+    if modo_normalizado == "acumulado":
+        meses_numeros = tuple(range(1, meses_trimestre[-1] + 1))
+        inicio = date(anio_numero, 1, 1)
+    else:
+        meses_numeros = meses_trimestre
+        inicio = date(anio_numero, meses_trimestre[0], 1)
+    fin = _fin_de_mes(anio_numero, meses_trimestre[-1])
+
+    meses_lista = [
+        {
+            "mes": _NOMBRES_MES[mes - 1],
+            "etiqueta": MESES_ORDEN[mes - 1][1],
+            "numero": mes,
+        }
+        for mes in meses_numeros
+    ]
+    meses = {item["mes"] for item in meses_lista}
+    etiqueta_meses = " - ".join(
+        MESES_ORDEN[mes - 1][1] for mes in (meses_numeros[0], meses_numeros[-1])
+    )
+    periodo_label = f"{etiqueta_meses} {anio_numero}"
+    romano = _ROMANOS_TRIMESTRE[numero]
+    ordinal = _ORDINALES_TRIMESTRE[numero]
+    fecha_corte_texto = (
+        f"{fin.day} de {_NOMBRES_MES[fin.month - 1]} de {fin.year}"
+    )
+    return {
+        "anio": anio_numero,
+        "trimestre": numero,
+        "trimestre_codigo": f"T{numero}",
+        "trimestre_romano": romano,
+        "trimestre_ordinal": ordinal,
+        "trimestre_etiqueta": f"Trimestre {romano} {anio_numero}",
+        "modo": modo_normalizado,
+        "es_acumulado": modo_normalizado == "acumulado",
+        "inicio": inicio.isoformat(),
+        "fin": fin.isoformat(),
+        "fecha_corte": fin.isoformat(),
+        "fecha_corte_texto": fecha_corte_texto,
+        "meses": meses,
+        "meses_lista": meses_lista,
+        "periodo": periodo_label,
+        "periodo_label": periodo_label,
+        "etiqueta_periodo": (
+            f"{periodo_label} (acumulado desde el 1 de enero)"
+            if modo_normalizado == "acumulado"
+            else periodo_label
+        ),
+    }
+
+
+_DEFAULT_PERIODO = resolver_periodo()
+PERIODO_INICIO = _DEFAULT_PERIODO["inicio"]
+PERIODO_FIN = _DEFAULT_PERIODO["fin"]
+PERIODO_LABEL = _DEFAULT_PERIODO["periodo"]
+
+# Meses del periodo por defecto (T3 acumulado). Se conserva como constante para
+# compatibilidad con integraciones anteriores; los calculos nuevos usan
+# ``resolver_periodo``.
+MESES_DEL_PERIODO = set(_DEFAULT_PERIODO["meses"])
 
 # Tipos internos que forman el consolidado institucional ACTAS 2026. El lote
 # vigente se identifica por ``ImportHistory.source_type == 'actas_completo'``.
@@ -262,6 +409,7 @@ def _resumen_hoja_actas(
     estado_valido: str,
     filtrar_por_mes: bool,
     leer_motivos: bool,
+    meses: set[str] | None = None,
 ) -> dict[str, Any]:
     """
     Agrupa una hoja de personas (CERTIFICADOS o PENDIENTES) por categoria misional.
@@ -279,6 +427,9 @@ def _resumen_hoja_actas(
     leer_motivos:
         ``True`` solo para PENDIENTES: separa la columna MOTIVO DE NO
         CERTIFICACION en incidencias individuales.
+    meses:
+        Meses (texto normalizado) del periodo elegido. Si se omite se usa el
+        corte por defecto Ene-Sep 2026.
 
     Devuelve
     --------
@@ -292,6 +443,7 @@ def _resumen_hoja_actas(
         * ``documentos_sin_motivo`` / ``documentos_con_varios_motivos``.
     """
     por_categoria: dict[str, set[str]] = {clave: set() for clave, _, _ in CATEGORIAS}
+    meses_permitidos = MESES_DEL_PERIODO if meses is None else set(meses)
     sin_clasificar: set[str] = set()
     niveles_sin_clasificar: Counter = Counter()
     por_acta: Counter = Counter()
@@ -312,7 +464,7 @@ def _resumen_hoja_actas(
         # 2) Filtro de periodo (solo aplica a certificados).
         if filtrar_por_mes:
             mes = parsers.normalize_text(registro.get("mes de certificacion"))
-            if mes not in MESES_DEL_PERIODO:
+            if mes not in meses_permitidos:
                 fuera_de_periodo += 1
                 continue
 
@@ -368,7 +520,10 @@ def _resumen_hoja_actas(
 
 
 def _resumen_complementaria(
-    session: Session, batch_id: int | None = None
+    session: Session,
+    batch_id: int | None = None,
+    inicio: str | None = None,
+    fin: str | None = None,
 ) -> dict[str, Any]:
     """
     Suma los certificados de formacion complementaria por canal dentro del periodo.
@@ -383,6 +538,8 @@ def _resumen_complementaria(
     total = 0
     sin_fecha = 0
     fuera_de_periodo = 0
+    periodo_inicio = inicio or PERIODO_INICIO
+    periodo_fin = fin or PERIODO_FIN
 
     registros = _cargar_registros(session, "complementaria", batch_id)
     for registro in registros:
@@ -393,7 +550,7 @@ def _resumen_complementaria(
         if not fecha:
             sin_fecha += 1
             continue
-        if not (PERIODO_INICIO <= str(fecha) <= PERIODO_FIN):
+        if not (periodo_inicio <= str(fecha) <= periodo_fin):
             fuera_de_periodo += 1
             continue
         canal = registro.get("canal")
@@ -450,12 +607,15 @@ def _documento(registro: dict[str, Any]) -> str | None:
     return parsers.clean_identification(registro.get("numero de documento"))
 
 
-def _es_certificado_vigente(registro: dict[str, Any]) -> bool:
+def _es_certificado_vigente(
+    registro: dict[str, Any], meses: set[str] | None = None
+) -> bool:
     """Fila contable como certificado: estado valido y mes dentro del corte."""
+    meses_permitidos = MESES_DEL_PERIODO if meses is None else set(meses)
     return (
         parsers.normalize_certification_status(registro.get("estado")) == "certificados"
         and parsers.normalize_text(registro.get("mes de certificacion"))
-        in MESES_DEL_PERIODO
+        in meses_permitidos
     )
 
 
@@ -504,6 +664,7 @@ def _separar_conflictos(
     session: Session,
     registros_certificados: list[dict[str, Any]],
     registros_pendientes: list[dict[str, Any]],
+    meses: set[str] | None = None,
 ) -> tuple[
     list[dict[str, Any]],
     list[dict[str, Any]],
@@ -527,7 +688,7 @@ def _separar_conflictos(
     documentos_certificados = {
         documento
         for registro in registros_certificados
-        if _es_certificado_vigente(registro)
+        if _es_certificado_vigente(registro, meses)
         if (documento := _documento(registro))
     }
     documentos_pendientes = {
@@ -557,23 +718,34 @@ def _separar_conflictos(
 
 
 def compute_certificados_por_mes(
-    session: Session, batch_id: int | None = None
+    session: Session,
+    batch_id: int | None = None,
+    *,
+    trimestre: Any = None,
+    modo: Any = None,
+    anio: int | None = None,
 ) -> dict[str, Any]:
     """Certificados del CONSOLIDADO agrupados por mes de certificacion.
 
     No usa ``Learner.certification_month`` ni la fecha de importacion: lee las
     filas CERTIFICADOS del lote vigente de ACTAS 2026 y cuenta personas unicas
-    por el mes declarado en la hoja. Solo se incluyen los meses del corte
-    Ene-Sep 2026; lo que queda fuera se informa aparte y no infla el total.
+    por el mes declarado en la hoja. Solo se incluyen los meses del periodo
+    elegido (``trimestre``/``modo``); lo que queda fuera se informa aparte y no
+    infla el total.
     """
+    periodo = resolver_periodo(trimestre=trimestre, modo=modo, anio=anio)
+    meses_permitidos = periodo["meses"]
     lote = batch_id if batch_id is not None else _lote_vigente(session)
     registros_certificados = _cargar_registros(session, "certificados", lote)
     registros_pendientes = _cargar_registros(session, "pendientes", lote)
     certificados, _, conflictos, resoluciones = _separar_conflictos(
-        session, registros_certificados, registros_pendientes
+        session, registros_certificados, registros_pendientes, meses_permitidos
     )
 
-    por_mes = {mes: 0 for mes, _ in MESES_ORDEN}
+    por_mes = {
+        item["mes"]: 0
+        for item in periodo["meses_lista"]
+    }
     vistos: set[str] = set()
     fuera_de_periodo = 0
     sin_mes = 0
@@ -590,7 +762,7 @@ def compute_certificados_por_mes(
         if not mes:
             sin_mes += 1
             continue
-        if mes not in MESES_DEL_PERIODO:
+        if mes not in meses_permitidos:
             fuera_de_periodo += 1
             continue
         if documento in vistos:
@@ -599,14 +771,20 @@ def compute_certificados_por_mes(
         por_mes[mes] += 1
 
     meses = [
-        {"mes": mes, "etiqueta": etiqueta, "certificados": por_mes[mes]}
-        for mes, etiqueta in MESES_ORDEN
+        {"mes": item["mes"], "etiqueta": item["etiqueta"], "certificados": por_mes[item["mes"]]}
+        for item in periodo["meses_lista"]
     ]
     sin_resolver = conflictos - set(resoluciones)
     return {
-        "periodo": PERIODO_LABEL,
-        "periodo_inicio": PERIODO_INICIO,
-        "periodo_fin": PERIODO_FIN,
+        "periodo": periodo["periodo"],
+        "periodo_inicio": periodo["inicio"],
+        "periodo_fin": periodo["fin"],
+        "trimestre": periodo["trimestre"],
+        "trimestre_codigo": periodo["trimestre_codigo"],
+        "trimestre_romano": periodo["trimestre_romano"],
+        "trimestre_etiqueta": periodo["trimestre_etiqueta"],
+        "modo": periodo["modo"],
+        "fecha_corte_texto": periodo["fecha_corte_texto"],
         "universo": "consolidado",
         "fuente": "ACTAS 2026 · hoja CERTIFICADOS (lote vigente)",
         "lote_id": lote,
@@ -621,9 +799,18 @@ def compute_certificados_por_mes(
 
 
 
-def compute_indicadores_2026(session: Session) -> dict[str, Any]:
+def compute_indicadores_2026(
+    session: Session,
+    *,
+    trimestre: Any = None,
+    modo: Any = None,
+    anio: int | None = None,
+) -> dict[str, Any]:
     """
-    Calcula los indicadores de certificacion del 1 de enero al 30 de septiembre de 2026.
+    Calcula los indicadores de certificacion del periodo elegido.
+
+    Sin ``trimestre``/``modo`` se conserva el corte institucional por defecto:
+    T3 acumulado (1 de enero al 30 de septiembre del año indicado).
 
     Universos separados (no se mezclan sin etiqueta)
     ------------------------------------------------
@@ -652,6 +839,8 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
     Si un dato no se puede calcular se devuelve ``None`` (no cero) y se agrega
     una advertencia en ``advertencias`` para distinguir "no hay datos" de "cero".
     """
+    periodo = resolver_periodo(trimestre=trimestre, modo=modo, anio=anio)
+    meses_permitidos = periodo["meses"]
     lote_id = _lote_vigente(session)
     metas, fuente_metas = _metas_institucionales(session, lote_id)
 
@@ -664,13 +853,16 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
         registros_pendientes,
         conflictos_cert_pend,
         resoluciones_conflicto,
-    ) = _separar_conflictos(session, registros_certificados, registros_pendientes)
+    ) = _separar_conflictos(
+        session, registros_certificados, registros_pendientes, meses_permitidos
+    )
 
     certificados = _resumen_hoja_actas(
         registros_certificados,
         estado_valido="certificados",
         filtrar_por_mes=True,
         leer_motivos=False,
+        meses=meses_permitidos,
     )
     pendientes = _resumen_hoja_actas(
         registros_pendientes,
@@ -682,7 +874,9 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
     # aprendices siguen pendientes. En ese caso se informa ``None`` (no se puede
     # calcular) en lugar de mostrar 0, que haria parecer que no hay pendientes.
     pendientes_disponibles = bool(registros_pendientes)
-    complementaria = _resumen_complementaria(session, lote_id)
+    complementaria = _resumen_complementaria(
+        session, lote_id, inicio=periodo["inicio"], fin=periodo["fin"]
+    )
     referencia, fecha_corte = _referencia_institucional(session)
 
     advertencias: list[str] = []
@@ -869,8 +1063,8 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
         verbo = "quedó" if cantidad == 1 else "quedaron"
         verbo_contar = "contó" if cantidad == 1 else "contaron"
         advertencias.append(
-            f"{cantidad} certificado{plural} {verbo} fuera del periodo Ene-Sep 2026 "
-            f"y no se {verbo_contar}."
+            f"{cantidad} certificado{plural} {verbo} fuera del periodo "
+            f"{periodo['periodo']} y no se {verbo_contar}."
         )
     if certificados["sin_documento"]:
         advertencias.append(
@@ -975,9 +1169,18 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
     )
 
     return {
-        "periodo": PERIODO_LABEL,
-        "periodo_inicio": PERIODO_INICIO,
-        "periodo_fin": PERIODO_FIN,
+        "periodo": periodo["periodo"],
+        "periodo_inicio": periodo["inicio"],
+        "periodo_fin": periodo["fin"],
+        "periodo_modo": periodo["modo"],
+        "trimestre": periodo["trimestre"],
+        "trimestre_codigo": periodo["trimestre_codigo"],
+        "trimestre_romano": periodo["trimestre_romano"],
+        "trimestre_ordinal": periodo["trimestre_ordinal"],
+        "trimestre_etiqueta": periodo["trimestre_etiqueta"],
+        "modo": periodo["modo"],
+        "fecha_corte": periodo["fecha_corte"],
+        "fecha_corte_texto": periodo["fecha_corte_texto"],
         "fecha_corte_referencia": fecha_corte,
         "fuente_metas": fuente_metas,
         "datos_suficientes": datos_suficientes,
@@ -1057,5 +1260,11 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
         },
         # B5: el mismo corte mensual que expone el endpoint dedicado, desde el
         # consolidado vigente y no desde el padron local.
-        "certificados_por_mes": compute_certificados_por_mes(session, lote_id),
+        "certificados_por_mes": compute_certificados_por_mes(
+            session,
+            lote_id,
+            trimestre=periodo["trimestre_codigo"],
+            modo=periodo["modo"],
+            anio=periodo["anio"],
+        ),
     }

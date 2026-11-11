@@ -111,8 +111,16 @@ def report_catalog() -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def consolidate_report_dataset_v1(session: Session, *, year: int | None = None) -> dict[str, Any]:
-    return consolidate_report_dataset(session, year=year)
+def consolidate_report_dataset_v1(
+    session: Session,
+    *,
+    year: int | None = None,
+    trimestre: Any = None,
+    modo: Any = None,
+) -> dict[str, Any]:
+    return consolidate_report_dataset(
+        session, year=year, trimestre=trimestre, modo=modo
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -147,6 +155,8 @@ def _dataset_for_report(
     detail: str = "completo",
     search: str = "",
     status: str = "",
+    trimestre: Any = None,
+    modo: Any = None,
 ) -> dict[str, Any]:
     if report_type not in REPORT_TYPES:
         raise ValueError(f"Tipo de informe no soportado: {report_type}.")
@@ -158,7 +168,12 @@ def _dataset_for_report(
     local_status = status if (scope == "filtrado" and report_type in {"aprendices", "pendientes"}) else ""
 
     dataset = consolidate_report_dataset(
-        session, year=year, local_search=local_search, local_status=local_status
+        session,
+        year=year,
+        local_search=local_search,
+        local_status=local_status,
+        trimestre=trimestre,
+        modo=modo,
     )
     # Compatibilidad con consumidores que esperan el alias ``general``.
     dataset.setdefault("_report_type", report_type)
@@ -257,6 +272,8 @@ def export_report_csv(
     detail: str = "completo",
     search: str = "",
     status: str = "",
+    trimestre: Any = None,
+    modo: Any = None,
 ) -> bytes:
     if report_type == "consolidado" or report_type == "general":
         raise ValueError("El informe consolidado está disponible en PDF y XLSX.")
@@ -268,6 +285,8 @@ def export_report_csv(
         detail=detail,
         search=search,
         status=status,
+        trimestre=trimestre,
+        modo=modo,
     )
     if not dataset.get("datos_suficientes") and report_type not in {"aprendices", "pendientes", "actas"}:
         raise ValueError("No hay datos para exportar.")
@@ -287,6 +306,8 @@ def export_report_xlsx(
     detail: str = "completo",
     search: str = "",
     status: str = "",
+    trimestre: Any = None,
+    modo: Any = None,
 ) -> bytes:
     dataset = _dataset_for_report(
         session,
@@ -296,6 +317,8 @@ def export_report_xlsx(
         detail=detail,
         search=search,
         status=status,
+        trimestre=trimestre,
+        modo=modo,
     )
     if report_type in {"consolidado", "general"}:
         if not dataset.get("datos_suficientes"):
@@ -315,6 +338,8 @@ def export_report_pdf(
     detail: str = "completo",
     search: str = "",
     status: str = "",
+    trimestre: Any = None,
+    modo: Any = None,
 ) -> bytes:
     dataset = _dataset_for_report(
         session,
@@ -324,6 +349,8 @@ def export_report_pdf(
         detail=detail,
         search=search,
         status=status,
+        trimestre=trimestre,
+        modo=modo,
     )
     if report_type in {"consolidado", "general"}:
         if not dataset.get("datos_suficientes"):
@@ -339,12 +366,25 @@ def export_report_docx(
     *,
     report_type: str = "consolidado",
     year: int | None = None,
-    quarter: int = 2,
+    quarter: int | None = None,
     cutoff: date | None = None,
+    trimestre: Any = None,
+    modo: Any = None,
 ) -> bytes:
     if report_type not in {"consolidado", "general"}:
         raise ValueError("El informe de gestión Word está disponible para el informe consolidado.")
-    dataset = consolidate_report_dataset(session, year=year)
+    # ``quarter`` se conserva por compatibilidad con clientes anteriores;
+    # ``trimestre`` (T1..T4) es el parámetro nuevo. Sin ninguno de los dos se
+    # usa T3 acumulado, que mantiene el corte Ene-Sep histórico.
+    trimestre_efectivo = trimestre
+    if trimestre_efectivo is None and quarter is not None:
+        trimestre_efectivo = f"T{quarter}"
+    dataset = consolidate_report_dataset(
+        session,
+        year=year,
+        trimestre=trimestre_efectivo,
+        modo=modo,
+    )
     if not dataset.get("datos_suficientes"):
         raise ValueError("No hay datos para exportar.")
     from app.services.report_word import generate_report_docx
@@ -352,7 +392,6 @@ def export_report_docx(
     return generate_report_docx(
         dataset,
         year=year,
-        quarter=quarter,
         cutoff=cutoff,
     )
 
