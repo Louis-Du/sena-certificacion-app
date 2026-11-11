@@ -263,6 +263,8 @@ def test_docx_t2_acumulado_usa_corte_trimestre_y_cifras_ene_jun(client):
     # Se conserva el listado de anexos, pero no las evidencias del T2 de ejemplo.
     assert "ANEXO 15." in text
     assert "ANEXO 2. Aunque" not in text
+    # La firma cierra el documento; no queda una página en blanco al final.
+    assert document.paragraphs[-1].text == "Coordinador de Administración Educativa"
 
 
 def test_docx_t3_acumulado_conserva_comportamiento_historico(client):

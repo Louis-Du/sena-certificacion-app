@@ -377,6 +377,8 @@ def test_export_docx_usa_datos_cargados_y_conserva_estructura_institucional(clie
     assert "566 aprendices" not in text
     assert [paragraph.text for paragraph in document.paragraphs].count("ANEXOS") == 1
     assert "Tomás Alberto Venegas Moreno" in text
+    # La firma cierra el documento; no queda una página en blanco al final.
+    assert document.paragraphs[-1].text == "Coordinador de Administración Educativa"
 
 
 def test_export_docx_marca_complementaria_no_cargada_como_no_disponible(client):

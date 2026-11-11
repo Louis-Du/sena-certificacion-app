@@ -562,6 +562,37 @@ def _remove_duplicate_annex_content(doc) -> None:
             body.remove(child)
 
 
+def _trim_trailing_empty_paragraphs(doc) -> None:
+    """Retira los párrafos vacíos y el salto de sección que deja el bloque de anexos.
+
+    Al eliminar las evidencias de ejemplo queda un salto de sección después de
+    la firma que produce una página en blanco. Se conserva el ``sectPr`` final
+    del cuerpo y se eliminan los párrafos vacíos posteriores al último contenido
+    visible (texto, imagen u objeto).
+    """
+    body = doc._element.body
+    children = list(body)
+    last_content = None
+    for index, child in enumerate(children):
+        if child.tag == qn("w:sectPr"):
+            continue
+        if child.tag != qn("w:p"):
+            last_content = index
+            continue
+        paragraph = Paragraph(child, doc._body)
+        has_media = any(
+            child.findall(".//" + qn(tag))
+            for tag in ("w:drawing", "w:pict", "w:object")
+        )
+        if paragraph.text.strip() or has_media:
+            last_content = index
+    if last_content is None:
+        return
+    for child in children[last_content + 1 :]:
+        if child.tag != qn("w:sectPr"):
+            body.remove(child)
+
+
 def generate_report_docx(
     dataset: dict[str, Any],
     year: int | None = None,
@@ -582,6 +613,7 @@ def generate_report_docx(
     _write_indicator_table(doc, dataset)
     _update_narrative(doc, dataset, contexto)
     _remove_duplicate_annex_content(doc)
+    _trim_trailing_empty_paragraphs(doc)
 
     buffer = io.BytesIO()
     doc.save(buffer)
