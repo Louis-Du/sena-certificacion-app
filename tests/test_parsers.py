@@ -222,6 +222,28 @@ def test_read_complementaria_records_aggregates_by_channel_position():
     assert all(r["cantidad"] for r in registros)
 
 
+def test_complementaria_restores_colombian_dmy_for_ambiguous_excel_datetimes():
+    """Fechas ambiguas que Excel guardó como mes/día se reinterpretan día/mes.
+
+    Ejemplo real de ACTAS 2026: el 10 de septiembre queda como 2026-10-09 y el
+    1 de octubre como 2026-01-10. Tras la corrección deben quedar 2026-09-10 y
+    2026-10-01.
+    """
+    from datetime import datetime
+
+    from app.services.parsers import _to_iso_date
+
+    # 10 de septiembre mal interpretado como 9 de octubre.
+    assert _to_iso_date(datetime(2026, 10, 9)) == "2026-09-10"
+    # 1 de octubre mal interpretado como 10 de enero.
+    assert _to_iso_date(datetime(2026, 1, 10)) == "2026-10-01"
+    # Texto día/mes se conserva sin cambios.
+    assert _to_iso_date("10/09/2026") == "2026-09-10"
+    assert _to_iso_date("01/10/2026") == "2026-10-01"
+    # Día > 12 no es ambiguo: no se intercambia.
+    assert _to_iso_date(datetime(2026, 9, 15)) == "2026-09-15"
+
+
 def test_read_meta_sheet_returns_only_documented_metas():
     contenido = _multi_sheet_xlsx({"META": [{"A": "otra cosa"}]})
     assert read_meta_sheet(contenido) == {}

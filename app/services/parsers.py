@@ -1129,13 +1129,35 @@ def read_complementaria_records(content: bytes, sheet_name: str = "COMPLEMENTARI
 
 def _to_iso_date(value: Any) -> str | None:
     """
-    Convierte una fecha de Excel a ``YYYY-MM-DD``.
+    Convierte una fecha de Excel a ``YYYY-MM-DD`` para la hoja COMPLEMENTARIA.
 
-    En la hoja COMPLEMENTARIA conviven fechas reales (``datetime``), seriales de
-    Excel y textos como ``"26/02/2026"``. Se interpretan con formato
-    dia/mes/anio, que es el usado en Colombia. Si no se puede interpretar, se
-    devuelve ``None`` en lugar de asumir una fecha.
+    En esa hoja conviven textos ``"26/02/2026"`` (día/mes/año, convención
+    colombiana) y celdas que Excel ya convirtió a ``datetime``. Cuando el
+    archivo se abrió o guardó con configuración mes/día, Excel invierte fechas
+    ambiguas (día y mes ≤ 12): por ejemplo, el 10 de septiembre queda como
+    ``2026-10-09`` y el 1 de octubre como ``2026-01-10``.
+
+    Para los ``datetime`` ambiguos se restablece la interpretación día/mes/año
+    intercambiando día y mes. Los textos se siguen parseando con
+    ``parse_date_value`` (día primero). Si no hay una fecha interpretable se
+    devuelve ``None``.
     """
+    if isinstance(value, datetime):
+        day, month, year = value.day, value.month, value.year
+        if day <= 12 and month <= 12 and day != month:
+            try:
+                return date(year, day, month).isoformat()
+            except ValueError:
+                pass
+        return value.date().isoformat()
+    if isinstance(value, date) and not isinstance(value, datetime):
+        day, month, year = value.day, value.month, value.year
+        if day <= 12 and month <= 12 and day != month:
+            try:
+                return date(year, day, month).isoformat()
+            except ValueError:
+                pass
+        return value.isoformat()
     return parse_date_value(value)
 
 

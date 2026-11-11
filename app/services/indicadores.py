@@ -221,10 +221,18 @@ def _metas_institucionales(
         metas = {
             clave: valor
             for clave, valor in registro.items()
-            if clave in {"superior", "tecnica", "articulacion", "complementaria"}
+            if clave
+            in {
+                "superior",
+                "tecnica",
+                "articulacion",
+                "complementaria",
+                "campesena",
+                "fullpopular",
+            }
             and isinstance(valor, int)
         }
-        if metas:
+        if any(k in metas for k in ("superior", "tecnica", "articulacion", "complementaria")):
             return metas, "ACTAS 2026.xlsx (hoja META)"
 
     # El lote vigente manda: si existe pero no trae META, no se rescata una meta
@@ -1025,6 +1033,10 @@ def compute_indicadores_2026(session: Session) -> dict[str, Any]:
         "metricas": metricas,
         "motivos": motivos,
         "complementaria_canales": complementaria["por_canal"],
+        "metas_canales": {
+            "campesena": metas.get("campesena"),
+            "fullpopular": metas.get("fullpopular"),
+        },
         "referencia_institucional": referencia,
         "ultimas_actas": ultimas_actas,
         # Listado completo de actas del periodo (no solo las 15 de la UI).

@@ -81,6 +81,7 @@ def _sum_known(*values: Any) -> int | None:
 def _table_rows(dataset: dict[str, Any]) -> dict[int, tuple[Any, Any, Any, Any]]:
     metrics = _metric_map(dataset)
     channels = dataset.get("complementaria_canales") or {}
+    channel_metas = dataset.get("metas_canales") or {}
     certificates_available = dataset.get("certificados_disponible", True)
     complementary_available = dataset.get("complementaria_disponible", True)
 
@@ -97,6 +98,25 @@ def _table_rows(dataset: dict[str, Any]) -> dict[int, tuple[Any, Any, Any, Any]]
             item.get("brecha"),
             item.get("avance"),
         )
+
+    def channel_row(name: str) -> tuple[Any, Any, Any, Any]:
+        meta = channel_metas.get(name)
+        certificates = channels.get(name) if complementary_available else None
+        if not complementary_available:
+            return meta, None, None, None
+        pending = (
+            max(0, meta - certificates)
+            if isinstance(meta, (int, float)) and isinstance(certificates, (int, float))
+            else None
+        )
+        advance = (
+            round(certificates * 100 / meta, 1)
+            if isinstance(meta, (int, float))
+            and meta
+            and isinstance(certificates, (int, float))
+            else None
+        )
+        return meta, certificates, pending, advance
 
     superior = category("superior")
     tecnica = category("tecnica")
@@ -115,8 +135,8 @@ def _table_rows(dataset: dict[str, Any]) -> dict[int, tuple[Any, Any, Any, Any]]
         2: tecnica,
         3: articulacion,
         4: total(tecnica, articulacion),
-        6: (None, channels.get("campesena") if complementary_available else None, None, None),
-        7: (None, channels.get("fullpopular") if complementary_available else None, None, None),
+        6: channel_row("campesena"),
+        7: channel_row("fullpopular"),
         9: total(superior, tecnica, articulacion),
         # The template vertically merges the value cells for these two rows.
         # Put the shared complementary total there; channel totals remain in
@@ -328,8 +348,8 @@ def _update_narrative(doc, dataset: dict[str, Any], cutoff: date) -> None:
         elif text.startswith("Se evidenció la gestión desarrollada"):
             _set_paragraph_text(
                 paragraph,
-                f"Para el periodo {period}, el sistema registra {total_summary} "
-                "con base en el consolidado institucional disponible.",
+                f"Para el periodo {period}, con base en el consolidado institucional "
+                f"disponible, {total_summary[0].lower() + total_summary[1:] if total_summary else 'no hay resultados calculables.'}",
             )
         elif text.startswith(
             (
