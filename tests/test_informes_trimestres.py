@@ -212,10 +212,25 @@ def test_docx_t2_acumulado_usa_corte_trimestre_y_cifras_ene_jun(client):
 
     document = Document(BytesIO(response.content))
     text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+    assert "Presentar la gestión realizada" in text
+    assert "Trimestre II de 2026" in text
     assert "30 de junio de 2026" in text
-    assert "Trimestre II 2026" in text
-    assert "Enero - Junio 2026" in text
+    assert "¿Cómo fue la gestión en el periodo II para el Indicador: “Certificación - Educación Superior”" in text
+    assert "Dependencia de las actas de certificación" in text
+    assert "Cantidad de aprendices relacionados en las actas" in text
+    assert "SOFIA Plus" in text
+    assert "Pendiente de registro por la dependencia." in text
     assert "Enero - Septiembre 2026" not in text
+    for prohibido in (
+        "registrados en el sistema",
+        "fuentes institucionales cargadas",
+        "El sistema no almacena",
+        "consolidado ACTAS",
+        "Resultados del indicador",
+        "aplicativo",
+        "no se registran en las fuentes",
+    ):
+        assert prohibido not in text
 
     indicators = document.tables[1]
     # Educación Superior: 2 certificados (enero y marzo).
@@ -240,6 +255,15 @@ def test_docx_t2_acumulado_usa_corte_trimestre_y_cifras_ene_jun(client):
         "7,7",
     ]
 
+    # Consistencia numérica entre tabla y narrativa.
+    assert "equivale al 2%" in text
+    assert "ejecución del 10%" in text
+    assert "ejecución del 7,7%" in text
+    assert "avance del 7,7%" in text
+    # Se conserva el listado de anexos, pero no las evidencias del T2 de ejemplo.
+    assert "ANEXO 15." in text
+    assert "ANEXO 2. Aunque" not in text
+
 
 def test_docx_t3_acumulado_conserva_comportamiento_historico(client):
     with client.session_factory() as session:
@@ -250,9 +274,10 @@ def test_docx_t3_acumulado_conserva_comportamiento_historico(client):
 
     document = Document(BytesIO(response.content))
     text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+    assert "Presentar la gestión realizada" in text
     assert "30 de septiembre de 2026" in text
-    assert "Trimestre III 2026" in text
-    assert "Enero - Septiembre 2026" in text
+    assert "Trimestre III de 2026" in text
+    assert "¿Cómo fue la gestión en el periodo III" in text
 
     indicators = document.tables[1]
     assert [cell.text for cell in indicators.rows[10].cells[1:]] == [
@@ -261,3 +286,55 @@ def test_docx_t3_acumulado_conserva_comportamiento_historico(client):
         "790",
         "21",
     ]
+
+
+def test_docx_t3_solo_trimestre_conserva_estructura_institucional(client):
+    with client.session_factory() as session:
+        _seed_periodo(session)
+
+    response = client.get("/api/informes/word?trimestre=T3&modo=solo_trimestre")
+    assert response.status_code == 200, response.text
+
+    document = Document(BytesIO(response.content))
+    text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+    assert "Presentar la gestión realizada" in text
+    assert "Trimestre III de 2026" in text
+    assert "30 de septiembre de 2026" in text
+    assert "¿Cómo fue la gestión en el periodo III" in text
+    assert "Dependencia de las actas de certificación" in text
+    assert "SOFIA Plus" in text
+    for prohibido in (
+        "registrados en el sistema",
+        "fuentes institucionales cargadas",
+        "El sistema no almacena",
+        "consolidado ACTAS",
+        "Resultados del indicador",
+        "aplicativo",
+    ):
+        assert prohibido not in text
+
+    indicators = document.tables[1]
+    assert [cell.text for cell in indicators.rows[10].cells[1:]] == [
+        "1.000",
+        "110",
+        "890",
+        "11",
+    ]
+    assert [cell.text for cell in indicators.rows[12].cells[1:]] == [
+        "1.350",
+        "112",
+        "1.238",
+        "8,3",
+    ]
+    assert "ejecución del 11%" in text
+    assert "ejecución del 8,3%" in text
+
+
+def test_regla_semaforizacion_usa_prorrateo_del_periodo():
+    from app.services.report_word import _lectura_avance
+
+    assert _lectura_avance(50, 50) == ("buena", "verde")
+    assert _lectura_avance(49.9, 50) == ("baja", "rojo")
+    assert _lectura_avance(25, 25) == ("buena", "verde")
+    assert _lectura_avance(24.9, 25) == ("baja", "rojo")
+    assert _lectura_avance(None, 50) == ("sin información", "sin semaforización")

@@ -331,7 +331,7 @@ def test_exporta_csv_y_catalogo_de_informes(client):
     assert consolidated_pdf.content.startswith(b"%PDF")
 
 
-def test_export_docx_usa_datos_cargados_y_omite_anexos(client):
+def test_export_docx_usa_datos_cargados_y_conserva_estructura_institucional(client):
     from docx import Document
 
     with client.session_factory() as session:
@@ -371,14 +371,12 @@ def test_export_docx_usa_datos_cargados_y_omite_anexos(client):
     assert [cell.text for cell in indicators.rows[10].cells[1:]] == ["100", "10", "90", "10"]
     assert [cell.text for cell in indicators.rows[11].cells[1:]] == ["100", "10", "90", "10"]
     text = "\n".join(paragraph.text for paragraph in document.paragraphs)
-    assert "no se agregan actividades no registradas" in text
-    assert "presencial: 7" in text
-    assert "virtual: 3" in text
-    assert "ANEXO 1." not in text
+    assert "Pendiente de registro por la dependencia." in text
+    assert "ANEXO 1." in text
     assert "943 aprendices" not in text
     assert "566 aprendices" not in text
     assert [paragraph.text for paragraph in document.paragraphs].count("ANEXOS") == 1
-    assert document.paragraphs[-1].text == "ANEXOS"
+    assert "Tomás Alberto Venegas Moreno" in text
 
 
 def test_export_docx_marca_complementaria_no_cargada_como_no_disponible(client):
