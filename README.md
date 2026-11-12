@@ -196,8 +196,8 @@ Requiere Docker Desktop con el motor Docker activo. Desde la raiz del proyecto:
 docker compose up --build
 ```
 
-Luego abre `http://127.0.0.1:8000`. El codigo local se monta dentro del contenedor y
-Uvicorn recarga la aplicacion cuando detecta cambios.
+Luego abre `http://127.0.0.1:8000`. La imagen se reconstruye con
+`docker compose up --build`; si cambias el codigo, vuelve a ejecutar ese comando.
 
 Para detener el servicio:
 
@@ -205,10 +205,19 @@ Para detener el servicio:
 docker compose down
 ```
 
-Para ejecutar las pruebas dentro del mismo entorno:
+Para ejecutar las pruebas se usa la etapa `test` del Dockerfile, que incluye
+`tests/`, `pytest.ini`, `archivos_prueba/` y los archivos del lanzador de escritorio:
 
-```powershell
-docker compose run --rm backend pytest
+```bash
+docker build --target test -t sena-certificacion-app-tests .
+docker run --rm sena-certificacion-app-tests
+```
+
+Para ejecutar solo un archivo o una prueba:
+
+```bash
+docker run --rm sena-certificacion-app-tests pytest tests/test_import_indicadores_actas30.py -q
+docker run --rm sena-certificacion-app-tests pytest tests/test_import_indicadores_actas30.py::test_import_actas30_t3_acumulado_titulada -q
 ```
 
 El volumen `app_data` queda reservado para conservar la futura base de datos SQLite.
