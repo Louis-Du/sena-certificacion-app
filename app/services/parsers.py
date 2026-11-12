@@ -1107,58 +1107,168 @@ def read_complementaria_records(content: bytes, sheet_name: str = "COMPLEMENTARI
     # Cada canal ocupa una pareja de columnas: fecha y cantidad.
     canales = ((0, 1, "presencial"), (3, 4, "virtual"), (7, 8, "campesena"), (10, 11, "fullpopular"))
     registros: list[dict[str, Any]] = []
-    for indice in range(len(raw.index)):
-        for col_fecha, col_cantidad, canal in canales:
-            if col_cantidad >= raw.shape[1]:
-                continue
-            fecha = raw.iat[indice, col_fecha]
+    for col_fecha, col_cantidad, canal in canales:
+        if col_cantidad >= raw.shape[1]:
+            continue
+        # Primero se agrupan las filas del canal para poder detectar el patron
+        # legado del ACTAS institucional grande (texto DD/MM junto a datetime
+        # invertidos) sin aplicar ese intercambio a los datetime correctos.
+        filas_canal: list[tuple[int, Any, int]] = []
+        for indice in range(len(raw.index)):
             cantidad = _to_int(raw.iat[indice, col_cantidad])
             if cantidad is None:
                 continue
-            fecha_texto = _to_iso_date(fecha)
+            filas_canal.append((indice, raw.iat[indice, col_fecha], cantidad))
+        swap_legado = _usar_swap_legado_complementaria(
+            [fecha for _, fecha, _ in filas_canal]
+        )
+        for indice, fecha, cantidad in filas_canal:
             registros.append(
                 {
                     "canal": canal,
-                    "fecha": fecha_texto,
+                    "fecha": _to_iso_date(
+                        fecha, swap_ambiguous_datetime=swap_legado
+                    ),
                     "cantidad": cantidad,
                     "fila": indice + 1,
                 }
             )
+    # Se conserva el orden por fila del Excel (antes se recorria fila a fila).
+    registros.sort(key=lambda registro: registro["fila"])
     return registros
 
 
-def _to_iso_date(value: Any) -> str | None:
+def _to_iso_date(
+    value: Any, *, swap_ambiguous_datetime: bool = False
+) -> str | None:
     """
     Convierte una fecha de Excel a ``YYYY-MM-DD`` para la hoja COMPLEMENTARIA.
 
-    En esa hoja conviven textos ``"26/02/2026"`` (día/mes/año, convención
-    colombiana) y celdas que Excel ya convirtió a ``datetime``. Cuando el
-    archivo se abrió o guardó con configuración mes/día, Excel invierte fechas
-    ambiguas (día y mes ≤ 12): por ejemplo, el 10 de septiembre queda como
-    ``2026-10-09`` y el 1 de octubre como ``2026-01-10``.
+    Los valores ``datetime``/``date`` se usan **tal cual**: un ``datetime``
+    correcto como ``2026-04-10`` (10 de abril) nunca se convierte en octubre.
+    El parametro ``swap_ambiguous_datetime`` existe solo para la deteccion
+    acotada del patron legado del ACTAS institucional grande (ver
+    :func:`_usar_swap_legado_complementaria`); por defecto esta desactivado.
 
-    Para los ``datetime`` ambiguos se restablece la interpretación día/mes/año
-    intercambiando día y mes. Los textos se siguen parseando con
-    ``parse_date_value`` (día primero). Si no hay una fecha interpretable se
-    devuelve ``None``.
+    Los textos se interpretan en este orden: ISO (``YYYY-MM-DD``), día/mes/año
+    (``DD/MM/YYYY`` y ``DD-MM-YYYY``), día/mes/año con año de dos digitos y,
+    solo al final, mes/día/año (compatibilidad con archivos en formato US). Si
+    el texto no es una fecha real se devuelve ``None``; no se inventa un valor.
     """
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+
     if isinstance(value, datetime):
-        day, month, year = value.day, value.month, value.year
-        if day <= 12 and month <= 12 and day != month:
+        if swap_ambiguous_datetime and _es_datetime_ambiguo(value):
             try:
-                return date(year, day, month).isoformat()
+                return date(value.year, value.day, value.month).isoformat()
             except ValueError:
                 pass
         return value.date().isoformat()
-    if isinstance(value, date) and not isinstance(value, datetime):
-        day, month, year = value.day, value.month, value.year
-        if day <= 12 and month <= 12 and day != month:
-            try:
-                return date(year, day, month).isoformat()
-            except ValueError:
-                pass
+    if isinstance(value, date):
         return value.isoformat()
-    return parse_date_value(value)
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, Real):
+        return _excel_serial_to_iso(value)
+
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "nat", "none"}:
+        return None
+
+    # El orden importa: ISO primero; luego la convencion colombiana día/mes;
+    # y solo despues mes/día como compatibilidad. strptime valida la fecha real
+    # (mes 1-12 y día valido para ese mes).
+    formatos = (
+        "%Y-%m-%d",
+        "%Y/%m/%d",
+        "%Y%m%d",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%d/%m/%Y",
+        "%d-%m-%Y",
+        "%d.%m.%Y",
+        "%d/%m/%y",
+        "%d-%m-%y",
+        "%d.%m.%y",
+        "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M",
+        "%m/%d/%Y",
+        "%m-%d-%Y",
+        "%m/%d/%y",
+        "%m-%d-%y",
+    )
+    for formato in formatos:
+        try:
+            return datetime.strptime(text, formato).date().isoformat()
+        except ValueError:
+            continue
+
+    # Serial de Excel que llego como texto y variantes con zona horaria o
+    # nombres de mes que ya sabe interpretar ``parse_date_value``.
+    return parse_date_value(text)
+
+
+def _es_datetime_ambiguo(value: datetime) -> bool:
+    """Indica si día y mes podrian intercambiarse sin cambiar el tipo de fecha."""
+    return 1 <= value.day <= 12 and 1 <= value.month <= 12 and value.day != value.month
+
+
+def _inversiones_de_fecha(fechas: list[str]) -> int:
+    """Cuenta cambios descendentes en una secuencia ordenada de fechas ISO."""
+    return sum(1 for antes, despues in zip(fechas, fechas[1:]) if antes > despues)
+
+
+def _usar_swap_legado_complementaria(fechas: list[Any]) -> bool:
+    """
+    Detecta el patron legado del ACTAS institucional grande, de forma acotada.
+
+    En ese archivo conviven textos ``DD/MM/YYYY`` correctos con ``datetime``
+    que Excel guardo invertidos (mes/día). En el ACTAS de 30 registros todas
+    las fechas son ``datetime`` correctos, por lo que NO deben invertirse.
+
+    La regla solo se activa cuando en un mismo canal:
+    * hay fechas de texto y ``datetime`` (representacion mixta),
+    * existen ``datetime`` ambiguos, y
+    * el orden cronologico del canal demuestra la inversion: sin swap hay
+      inversiones y con swap la secuencia queda totalmente ordenada.
+
+    No se prueban permutaciones por fila ni se usa el periodo del informe para
+    elegir una fecha. Si no hay evidencia de inversion, se conserva el datetime
+    tal como viene en el archivo.
+    """
+    sin_swap: list[str] = []
+    con_swap: list[str] = []
+    tiene_datetime = False
+    tiene_texto = False
+    tiene_ambigua = False
+
+    for fecha in fechas:
+        valor_sin_swap = _to_iso_date(fecha)
+        if valor_sin_swap:
+            sin_swap.append(valor_sin_swap)
+        valor_con_swap = _to_iso_date(fecha, swap_ambiguous_datetime=True)
+        if valor_con_swap:
+            con_swap.append(valor_con_swap)
+        if isinstance(fecha, datetime):
+            tiene_datetime = True
+            tiene_ambigua = tiene_ambigua or _es_datetime_ambiguo(fecha)
+        elif valor_sin_swap:
+            tiene_texto = True
+
+    if not (tiene_datetime and tiene_texto and tiene_ambigua):
+        return False
+
+    inversiones_sin_swap = _inversiones_de_fecha(sin_swap)
+    inversiones_con_swap = _inversiones_de_fecha(con_swap)
+    return inversiones_sin_swap > 0 and inversiones_con_swap == 0
 
 
 # ---------------------------------------------------------------------------
