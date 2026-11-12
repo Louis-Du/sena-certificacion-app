@@ -222,26 +222,79 @@ def test_read_complementaria_records_aggregates_by_channel_position():
     assert all(r["cantidad"] for r in registros)
 
 
-def test_complementaria_restores_colombian_dmy_for_ambiguous_excel_datetimes():
-    """Fechas ambiguas que Excel guardó como mes/día se reinterpretan día/mes.
-
-    Ejemplo real de ACTAS 2026: el 10 de septiembre queda como 2026-10-09 y el
-    1 de octubre como 2026-01-10. Tras la corrección deben quedar 2026-09-10 y
-    2026-10-01.
-    """
-    from datetime import datetime
+def test_complementaria_datetime_y_date_conservan_dia_y_mes():
+    """Un datetime correcto nunca se invierte (10 de abril no es octubre)."""
+    from datetime import date, datetime
 
     from app.services.parsers import _to_iso_date
 
-    # 10 de septiembre mal interpretado como 9 de octubre.
-    assert _to_iso_date(datetime(2026, 10, 9)) == "2026-09-10"
-    # 1 de octubre mal interpretado como 10 de enero.
-    assert _to_iso_date(datetime(2026, 1, 10)) == "2026-10-01"
-    # Texto día/mes se conserva sin cambios.
-    assert _to_iso_date("10/09/2026") == "2026-09-10"
-    assert _to_iso_date("01/10/2026") == "2026-10-01"
-    # Día > 12 no es ambiguo: no se intercambia.
+    assert _to_iso_date(datetime(2026, 4, 10)) == "2026-04-10"
+    assert _to_iso_date(datetime(2026, 7, 10)) == "2026-07-10"
+    assert _to_iso_date(datetime(2026, 3, 5)) == "2026-03-05"
+    assert _to_iso_date(datetime(2026, 10, 9)) == "2026-10-09"
+    assert _to_iso_date(date(2026, 4, 10)) == "2026-04-10"
+    # Día > 12 tampoco se toca (no era ambiguo).
     assert _to_iso_date(datetime(2026, 9, 15)) == "2026-09-15"
+
+
+def test_complementaria_textos_priorizan_iso_y_dia_mes():
+    """Los textos se interpretan con la convención colombiana, no mes/día."""
+    from app.services.parsers import _to_iso_date
+
+    assert _to_iso_date("2026-04-10") == "2026-04-10"
+    assert _to_iso_date("10/04/2026") == "2026-04-10"
+    assert _to_iso_date("10-04-2026") == "2026-04-10"
+    assert _to_iso_date("10/04/26") == "2026-04-10"
+    # Solo si día/mes no es válido se usa la compatibilidad mes/día.
+    assert _to_iso_date("04/13/2026") == "2026-04-13"
+    # Fechas imposibles o texto no reconocido: sin fecha, nunca inventada.
+    assert _to_iso_date("32/13/2026") is None
+    assert _to_iso_date("2026-02-30") is None
+    assert _to_iso_date("fecha invalida") is None
+
+
+def test_complementaria_legado_mixto_solo_invierte_si_la_cronologia_lo_prueba():
+    """El patron legado se corrige de forma acotada, sin tocar datetime correctos.
+
+    El ACTAS institucional grande mezcla textos DD/MM correctos con datetime
+    invertidos y sus filas quedan en orden cronologico solo al restaurar
+    día/mes. Un archivo con datetime correctos (aunque comparta columna con
+    textos) conserva sus fechas.
+    """
+    from datetime import datetime
+
+    # Patron legado: texto correcto + datetime invertidos. Sin swap el orden
+    # del canal no es cronologico; con swap queda ordenado.
+    filas_legado = [
+        ["2026-02-26", 10, None, "2026-03-16", 20, None, None, "2026-03-16", 5, None, "2026-03-27", 7],
+        ["2026-03-13", 11, None, "2026-03-26", 21, None, None, datetime(2026, 10, 4), 6, None, datetime(2026, 10, 4), 8],
+        ["2026-04-13", 12, None, "2026-04-08", 22, None, None, datetime(2026, 7, 5), 7, None, datetime(2026, 8, 5), 9],
+        ["2026-06-16", 13, None, "2026-05-22", 23, None, None, datetime(2026, 5, 6), 8, None, datetime(2026, 10, 7), 10],
+        ["2026-07-10", 14, None, "2026-07-07", 24, None, None, "2026-08-21", 9, None, "2026-08-21", 11],
+    ]
+    registros = read_complementaria_records(_actas_xlsx([], [], filas_legado, _meta_rows()))
+    fechas = {(r["canal"], r["fila"]): r["fecha"] for r in registros}
+
+    assert fechas[("campesena", 2)] == "2026-04-10"
+    assert fechas[("campesena", 3)] == "2026-05-07"
+    assert fechas[("campesena", 4)] == "2026-06-05"
+    assert fechas[("fullpopular", 2)] == "2026-04-10"
+    assert fechas[("fullpopular", 3)] == "2026-05-08"
+    assert fechas[("fullpopular", 4)] == "2026-07-10"
+    # Los canales sin datetime no se tocan.
+    assert fechas[("presencial", 1)] == "2026-02-26"
+    assert fechas[("virtual", 1)] == "2026-03-16"
+
+    # Datetime correctos en una columna mixta: la cronologia ya esta bien sin
+    # swap, por lo que NO se invierten.
+    filas_correctas = [
+        ["2026-03-16", 5, None, "2026-03-16", 20, None, None, "2026-03-16", 5, None, "2026-03-05", 7],
+        [None, None, None, None, None, None, None, datetime(2026, 4, 10), 6, None, datetime(2026, 4, 10), 8],
+    ]
+    registros = read_complementaria_records(_actas_xlsx([], [], filas_correctas, _meta_rows()))
+    fechas = {(r["canal"], r["fila"]): r["fecha"] for r in registros}
+    assert fechas[("campesena", 2)] == "2026-04-10"
+    assert fechas[("fullpopular", 2)] == "2026-04-10"
 
 
 def test_read_meta_sheet_returns_only_documented_metas():

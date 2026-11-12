@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import json
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from docx import Document
 
 from app.models import ImportedRecord, ImportHistory
 from app.services.indicadores import compute_indicadores_2026, resolver_periodo
+from app.services.parsers import read_complementaria_records, read_meta_sheet
 
 
 def _seed(session, information_type: str, records: list[dict]) -> None:
@@ -175,6 +177,53 @@ def test_complementaria_y_certificados_se_filtran_por_periodo(session_factory):
     assert t4_acum["periodo"] == "Enero - Diciembre 2026"
     assert t4_acum["certificados_personas"] == 7
     assert t4_acum["certificados_complementaria"] == 280
+
+
+FIXTURE_COMPLEMENTARIA_30 = (
+    Path(__file__).resolve().parents[1]
+    / "archivos_prueba"
+    / "correctos"
+    / "ACTAS_2026_30_REGISTROS_fechas_datetime.xlsx"
+)
+
+
+def test_complementaria_30_registros_datetime_correctos_en_t3_acumulado(session_factory):
+    """Regresion: las fechas datetime correctas no deben salirse del T3.
+
+    Fixture basado en ACTAS_2026_30_REGISTROS (COMPLEMENTARIA + META). Antes de
+    corregir el swap, el 10 de abril se interpretaba como 4 de octubre y el 10
+    de julio como 7 de octubre, dejando fuera del corte 30/09 parte de
+    Campesena y Full Popular.
+    """
+    content = FIXTURE_COMPLEMENTARIA_30.read_bytes()
+    registros = read_complementaria_records(content)
+    metas = read_meta_sheet(content)
+    assert metas["campesena"] == 2126
+    assert metas["fullpopular"] == 2104
+
+    with session_factory() as session:
+        _seed(
+            session,
+            "complementaria",
+            [
+                {
+                    "canal": registro["canal"],
+                    "fecha": registro["fecha"],
+                    "cantidad": registro["cantidad"],
+                }
+                for registro in registros
+            ],
+        )
+        _seed(session, "meta", [metas])
+        data = compute_indicadores_2026(session, trimestre="T3", modo="acumulado")
+
+    canales = data["complementaria_canales"]
+    assert canales["presencial"] == 474
+    assert canales["virtual"] == 550
+    assert canales["campesena"] == 210
+    assert canales["fullpopular"] == 245
+    assert data["certificados_complementaria"] == 1479
+    assert data["metas_canales"] == {"campesena": 2126, "fullpopular": 2104}
 
 
 def test_metas_anuales_no_cambian_entre_trimestres(session_factory):
