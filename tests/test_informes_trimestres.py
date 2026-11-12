@@ -339,6 +339,91 @@ def test_docx_t3_acumulado_conserva_comportamiento_historico(client):
     ]
 
 
+def _find_docx_paragraph(document, prefix: str, contains: str | None = None):
+    for paragraph in document.paragraphs:
+        text = paragraph.text.strip()
+        if text.startswith(prefix) and (contains is None or contains in text):
+            return paragraph
+    raise AssertionError(f"No se encontro parrafo que empiece con {prefix!r}")
+
+
+def _assert_fragment_normal(paragraph, fragment: str) -> None:
+    runs = [run for run in paragraph.runs if fragment in run.text]
+    assert runs, f"No se encontro el fragmento {fragment!r}"
+    assert all(run.bold is not True for run in runs), fragment
+    assert all(run.italic is not True for run in runs), fragment
+
+
+def test_docx_cuerpo_indicadores_no_hereda_negrita_del_titulo(client):
+    """Los datos de meta/ejecución/% quedan en formato normal.
+
+    La plantilla mezcla títulos en negrita con el cuerpo en el mismo párrafo
+    (3.1.2 y 3.1.5) o tiene rótulos en negrita seguidos de texto normal. El
+    generador debe separar esos bloques y no copiar el formato del título.
+    """
+    with client.session_factory() as session:
+        _seed_periodo(session)
+
+    response = client.get("/api/informes/word")
+    assert response.status_code == 200, response.text
+    document = Document(BytesIO(response.content))
+
+    # 3.1.1: cuerpo de Educación Superior.
+    _assert_fragment_normal(
+        _find_docx_paragraph(document, "La Meta Anual asignada"),
+        "La Meta Anual asignada",
+    )
+    # 3.1.2: título + datos en el mismo párrafo.
+    tecnica = _find_docx_paragraph(
+        document, "¿Cómo fue la gestión del periodo", "Técnico Laboral"
+    )
+    assert any(run.bold is True for run in tecnica.runs if run.text.strip())
+    _assert_fragment_normal(tecnica, "La Meta Anual es de")
+
+    # 3.1.3: cuerpo de Articulación.
+    _assert_fragment_normal(
+        _find_docx_paragraph(document, "El componente de Certificación alcanzó"),
+        "El componente de Certificación alcanzó",
+    )
+    # 3.1.4: cuerpo de Complementaria.
+    _assert_fragment_normal(
+        _find_docx_paragraph(document, "Con una meta anual de"),
+        "Con una meta anual de",
+    )
+    # 3.1.5: título + datos en el mismo párrafo.
+    total = _find_docx_paragraph(
+        document, "¿Cómo fue la gestión en el periodo", "Certificación TOTAL"
+    )
+    assert any(run.bold is True for run in total.runs if run.text.strip())
+    _assert_fragment_normal(total, "se realizó una ejecución de")
+
+    # Rótulos de análisis/estrategia: encabezado permitido, cuerpo normal.
+    estrategia = _find_docx_paragraph(
+        document, "Estrategia o Actividades llevadas a cabo:", "Pendiente de registro"
+    )
+    assert any(run.bold is True for run in estrategia.runs if "Estrategia" in run.text)
+    _assert_fragment_normal(estrategia, "Pendiente de registro")
+
+    # Limitaciones: la cabecera corta conserva negrita; el cuerpo no.
+    limite = _find_docx_paragraph(
+        document, "Dependencia de las actas de certificación:", "El proceso"
+    )
+    assert any(run.bold is True for run in limite.runs if "Dependencia" in run.text)
+    _assert_fragment_normal(limite, "El proceso de certificación")
+
+    bullet = _find_docx_paragraph(
+        document, "▪ Reducción de tiempos", "De acuerdo con"
+    )
+    assert any(run.bold is True for run in bullet.runs if "Reducción" in run.text)
+    _assert_fragment_normal(bullet, "De acuerdo con")
+
+    requisitos = _find_docx_paragraph(
+        document, "Aprendices con requisitos pendientes", "Se identifican"
+    )
+    assert any(run.bold is True for run in requisitos.runs if "Aprendices" in run.text)
+    _assert_fragment_normal(requisitos, "Se identifican")
+
+
 def test_docx_t3_solo_trimestre_conserva_estructura_institucional(client):
     with client.session_factory() as session:
         _seed_periodo(session)

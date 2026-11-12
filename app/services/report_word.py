@@ -68,6 +68,167 @@ def _set_paragraph_text(paragraph, text: str) -> None:
         run._r.insert(0, run_properties)
 
 
+def _run_properties(run):
+    """Copia las propiedades de un run de la plantilla, si existen."""
+    if run is None or run._r.rPr is None:
+        return None
+    return deepcopy(run._r.rPr)
+
+
+def _first_meaningful_run(paragraph):
+    """Primer run con texto suficiente para representar el formato del bloque."""
+    for run in paragraph.runs:
+        if len(run.text.strip()) >= 2:
+            return run
+    return paragraph.runs[0] if paragraph.runs else None
+
+
+def _first_body_run(paragraph):
+    """Primer run que no sea título/viñeta y que no esté en negrita."""
+    for run in paragraph.runs:
+        text = run.text.strip()
+        if len(text) >= 2 and not text.startswith("▪") and run.bold is not True:
+            return run
+    return None
+
+
+def _first_bullet_run(paragraph):
+    for run in paragraph.runs:
+        if run.text.strip().startswith("▪"):
+            return run
+    return None
+
+
+def _format_flags(run, *, bold: bool) -> dict[str, bool]:
+    """Formato explicito para un run, sin heredar negrita en el cuerpo."""
+    return {
+        "bold": bold,
+        "italic": bool(run.italic) if run is not None else False,
+        "underline": bool(run.underline) if run is not None else False,
+    }
+
+
+def _narrative_segments(text: str) -> list[tuple[str, str]]:
+    """Separa un párrafo en título/rótulo y cuerpo para no heredar negrita.
+
+    La plantilla institucional mezcla en un mismo párrafo títulos en negrita con
+    datos en formato normal. Al reconstruir el texto se conserva esa separación;
+    el cuerpo nunca recibe el ``bold``/``italic``/``underline`` del título.
+    """
+    if not text:
+        return []
+
+    if text.startswith("¿Cómo fue la gestión"):
+        marker = "?: "
+        index = text.find(marker)
+        if index != -1:
+            return [("title", text[: index + 2]), ("body", text[index + 2 :])]
+        return [("title", text)]
+
+    strategy_label = "Estrategia o Actividades llevadas a cabo:"
+    if text.startswith(strategy_label):
+        return [
+            ("label", strategy_label),
+            ("body", text[len(strategy_label) :]),
+        ]
+
+    if text.startswith("▪ "):
+        rest = text[2:]
+        colon = rest.find(": ")
+        if colon != -1:
+            return [
+                ("bullet", "▪ "),
+                ("label", rest[: colon + 1]),
+                ("body", rest[colon + 1 :]),
+            ]
+        return [("bullet", "▪ "), ("label", rest)]
+
+    for label in (
+        "Análisis de la ejecución",
+        "Dependencia de las actas de certificación:",
+        "Cantidad de aprendices relacionados en las actas:",
+        "Aprendices con requisitos pendientes para certificación:",
+    ):
+        if not text.startswith(label):
+            continue
+        if label.startswith("Análisis") and text.rstrip().endswith(":"):
+            return [("label", text)]
+        colon = text.find(": ")
+        if colon != -1:
+            return [("label", text[: colon + 1]), ("body", text[colon + 1 :])]
+        return [("label", text)]
+
+    return [("body", text)]
+
+
+def _add_formatted_run(paragraph, text: str, properties, flags: dict[str, bool]):
+    run = paragraph.add_run(text)
+    if properties is not None:
+        run._r.insert(0, deepcopy(properties))
+    run.bold = flags["bold"]
+    run.italic = flags["italic"]
+    run.underline = flags["underline"]
+    return run
+
+
+def _set_narrative_text(paragraph, text: str) -> None:
+    """Reemplaza un párrafo narrativo conservando título y cuerpo separados.
+
+    A diferencia de :func:`_set_paragraph_text`, no copia el formato del primer
+    run a todo el texto: los datos de meta/ejecución/% quedan explícitamente en
+    formato normal y solo el título o el rótulo corto conserva la negrita de la
+    plantilla.
+    """
+    title_run = _first_meaningful_run(paragraph)
+    body_run = _first_body_run(paragraph)
+    bullet_run = _first_bullet_run(paragraph)
+    title_properties = _run_properties(title_run)
+    body_properties = _run_properties(body_run)
+    if body_properties is None:
+        body_properties = title_properties
+    bullet_properties = _run_properties(bullet_run)
+    if bullet_properties is None:
+        bullet_properties = body_properties
+
+    for child in list(paragraph._p):
+        if child.tag != qn("w:pPr"):
+            paragraph._p.remove(child)
+    if not text:
+        return
+
+    for kind, segment in _narrative_segments(text):
+        if not segment:
+            continue
+        if kind == "title":
+            _add_formatted_run(
+                paragraph,
+                segment,
+                title_properties,
+                _format_flags(title_run, bold=True),
+            )
+        elif kind == "label":
+            _add_formatted_run(
+                paragraph,
+                segment,
+                title_properties,
+                _format_flags(title_run, bold=True),
+            )
+        elif kind == "bullet":
+            _add_formatted_run(
+                paragraph,
+                segment,
+                bullet_properties,
+                {"bold": False, "italic": False, "underline": False},
+            )
+        else:
+            _add_formatted_run(
+                paragraph,
+                segment,
+                body_properties,
+                {"bold": False, "italic": False, "underline": False},
+            )
+
+
 def _format_number(value: Any) -> str:
     if value is None:
         return "No disponible"
@@ -536,7 +697,7 @@ def _update_narrative(doc, dataset: dict[str, Any], contexto: dict[str, Any]) ->
             updated = _strip_annex_references(updated)
 
         if updated != paragraph.text:
-            _set_paragraph_text(paragraph, updated)
+            _set_narrative_text(paragraph, updated)
 
 
 def _remove_duplicate_annex_content(doc) -> None:
