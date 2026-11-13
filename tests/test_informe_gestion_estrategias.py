@@ -15,6 +15,7 @@ from __future__ import annotations
 from io import BytesIO
 from pathlib import Path
 
+import pytest
 from docx import Document
 
 from app.models import InformeGestionEstrategia
@@ -41,6 +42,28 @@ SECCIONES_EJEMPLO = {
     "3.1.4": "Estrategia T3 de Complementaria: jornadas de inscripción.",
     "3.1.5": "Estrategia T3 de Certificación Total: seguimiento a actas.",
     "3.2": "Otras actividades T3: inducción de aprendices y atención al usuario.",
+}
+
+PLACEHOLDER_ESTRATEGIAS = "Pendiente de registro por la dependencia."
+
+# Marcadores inequívocos por sección y periodo. Se usan para comprobar que el
+# DOCX inserta los textos de la BD en el periodo correcto y sin duplicarlos.
+MARCADORES_T3 = {
+    "3.1.1": "MARCADOR T3 3.1.1 EDUCACION SUPERIOR",
+    "3.1.2": "MARCADOR T3 3.1.2 TECNICO LABORAL",
+    "3.1.3": "MARCADOR T3 3.1.3 ARTICULACION MEDIA",
+    "3.1.4": "MARCADOR T3 3.1.4 COMPLEMENTARIA",
+    "3.1.5": "MARCADOR T3 3.1.5 CERTIFICACION TOTAL",
+    "3.2": "MARCADOR T3 3.2 OTRAS ACTIVIDADES",
+}
+
+MARCADORES_T2 = {
+    "3.1.1": "MARCADOR T2 3.1.1 EDUCACION SUPERIOR",
+    "3.1.2": "MARCADOR T2 3.1.2 TECNICO LABORAL",
+    "3.1.3": "MARCADOR T2 3.1.3 ARTICULACION MEDIA",
+    "3.1.4": "MARCADOR T2 3.1.4 COMPLEMENTARIA",
+    "3.1.5": "MARCADOR T2 3.1.5 CERTIFICACION TOTAL",
+    "3.2": "MARCADOR T2 3.2 OTRAS ACTIVIDADES",
 }
 
 
@@ -235,7 +258,97 @@ def test_docx_sin_estrategias_conserva_placeholder(client):
     response = client.get("/api/informes/word?trimestre=T3&modo=acumulado")
     assert response.status_code == 200, response.text
     text = _texto_docx(response.content)
-    assert text.count("Pendiente de registro por la dependencia.") == 6
+    assert text.count(PLACEHOLDER_ESTRATEGIAS) == 6
+
+
+def test_t2_no_devuelve_ni_exporta_textos_de_t3(client):
+    """El periodo es una clave estricta: T2 no hereda nada de T3."""
+    with client.session_factory() as session:
+        _seed_periodo(session)
+        save_estrategias(
+            session,
+            anio=2026,
+            trimestre="T3",
+            secciones=MARCADORES_T3,
+        )
+
+    t2 = client.get(
+        "/api/informes/estrategias", params={"anio": 2026, "trimestre": "T2"}
+    )
+    assert t2.status_code == 200, t2.text
+    cuerpo_t2 = "\n".join(t2.json()["secciones"].values())
+    assert t2.json()["existe"] is False
+    for marcador in MARCADORES_T3.values():
+        assert marcador not in cuerpo_t2
+
+    docx_t2 = client.get("/api/informes/word?trimestre=T2&modo=acumulado")
+    assert docx_t2.status_code == 200, docx_t2.text
+    texto_t2 = _texto_docx(docx_t2.content)
+    for marcador in MARCADORES_T3.values():
+        assert marcador not in texto_t2
+    assert texto_t2.count(PLACEHOLDER_ESTRATEGIAS) == 6
+
+
+@pytest.mark.parametrize(
+    ("trimestre", "marcadores"),
+    [
+        ("T3", MARCADORES_T3),
+        ("T2", MARCADORES_T2),
+    ],
+    ids=["t3-acumulado", "t2-acumulado"],
+)
+def test_docx_exporta_marcadores_unicos_por_seccion(
+    client, trimestre, marcadores
+):
+    """El DOCX lee de BD el periodo seleccionado, sin depender de la UI.
+
+    El guardado se hace directamente en la base de datos y la exportación se
+    pide por API, sin visitar la pestaña Estrategias ni un GET previo.
+    """
+    with client.session_factory() as session:
+        _seed_periodo(session)
+        save_estrategias(
+            session,
+            anio=2026,
+            trimestre=trimestre,
+            secciones=marcadores,
+        )
+
+    response = client.get(
+        f"/api/informes/word?trimestre={trimestre}&modo=acumulado"
+    )
+    assert response.status_code == 200, response.text
+    contenido = response.content
+    texto = _texto_docx(contenido)
+
+    for marcador in marcadores.values():
+        assert texto.count(marcador) == 1, marcador
+        assert marcador in _parrafo_con_fragmento(contenido, marcador).text
+    assert PLACEHOLDER_ESTRATEGIAS not in texto
+
+
+def test_export_docx_del_modal_lee_estrategias_de_bd_para_el_periodo(client):
+    """La ruta genérica de exportación también resuelve el periodo en BD."""
+    with client.session_factory() as session:
+        _seed_periodo(session)
+        save_estrategias(
+            session, anio=2026, trimestre="T3", secciones=MARCADORES_T3
+        )
+
+    response = client.get(
+        "/api/informes/export",
+        params={
+            "type": "consolidado",
+            "format": "docx",
+            "year": 2026,
+            "trimestre": "T3",
+            "modo": "acumulado",
+        },
+    )
+    assert response.status_code == 200, response.text
+    texto = _texto_docx(response.content)
+    for marcador in MARCADORES_T3.values():
+        assert texto.count(marcador) == 1, marcador
 
 
 def test_docx_mismo_periodo_es_idempotente_y_el_modo_no_duplica_textos(client):
@@ -436,6 +549,28 @@ def test_ui_rediseno_conserva_estilos_principales():
         assert selector in css
 
     assert ".informe-info-icon" not in css
+
+
+def test_ui_periodo_compartido_confirma_antes_de_cambiar():
+    """Año/trimestre es único para Estrategias, Anexos y Exportar.
+
+    Al cambiarlo se recargan las estrategias del nuevo periodo y, si hay
+    cambios sin guardar, se confirma antes de abandonar el periodo actual.
+    """
+    root = Path(__file__).resolve().parents[1]
+    ui_js = (root / "app" / "static" / "ui-enhancements.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert "window.confirm" in ui_js
+    assert "Se guardarán antes de cambiar de periodo" in ui_js
+    assert "function restaurarPeriodoInforme(periodo)" in ui_js
+    assert "await cargarEstrategias();" in ui_js
+    # Entrar en Exportar refresca el resumen sin pisar borradores.
+    assert 'if (nombre === "exportar" && !informeDirty)' in ui_js
+    # El DOCX se pide por periodo y el servidor lee las estrategias de la BD.
+    assert 'trimestre: periodo.trimestre' in ui_js
+    assert "/api/informes/word" in ui_js
 
 
 def test_ui_router_no_degrada_informe_gestion_a_carga():

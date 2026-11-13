@@ -511,11 +511,10 @@
     }
   }
 
-  function renderResumenEstrategias(secciones) {
+  function renderResumenEstrategias(secciones, periodo = periodoInforme()) {
     const cargadas = SECCIONES_INFORME.filter(
       ([key]) => String(secciones[key] || "").trim().length > 0,
     ).length;
-    const periodo = periodoInforme();
     if (informeExportPeriodo) {
       informeExportPeriodo.textContent = etiquetaPeriodo(periodo);
     }
@@ -542,22 +541,22 @@
     }
   }
 
-  function aplicarEstrategias(data) {
+  function aplicarEstrategias(data, periodo = periodoInforme()) {
     const secciones = data?.secciones || {};
     informeTextareas.forEach((textarea) => {
       textarea.value = secciones[textarea.dataset.estrategiaSeccion] || "";
     });
     sincronizarBorradoresRapidos(secciones);
     marcarInformeDirty(false);
-    renderResumenEstrategias(secciones);
+    renderResumenEstrategias(secciones, periodo);
     const cargadas = SECCIONES_INFORME.filter(
       ([key]) => String(secciones[key] || "").trim().length > 0,
     ).length;
     setInformeStatus(
       informeStatus,
       cargadas
-        ? `Textos de ${etiquetaPeriodo(periodoInforme())} cargados.`
-        : `No hay textos guardados para ${etiquetaPeriodo(periodoInforme())} todavía.`,
+        ? `Textos de ${etiquetaPeriodo(periodo)} cargados.`
+        : `No hay textos guardados para ${etiquetaPeriodo(periodo)} todavía.`,
       "",
     );
   }
@@ -588,12 +587,12 @@
       const data = await response.json();
       if (token !== informeLoadToken) return;
       informeCargado = true;
-      aplicarEstrategias(data);
+      aplicarEstrategias(data, periodo);
     } catch (error) {
       if (token !== informeLoadToken) return;
       informeCargado = false;
       setInformeStatus(informeStatus, error.message, "error");
-      renderResumenEstrategias(seccionesDelFormulario());
+      renderResumenEstrategias(seccionesDelFormulario(), periodo);
     }
   }
 
@@ -625,7 +624,7 @@
       const data = await response.json();
       informePeriodoActual = objetivo;
       if (!silent) {
-        aplicarEstrategias(data);
+        aplicarEstrategias(data, objetivo);
         setInformeStatus(
           informeStatus,
           `Estrategias de ${etiquetaPeriodo(objetivo)} guardadas.`,
@@ -660,6 +659,12 @@
       panel.classList.toggle("is-active", activo);
       panel.hidden = !activo;
     });
+    // El periodo es único para las tres pestañas. Al entrar en Exportar se
+    // refresca el resumen desde la BD para no depender de haber visitado
+    // Estrategias en esta sesión (nunca se pisa un borrador sin guardar).
+    if (nombre === "exportar" && !informeDirty) {
+      cargarEstrategias();
+    }
   }
 
   informeTabButtons.forEach((button) => {
@@ -696,15 +701,33 @@
     cargarContextoInforme();
   });
 
+  function restaurarPeriodoInforme(periodo) {
+    if (informeAnio) informeAnio.value = String(periodo.anio);
+    if (informeTrimestre) informeTrimestre.value = periodo.trimestre;
+  }
+
   async function cambiarPeriodoInforme() {
     const anterior = { ...informePeriodoActual };
     const nuevo = periodoInforme();
+    if (nuevo.anio === anterior.anio && nuevo.trimestre === anterior.trimestre) {
+      return;
+    }
     if (informeDirty) {
+      // Cambiar de periodo recarga los textos de (año, trimestre). Si hay
+      // cambios sin guardar hay que confirmarlo antes de abandonar el periodo.
+      const continuar = window.confirm(
+        `Hay cambios sin guardar en ${etiquetaPeriodo(anterior)}. ` +
+          "Se guardarán antes de cambiar de periodo. ¿Deseas continuar?",
+      );
+      if (!continuar) {
+        restaurarPeriodoInforme(anterior);
+        setInformeStatus(informeStatus, "Cambio de periodo cancelado.", "warning");
+        return;
+      }
       const guardado = await guardarEstrategias({ periodo: anterior, silent: true });
       if (!guardado) {
         // No se abandona el periodo si el guardado automático falla.
-        if (informeAnio) informeAnio.value = String(anterior.anio);
-        if (informeTrimestre) informeTrimestre.value = anterior.trimestre;
+        restaurarPeriodoInforme(anterior);
         return;
       }
     }
@@ -717,6 +740,16 @@
 
   async function generarInformeGestion() {
     if (!informeExportGenerate) return;
+    const periodo = periodoInforme();
+    // El DOCX se genera en el servidor leyendo las estrategias de la BD para
+    // (año, trimestre). No depende de haber visitado la pestaña Estrategias.
+    if (
+      !informeDirty &&
+      (periodo.anio !== informePeriodoActual.anio ||
+        periodo.trimestre !== informePeriodoActual.trimestre)
+    ) {
+      await cargarEstrategias();
+    }
     if (informeDirty) {
       const guardado = await guardarEstrategias({ silent: true });
       if (!guardado) {
@@ -728,7 +761,6 @@
         return;
       }
     }
-    const periodo = periodoInforme();
     const modo = informeExportMode?.value || "acumulado";
     informeExportGenerate.disabled = true;
     setInformeStatus(informeExportStatus, "Generando el informe de gestión…", "info");

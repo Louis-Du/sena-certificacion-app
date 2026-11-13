@@ -387,13 +387,24 @@ def export_report_docx(
     )
     if not dataset.get("datos_suficientes"):
         raise ValueError("No hay datos para exportar.")
-    from app.services.informe_gestion_estrategias import estrategias_para_docx
+    from app.services.informe_gestion_estrategias import (
+        estrategias_para_docx,
+        normalizar_anio,
+        normalizar_trimestre,
+    )
     from app.services.report_word import generate_report_docx
 
+    # Las estrategias se leen siempre de la BD para el periodo seleccionado.
+    # No dependen de la sesión/UI que haya abierto la pestaña Estrategias: el
+    # mismo (año, trimestre) del dataset es la clave de persistencia.
+    periodo_anio = normalizar_anio(year if year is not None else dataset.get("year"))
+    periodo_trimestre = normalizar_trimestre(
+        dataset.get("trimestre_codigo") or trimestre_efectivo
+    )
     estrategias = estrategias_para_docx(
         session,
-        anio=year or dataset.get("year"),
-        trimestre=dataset.get("trimestre_codigo") or trimestre_efectivo,
+        anio=periodo_anio,
+        trimestre=periodo_trimestre,
     )
 
     return generate_report_docx(
