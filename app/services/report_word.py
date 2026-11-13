@@ -601,8 +601,37 @@ def _strip_annex_references(text: str) -> str:
     return re.sub(r"\s{2,}", " ", cleaned).strip()
 
 
-def _update_narrative(doc, dataset: dict[str, Any], contexto: dict[str, Any]) -> None:
-    """Actualiza cifras y lecturas manteniendo la redacción institucional."""
+def _estrategia_texto(
+    estrategias: dict[str, str] | None, seccion: str
+) -> str:
+    """Texto redactado por la dependencia o el placeholder institucional."""
+    if not estrategias:
+        return PLACEHOLDER_ESTRATEGIAS
+    texto = str(estrategias.get(seccion) or "").strip()
+    return texto or PLACEHOLDER_ESTRATEGIAS
+
+
+def _estrategia_con_rotulo(
+    estrategias: dict[str, str] | None, seccion: str
+) -> str:
+    return (
+        "Estrategia o Actividades llevadas a cabo: "
+        f"{_estrategia_texto(estrategias, seccion)}"
+    )
+
+
+def _update_narrative(
+    doc,
+    dataset: dict[str, Any],
+    contexto: dict[str, Any],
+    estrategias: dict[str, str] | None = None,
+) -> None:
+    """Actualiza cifras y lecturas manteniendo la redacción institucional.
+
+    Las secciones de estrategia usan el texto guardado para ``(año, trimestre)``.
+    Si la sección está vacía se conserva el placeholder institucional. El cuerpo
+    se escribe con ``_set_narrative_text`` para no heredar la negrita del rótulo.
+    """
     for paragraph in doc.paragraphs:
         text = _sanitize_sofia(paragraph.text.strip())
         if text.upper() == "ANEXOS":
@@ -622,14 +651,11 @@ def _update_narrative(doc, dataset: dict[str, Any], contexto: dict[str, Any]) ->
                 f"{calificacion}."
             )
         elif text.startswith("Dentro de las estrategias establecidas"):
-            updated = PLACEHOLDER_ESTRATEGIAS
+            updated = _estrategia_texto(estrategias, "3.1.1")
         elif text.startswith("¿Cómo fue la gestión del periodo para el Indicador"):
             updated = _sentence_tecnica(dataset, contexto)
         elif text.startswith("Estrategia o Actividades llevadas a cabo: Para avanzar"):
-            updated = (
-                "Estrategia o Actividades llevadas a cabo: "
-                f"{PLACEHOLDER_ESTRATEGIAS}"
-            )
+            updated = _estrategia_con_rotulo(estrategias, "3.1.2")
         elif text.startswith("Certificación Técnico Laboral y Otros:"):
             updated = ""
         elif text.startswith("Se remiten semanalmente actas"):
@@ -639,7 +665,7 @@ def _update_narrative(doc, dataset: dict[str, Any], contexto: dict[str, Any]) ->
         elif text.startswith("El componente de Certificación alcanzó"):
             updated = _sentence_articulacion(dataset, contexto)
         elif text.startswith("A través de la Coordinación de programas especiales"):
-            updated = PLACEHOLDER_ESTRATEGIAS
+            updated = _estrategia_texto(estrategias, "3.1.3")
         elif (
             text.startswith("¿Cómo fue la gestión en el periodo")
             and "formación Complementaria" in text
@@ -658,21 +684,15 @@ def _update_narrative(doc, dataset: dict[str, Any], contexto: dict[str, Any]) ->
             # Bloque de limitaciones del original: se conserva completo.
             updated = _strip_annex_references(text)
         elif text.startswith("Estrategia o Actividades llevadas a cabo. En el periodo"):
-            updated = (
-                "Estrategia o Actividades llevadas a cabo: "
-                f"{PLACEHOLDER_ESTRATEGIAS}"
-            )
+            updated = _estrategia_con_rotulo(estrategias, "3.1.4")
         elif text.startswith("Estrategia o Actividades llevadas a cabo.  Dentro"):
-            updated = (
-                "Estrategia o Actividades llevadas a cabo: "
-                f"{PLACEHOLDER_ESTRATEGIAS}"
-            )
+            updated = _estrategia_con_rotulo(estrategias, "3.1.5")
         elif text.startswith("Realizar llamadas") or text.startswith(
             "Trabajar de la mano con el Líder"
         ):
             updated = ""
         elif text.startswith("Atención al usuario en jornadas"):
-            updated = PLACEHOLDER_ESTRATEGIAS
+            updated = _estrategia_texto(estrategias, "3.2")
         elif text.startswith("Coordinación realización") or text.startswith(
             "Matrículas I Convocatoria"
         ) or text.startswith("Inducción nuevos aprendices"):
@@ -759,6 +779,7 @@ def generate_report_docx(
     year: int | None = None,
     quarter: int | None = None,
     cutoff: date | None = None,
+    estrategias: dict[str, str] | None = None,
 ) -> bytes:
     if not TEMPLATE_PATH.exists():
         raise FileNotFoundError(f"Plantilla no encontrada: {TEMPLATE_PATH}")
@@ -772,7 +793,7 @@ def generate_report_docx(
 
     _replace_periodo(doc, contexto, year)
     _write_indicator_table(doc, dataset)
-    _update_narrative(doc, dataset, contexto)
+    _update_narrative(doc, dataset, contexto, estrategias)
     _remove_duplicate_annex_content(doc)
     _trim_trailing_empty_paragraphs(doc)
 

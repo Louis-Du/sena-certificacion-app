@@ -2871,7 +2871,9 @@ function replaceLocationHash(hash) {
 }
 
 function showView(viewName, updateHash = true) {
-  const target = ["aprendices", "actas", "indicadores"].includes(viewName) ? viewName : "carga";
+  const target = ["aprendices", "actas", "indicadores", "informe-gestion"].includes(viewName)
+    ? viewName
+    : "carga";
   views.forEach((view) => {
     view.hidden = view.id !== `${target}-view`;
   });
@@ -2880,6 +2882,7 @@ function showView(viewName, updateHash = true) {
   if (target === "aprendices") loadLearners();
   if (target === "actas") loadActs();
   if (target === "indicadores") loadIndicadores();
+  window.dispatchEvent(new CustomEvent("sena:view-changed", { detail: { view: target } }));
 }
 
 // ---------------------------------------------------------------------------
@@ -3684,7 +3687,13 @@ acceptMissingComplementaria.addEventListener("change", updateCoherenceState);
 resetSelection();
 loadHistory();
 loadLearners();
-showView(window.location.hash === "#aprendices" ? "aprendices" : "carga", false);
+const initialView = window.location.hash.replace("#", "");
+showView(
+  ["aprendices", "actas", "indicadores", "informe-gestion"].includes(initialView)
+    ? initialView
+    : "carga",
+  false,
+);
 
 
 // ---------------------------------------------------------------------------

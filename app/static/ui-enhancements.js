@@ -161,6 +161,15 @@
       if (formats.includes(previous)) reportFormat.value = previous;
       else reportFormat.value = formats[0] || "xlsx";
     }
+
+    // El informe de gestión oficial solo usa DOCX. Desde el modal se ofrece el
+    // acceso directo a la sección donde se redactan las estrategias del periodo.
+    if (reportOpenEstrategias) {
+      const esInformeGestion =
+        ["consolidado", "general"].includes(selectedReportType) &&
+        formats.includes("docx");
+      reportOpenEstrategias.hidden = !esInformeGestion;
+    }
   }
 
   function getLearnerFilters() {
@@ -262,6 +271,341 @@
   });
 
   loadCatalog();
+
+  /* ---------------- Informe de gestión: estrategias por periodo ---------------- */
+  const informeView = document.getElementById("informe-gestion-view");
+  const informeAnio = document.getElementById("informe-anio");
+  const informeTrimestre = document.getElementById("informe-trimestre");
+  const informeForm = document.getElementById("informe-estrategias-form");
+  const informeSave = document.getElementById("informe-estrategias-save");
+  const informeStatus = document.getElementById("informe-estrategias-status");
+  const informeBadge = document.getElementById("informe-estrategias-badge");
+  const informeExportMode = document.getElementById("informe-export-mode");
+  const informeExportGenerate = document.getElementById("informe-export-generate");
+  const informeExportStatus = document.getElementById("informe-export-status");
+  const informeExportSummary = document.getElementById("informe-export-summary");
+  const informeExportPeriodo = document.getElementById("informe-export-periodo");
+  const informeExportHint = document.getElementById("informe-export-hint");
+  const informeTabButtons = document.querySelectorAll("[data-informe-tab]");
+  const informePanels = document.querySelectorAll("[data-informe-panel]");
+  const informeTextareas = document.querySelectorAll("[data-estrategia-seccion]");
+  const reportOpenEstrategias = document.getElementById("report-open-estrategias");
+  const SECCIONES_INFORME = [
+    ["3.1.1", "Educación Superior"],
+    ["3.1.2", "Técnico Laboral y Otros (sin incluir Media Técnica)"],
+    ["3.1.3", "Articulación con la Media"],
+    ["3.1.4", "Formación Complementaria"],
+    ["3.1.5", "Certificación Total / Centros de Formación"],
+    ["3.2", "Otras actividades del trimestre"],
+  ];
+  const ROMANOS = { T1: "I", T2: "II", T3: "III", T4: "IV" };
+
+  let informePeriodoActual = { anio: 2026, trimestre: "T3" };
+  let informeCargado = false;
+  let informeDirty = false;
+  let informeLoadToken = 0;
+
+  function setInformeStatus(element, message, kind) {
+    if (!element) return;
+    element.textContent = message || "";
+    element.className = "detail-feedback" + (kind ? " " + kind : "");
+  }
+
+  function periodoInforme() {
+    const anio = Number.parseInt(informeAnio?.value, 10) || 2026;
+    return {
+      anio,
+      trimestre: informeTrimestre?.value || "T3",
+    };
+  }
+
+  function etiquetaPeriodo({ anio, trimestre }) {
+    return `Trimestre ${ROMANOS[trimestre] || trimestre} ${anio}`;
+  }
+
+  function seccionesDelFormulario() {
+    const secciones = {};
+    informeTextareas.forEach((textarea) => {
+      secciones[textarea.dataset.estrategiaSeccion] = textarea.value || "";
+    });
+    return secciones;
+  }
+
+  function marcarInformeDirty(dirty) {
+    informeDirty = dirty;
+    if (!informeBadge) return;
+    informeBadge.textContent = dirty ? "Cambios sin guardar" : "Guardado";
+    informeBadge.className = "result-badge " + (dirty ? "pending" : "ready");
+  }
+
+  function renderResumenEstrategias(secciones) {
+    const cargadas = SECCIONES_INFORME.filter(
+      ([key]) => String(secciones[key] || "").trim().length > 0,
+    ).length;
+    const periodo = periodoInforme();
+    if (informeExportPeriodo) {
+      informeExportPeriodo.textContent = etiquetaPeriodo(periodo);
+    }
+    if (informeExportSummary) {
+      informeExportSummary.replaceChildren();
+      SECCIONES_INFORME.forEach(([key, label]) => {
+        const tieneTexto = String(secciones[key] || "").trim().length > 0;
+        const item = document.createElement("li");
+        item.className = tieneTexto ? "is-filled" : "is-empty";
+        const code = document.createElement("strong");
+        code.textContent = key;
+        const text = document.createElement("span");
+        text.textContent = label;
+        const state = document.createElement("em");
+        state.textContent = tieneTexto ? "Cargada" : "Pendiente";
+        item.append(code, text, state);
+        informeExportSummary.appendChild(item);
+      });
+    }
+    if (informeExportHint) {
+      informeExportHint.textContent = cargadas
+        ? `${cargadas} de ${SECCIONES_INFORME.length} secciones tienen texto. Las vacías se generarán con el placeholder institucional.`
+        : "Aún no hay estrategias guardadas para este periodo. Las secciones vacías se generarán con el placeholder institucional.";
+    }
+  }
+
+  function aplicarEstrategias(data) {
+    const secciones = data?.secciones || {};
+    informeTextareas.forEach((textarea) => {
+      textarea.value = secciones[textarea.dataset.estrategiaSeccion] || "";
+    });
+    marcarInformeDirty(false);
+    renderResumenEstrategias(secciones);
+    const cargadas = SECCIONES_INFORME.filter(
+      ([key]) => String(secciones[key] || "").trim().length > 0,
+    ).length;
+    setInformeStatus(
+      informeStatus,
+      cargadas
+        ? `Textos de ${etiquetaPeriodo(periodoInforme())} cargados.`
+        : `No hay textos guardados para ${etiquetaPeriodo(periodoInforme())} todavía.`,
+      "",
+    );
+  }
+
+  async function cargarEstrategias() {
+    if (!informeView) return;
+    const periodo = periodoInforme();
+    informePeriodoActual = periodo;
+    const token = ++informeLoadToken;
+    setInformeStatus(informeStatus, "Cargando estrategias del periodo…", "info");
+    try {
+      const params = new URLSearchParams({
+        anio: String(periodo.anio),
+        trimestre: periodo.trimestre,
+      });
+      const response = await fetch(`/api/informes/estrategias?${params.toString()}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        let message = "No se pudieron cargar las estrategias del periodo.";
+        try {
+          const data = await response.json();
+          if (data?.detail) message = data.detail;
+        } catch (_) {}
+        throw new Error(message);
+      }
+      const data = await response.json();
+      if (token !== informeLoadToken) return;
+      informeCargado = true;
+      aplicarEstrategias(data);
+    } catch (error) {
+      if (token !== informeLoadToken) return;
+      informeCargado = false;
+      setInformeStatus(informeStatus, error.message, "error");
+      renderResumenEstrategias(seccionesDelFormulario());
+    }
+  }
+
+  async function guardarEstrategias({ event, periodo, silent = false } = {}) {
+    if (event) event.preventDefault();
+    if (!informeForm) return false;
+    const objetivo = periodo || periodoInforme();
+    const secciones = seccionesDelFormulario();
+    if (informeSave) informeSave.disabled = true;
+    if (!silent) setInformeStatus(informeStatus, "Guardando estrategias…", "info");
+    try {
+      const response = await fetch("/api/informes/estrategias", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          anio: objetivo.anio,
+          trimestre: objetivo.trimestre,
+          secciones,
+        }),
+      });
+      if (!response.ok) {
+        let message = "No se pudieron guardar las estrategias.";
+        try {
+          const data = await response.json();
+          if (data?.detail) message = data.detail;
+        } catch (_) {}
+        throw new Error(message);
+      }
+      const data = await response.json();
+      informePeriodoActual = objetivo;
+      if (!silent) {
+        aplicarEstrategias(data);
+        setInformeStatus(
+          informeStatus,
+          `Estrategias de ${etiquetaPeriodo(objetivo)} guardadas.`,
+          "success",
+        );
+        showToast("Estrategias guardadas correctamente.", "success");
+      } else {
+        marcarInformeDirty(false);
+      }
+      return true;
+    } catch (error) {
+      setInformeStatus(
+        informeStatus,
+        error.message || "No se pudieron guardar las estrategias.",
+        "error",
+      );
+      if (!silent) showToast(error.message, "error");
+      return false;
+    } finally {
+      if (informeSave) informeSave.disabled = false;
+    }
+  }
+
+  function activarTabInforme(nombre) {
+    informeTabButtons.forEach((button) => {
+      const activo = button.dataset.informeTab === nombre;
+      button.classList.toggle("is-active", activo);
+      button.setAttribute("aria-selected", String(activo));
+    });
+    informePanels.forEach((panel) => {
+      const activo = panel.dataset.informePanel === nombre;
+      panel.classList.toggle("is-active", activo);
+      panel.hidden = !activo;
+    });
+  }
+
+  informeTabButtons.forEach((button) => {
+    button.addEventListener("click", () => activarTabInforme(button.dataset.informeTab));
+  });
+
+  informeForm?.addEventListener("submit", (event) => guardarEstrategias({ event }));
+  informeTextareas.forEach((textarea) => {
+    textarea.addEventListener("input", () => {
+      marcarInformeDirty(true);
+      renderResumenEstrategias(seccionesDelFormulario());
+      setInformeStatus(informeStatus, "Cambios sin guardar.", "warning");
+    });
+  });
+
+  async function cambiarPeriodoInforme() {
+    const anterior = { ...informePeriodoActual };
+    const nuevo = periodoInforme();
+    if (informeDirty) {
+      const guardado = await guardarEstrategias({ periodo: anterior, silent: true });
+      if (!guardado) {
+        // No se abandona el periodo si el guardado automático falla.
+        if (informeAnio) informeAnio.value = String(anterior.anio);
+        if (informeTrimestre) informeTrimestre.value = anterior.trimestre;
+        return;
+      }
+    }
+    informePeriodoActual = nuevo;
+    await cargarEstrategias();
+  }
+
+  informeAnio?.addEventListener("change", cambiarPeriodoInforme);
+  informeTrimestre?.addEventListener("change", cambiarPeriodoInforme);
+
+  async function generarInformeGestion() {
+    if (!informeExportGenerate) return;
+    if (informeDirty) {
+      const guardado = await guardarEstrategias({ silent: true });
+      if (!guardado) {
+        setInformeStatus(
+          informeExportStatus,
+          "Guarda las estrategias antes de generar el informe.",
+          "error",
+        );
+        return;
+      }
+    }
+    const periodo = periodoInforme();
+    const modo = informeExportMode?.value || "acumulado";
+    informeExportGenerate.disabled = true;
+    setInformeStatus(informeExportStatus, "Generando el informe de gestión…", "info");
+    try {
+      const params = new URLSearchParams({
+        year: String(periodo.anio),
+        trimestre: periodo.trimestre,
+        modo,
+      });
+      const response = await fetch(`/api/informes/word?${params.toString()}`, {
+        method: "GET",
+      });
+      if (!response.ok) {
+        let message = "No se pudo generar el informe de gestión.";
+        try {
+          const data = await response.json();
+          if (data?.detail) message = data.detail;
+        } catch (_) {}
+        throw new Error(message);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="?([^"]+)"?/i);
+      link.download =
+        match?.[1] ||
+        `informe_gestion_${periodo.anio}_${periodo.trimestre}_${modo}.docx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setInformeStatus(
+        informeExportStatus,
+        `Informe de ${etiquetaPeriodo(periodo)} generado y descargado.`,
+        "success",
+      );
+      showToast("Informe de gestión generado correctamente.", "success");
+    } catch (error) {
+      setInformeStatus(
+        informeExportStatus,
+        error.message || "No se pudo generar el informe de gestión.",
+        "error",
+      );
+      showToast(error.message || "No se pudo generar el informe.", "error");
+    } finally {
+      informeExportGenerate.disabled = false;
+    }
+  }
+
+  informeExportGenerate?.addEventListener("click", generarInformeGestion);
+
+  window.setInformeGestionPeriodo = function setInformeGestionPeriodo(trimestre) {
+    if (informeTrimestre && trimestre) informeTrimestre.value = trimestre;
+  };
+
+  reportOpenEstrategias?.addEventListener("click", () => {
+    window.setInformeGestionPeriodo?.(reportQuarter?.value || "T3");
+    closeReportModal();
+    if (typeof window.showView === "function") window.showView("informe-gestion");
+    else window.location.hash = "#informe-gestion";
+  });
+
+  window.addEventListener("sena:view-changed", (event) => {
+    if (event.detail?.view !== "informe-gestion") return;
+    activarTabInforme("estrategias");
+    if (!informeCargado || informeDirty === false) cargarEstrategias();
+  });
+
+  if (informeView && !informeView.hidden) {
+    cargarEstrategias();
+  }
 
   function observeFeedback() {
     const feedbackEl = document.getElementById("feedback");

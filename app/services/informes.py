@@ -387,12 +387,20 @@ def export_report_docx(
     )
     if not dataset.get("datos_suficientes"):
         raise ValueError("No hay datos para exportar.")
+    from app.services.informe_gestion_estrategias import estrategias_para_docx
     from app.services.report_word import generate_report_docx
+
+    estrategias = estrategias_para_docx(
+        session,
+        anio=year or dataset.get("year"),
+        trimestre=dataset.get("trimestre_codigo") or trimestre_efectivo,
+    )
 
     return generate_report_docx(
         dataset,
         year=year,
         cutoff=cutoff,
+        estrategias=estrategias,
     )
 
 

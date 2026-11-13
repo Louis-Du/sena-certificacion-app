@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SENA Certificación</title>
-  <link href="/static/styles.css?v=20261108-v22" rel="stylesheet">
+  <link href="/static/styles.css?v=20261112-v23" rel="stylesheet">
 </head>
 
 <body>
@@ -49,6 +49,12 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 16v-5"/><path d="M12 16V8"/><path d="M17 16v-2"/></svg>
             </span>
             <span class="nav-label">Indicadores</span>
+          </a>
+          <a class="sidebar-link" href="#informe-gestion" data-view="informe-gestion" title="Informe de gestión">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/></svg>
+            </span>
+            <span class="nav-label">Informe de gestión</span>
           </a>
         </div>
       </nav>
@@ -446,6 +452,118 @@
         </div>
       </div>
 
+      <div id="informe-gestion-view" class="app-view" hidden>
+        <header class="topbar">
+          <div class="topbar-text">
+            <p class="eyebrow">SENA Certificación</p>
+            <h1>Informe de gestión administrativa</h1>
+            <p class="subtitle">Redacta por trimestre las estrategias del informe oficial y genera el DOCX con las cifras del consolidado.</p>
+          </div>
+          <div class="topbar-actions informe-periodo-actions">
+            <label class="informe-periodo-field">Año
+              <input id="informe-anio" type="number" min="2000" max="2100" step="1" value="2026" inputmode="numeric">
+            </label>
+            <label class="informe-periodo-field">Trimestre
+              <select id="informe-trimestre">
+                <option value="T1">Trimestre I</option>
+                <option value="T2">Trimestre II</option>
+                <option value="T3" selected>Trimestre III</option>
+                <option value="T4">Trimestre IV</option>
+              </select>
+            </label>
+          </div>
+        </header>
+
+        <p class="metrics-scope-note" id="informe-periodo-note">
+          Los textos se guardan por <strong>año y trimestre</strong>. El modo de exportación
+          (solo trimestre o acumulado) cambia las cifras, no los textos.
+        </p>
+
+        <div class="pill-tabs informe-gestion-tabs" id="informe-gestion-tabs">
+          <div class="pill-tab-list" role="tablist" aria-label="Secciones del informe de gestión">
+            <button class="pill-tab is-active" type="button" role="tab" id="informe-tab-estrategias" data-informe-tab="estrategias" aria-controls="informe-panel-estrategias" aria-selected="true">Estrategias</button>
+            <button class="pill-tab" type="button" role="tab" id="informe-tab-anexos" data-informe-tab="anexos" aria-controls="informe-panel-anexos" aria-selected="false">Anexos</button>
+            <button class="pill-tab" type="button" role="tab" id="informe-tab-exportar" data-informe-tab="exportar" aria-controls="informe-panel-exportar" aria-selected="false">Exportar</button>
+          </div>
+
+          <section class="pill-panel panel is-active" id="informe-panel-estrategias" data-informe-panel="estrategias" role="tabpanel" aria-labelledby="informe-tab-estrategias">
+            <div class="panel-heading">
+              <div>
+                <h2>Estrategias o actividades llevadas a cabo</h2>
+                <p>Estos textos se insertan en el bloque 3.1.x y 3.2 del informe oficial. Si una sección queda vacía se usará el placeholder institucional.</p>
+              </div>
+              <span class="result-badge" id="informe-estrategias-badge">Sin guardar</span>
+            </div>
+            <form id="informe-estrategias-form" class="informe-estrategias-form">
+              <label class="informe-estrategia-field" for="estrategia-3-1-1">
+                <span><strong>3.1.1</strong> Educación Superior</span>
+                <textarea id="estrategia-3-1-1" data-estrategia-seccion="3.1.1" rows="3" placeholder="Actividades realizadas para el indicador de Educación Superior."></textarea>
+              </label>
+              <label class="informe-estrategia-field" for="estrategia-3-1-2">
+                <span><strong>3.1.2</strong> Técnico Laboral y Otros (sin incluir Media Técnica)</span>
+                <textarea id="estrategia-3-1-2" data-estrategia-seccion="3.1.2" rows="3" placeholder="Actividades realizadas para el indicador Técnico Laboral y Otros."></textarea>
+              </label>
+              <label class="informe-estrategia-field" for="estrategia-3-1-3">
+                <span><strong>3.1.3</strong> Articulación con la Media</span>
+                <textarea id="estrategia-3-1-3" data-estrategia-seccion="3.1.3" rows="3" placeholder="Actividades realizadas con las instituciones educativas y la media técnica."></textarea>
+              </label>
+              <label class="informe-estrategia-field" for="estrategia-3-1-4">
+                <span><strong>3.1.4</strong> Formación Complementaria</span>
+                <textarea id="estrategia-3-1-4" data-estrategia-seccion="3.1.4" rows="3" placeholder="Actividades realizadas para formación complementaria."></textarea>
+              </label>
+              <label class="informe-estrategia-field" for="estrategia-3-1-5">
+                <span><strong>3.1.5</strong> Certificación Total / Centros de Formación</span>
+                <textarea id="estrategia-3-1-5" data-estrategia-seccion="3.1.5" rows="3" placeholder="Actividades realizadas para la certificación total del centro de formación."></textarea>
+              </label>
+              <label class="informe-estrategia-field" for="estrategia-3-2">
+                <span><strong>3.2</strong> Otras actividades del trimestre</span>
+                <textarea id="estrategia-3-2" data-estrategia-seccion="3.2" rows="3" placeholder="Otras actividades llevadas a cabo en el trimestre."></textarea>
+              </label>
+              <div class="informe-estrategias-actions">
+                <p id="informe-estrategias-status" class="detail-feedback" role="status"></p>
+                <button id="informe-estrategias-save" class="primary-button" type="submit">Guardar estrategias</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="pill-panel panel" id="informe-panel-anexos" data-informe-panel="anexos" role="tabpanel" aria-labelledby="informe-tab-anexos" hidden>
+            <div class="panel-heading">
+              <div><h2>Anexos del informe</h2><p>Espacio reservado para los soportes del trimestre.</p></div>
+            </div>
+            <div class="informe-empty-state">
+              <span aria-hidden="true">📎</span>
+              <h3>Próximamente</h3>
+              <p>La carga y gestión de archivos de anexos no está disponible en esta entrega. El informe se puede generar sin anexos.</p>
+            </div>
+          </section>
+
+          <section class="pill-panel panel" id="informe-panel-exportar" data-informe-panel="exportar" role="tabpanel" aria-labelledby="informe-tab-exportar" hidden>
+            <div class="panel-heading">
+              <div><h2>Generar informe de gestión</h2><p>Selecciona cómo calcular las cifras del periodo. Los textos guardados son los mismos en ambos modos.</p></div>
+            </div>
+            <div class="informe-export-grid">
+              <div class="informe-export-summary">
+                <h3>Estrategias cargadas</h3>
+                <p id="informe-export-periodo">Trimestre III 2026</p>
+                <ul id="informe-export-summary"></ul>
+                <p class="informe-export-hint" id="informe-export-hint">Las secciones vacías se generarán con el placeholder institucional.</p>
+              </div>
+              <div class="informe-export-controls">
+                <label>Modo de cálculo
+                  <select id="informe-export-mode">
+                    <option value="acumulado" selected>Acumulado hasta el trimestre</option>
+                    <option value="solo_trimestre">Solo el trimestre</option>
+                  </select>
+                </label>
+                <button id="informe-export-generate" class="primary-button" type="button">Generar DOCX del informe</button>
+                <p id="informe-export-status" class="detail-feedback" role="status"></p>
+                <p class="informe-export-meta">Fuente de las cifras: consolidado ACTAS y metas institucionales. Fuente oficial del informe: SOFIA Plus.</p>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+
 
       </section>
     </div>
@@ -624,6 +742,7 @@
           <select id="report-format"></select>
         </label>
       </div>
+      <button id="report-open-estrategias" class="cancel-button report-open-estrategias" type="button" hidden>✎ Editar estrategias del periodo</button>
       <p id="report-modal-status" class="report-modal-feedback" role="status"></p>
       <p id="report-modal-feedback" class="report-modal-feedback" role="status"></p>
       <div class="report-modal-actions">
@@ -661,7 +780,7 @@
 
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
   <script src="/static/vendor/chart.umd.min.js"></script>
-  <script src="/static/app.js?v=20261108-v22"></script>
-  <script src="/static/ui-enhancements.js?v=20261108-v11"></script>
+  <script src="/static/app.js?v=20261112-v24"></script>
+  <script src="/static/ui-enhancements.js?v=20261112-v12"></script>
 </body>
 </html>
