@@ -49,21 +49,21 @@ PLACEHOLDER_ESTRATEGIAS = "Pendiente de registro por la dependencia."
 # Marcadores inequívocos por sección y periodo. Se usan para comprobar que el
 # DOCX inserta los textos de la BD en el periodo correcto y sin duplicarlos.
 MARCADORES_T3 = {
-    "3.1.1": "MARCADOR T3 3.1.1 EDUCACION SUPERIOR",
-    "3.1.2": "MARCADOR T3 3.1.2 TECNICO LABORAL",
-    "3.1.3": "MARCADOR T3 3.1.3 ARTICULACION MEDIA",
-    "3.1.4": "MARCADOR T3 3.1.4 COMPLEMENTARIA",
-    "3.1.5": "MARCADOR T3 3.1.5 CERTIFICACION TOTAL",
-    "3.2": "MARCADOR T3 3.2 OTRAS ACTIVIDADES",
+    "3.1.1": "[[ESTRATEGIA_SUPERIOR_T3]]",
+    "3.1.2": "[[ESTRATEGIA_TECNICA_T3]]",
+    "3.1.3": "[[ESTRATEGIA_ARTICULACION_T3]]",
+    "3.1.4": "[[ESTRATEGIA_COMPLEMENTARIA_T3]]",
+    "3.1.5": "[[ESTRATEGIA_CERTIFICACION_TOTAL_T3]]",
+    "3.2": "[[ESTRATEGIA_OTRAS_ACTIVIDADES_T3]]",
 }
 
 MARCADORES_T2 = {
-    "3.1.1": "MARCADOR T2 3.1.1 EDUCACION SUPERIOR",
-    "3.1.2": "MARCADOR T2 3.1.2 TECNICO LABORAL",
-    "3.1.3": "MARCADOR T2 3.1.3 ARTICULACION MEDIA",
-    "3.1.4": "MARCADOR T2 3.1.4 COMPLEMENTARIA",
-    "3.1.5": "MARCADOR T2 3.1.5 CERTIFICACION TOTAL",
-    "3.2": "MARCADOR T2 3.2 OTRAS ACTIVIDADES",
+    "3.1.1": "[[ESTRATEGIA_SUPERIOR_T2]]",
+    "3.1.2": "[[ESTRATEGIA_TECNICA_T2]]",
+    "3.1.3": "[[ESTRATEGIA_ARTICULACION_T2]]",
+    "3.1.4": "[[ESTRATEGIA_COMPLEMENTARIA_T2]]",
+    "3.1.5": "[[ESTRATEGIA_CERTIFICACION_TOTAL_T2]]",
+    "3.2": "[[ESTRATEGIA_OTRAS_ACTIVIDADES_T2]]",
 }
 
 
@@ -251,7 +251,7 @@ def test_docx_inserta_estrategias_guardadas_y_usa_placeholder_si_faltan(client):
     ]
 
 
-def test_docx_sin_estrategias_conserva_placeholder(client):
+def test_docx_sin_estrategias_usa_placeholder(client):
     with client.session_factory() as session:
         _seed_periodo(session)
 
@@ -297,7 +297,7 @@ def test_t2_no_devuelve_ni_exporta_textos_de_t3(client):
     ],
     ids=["t3-acumulado", "t2-acumulado"],
 )
-def test_docx_exporta_marcadores_unicos_por_seccion(
+def test_docx_incluye_estrategias_guardadas(
     client, trimestre, marcadores
 ):
     """El DOCX lee de BD el periodo seleccionado, sin depender de la UI.
@@ -327,28 +327,38 @@ def test_docx_exporta_marcadores_unicos_por_seccion(
     assert PLACEHOLDER_ESTRATEGIAS not in texto
 
 
-def test_export_docx_del_modal_lee_estrategias_de_bd_para_el_periodo(client):
-    """La ruta genérica de exportación también resuelve el periodo en BD."""
+def test_generar_docx_lee_estrategias_desde_persistencia(client):
+    """Cubre el bug: Exportar no depende del estado de sesión de la UI.
+
+    Se guarda por servicio, sin GET ni pestaña Estrategias, y se piden ambas
+    rutas DOCX (la de la pestaña Exportar y la del modal de informes).
+    """
     with client.session_factory() as session:
         _seed_periodo(session)
         save_estrategias(
             session, anio=2026, trimestre="T3", secciones=MARCADORES_T3
         )
 
-    response = client.get(
+    word = client.get(
+        "/api/informes/word",
+        params={"anio": 2026, "trimestre": "T3", "modo": "acumulado"},
+    )
+    export = client.get(
         "/api/informes/export",
         params={
             "type": "consolidado",
             "format": "docx",
-            "year": 2026,
+            "anio": 2026,
             "trimestre": "T3",
             "modo": "acumulado",
         },
     )
-    assert response.status_code == 200, response.text
-    texto = _texto_docx(response.content)
-    for marcador in MARCADORES_T3.values():
-        assert texto.count(marcador) == 1, marcador
+
+    for response in (word, export):
+        assert response.status_code == 200, response.text
+        texto = _texto_docx(response.content)
+        for marcador in MARCADORES_T3.values():
+            assert texto.count(marcador) == 1, marcador
 
 
 def test_docx_mismo_periodo_es_idempotente_y_el_modo_no_duplica_textos(client):
@@ -527,7 +537,7 @@ def test_ui_contexto_estadistico_usa_el_consolidado_por_seccion():
     assert "async function cargarContextoInforme()" in ui_js
     # El modo de exportación cambia las cifras y debe recargar el contexto.
     assert "informeExportMode?.addEventListener(\"change\"" in ui_js
-    assert "function severidadContexto(avance)" in ui_js
+    assert "function severidadContexto(avance, esperado = null)" in ui_js
 
 
 def test_ui_rediseno_conserva_estilos_principales():
@@ -565,12 +575,20 @@ def test_ui_periodo_compartido_confirma_antes_de_cambiar():
     assert "window.confirm" in ui_js
     assert "Se guardarán antes de cambiar de periodo" in ui_js
     assert "function restaurarPeriodoInforme(periodo)" in ui_js
+    assert "function mismoPeriodo(primero, segundo)" in ui_js
     assert "await cargarEstrategias();" in ui_js
     # Entrar en Exportar refresca el resumen sin pisar borradores.
     assert 'if (nombre === "exportar" && !informeDirty)' in ui_js
+    # Cambiar periodo recarga estrategias y el contexto numérico del corte.
+    assert "function cargarContextoInforme()" in ui_js
+    assert "cargarContextoInforme();" in ui_js
     # El DOCX se pide por periodo y el servidor lee las estrategias de la BD.
     assert 'trimestre: periodo.trimestre' in ui_js
     assert "/api/informes/word" in ui_js
+    # Semáforo alineado con el prorrateo del informe (25 % por trimestre).
+    assert "function prorrateoEsperado(trimestre, modo)" in ui_js
+    assert "return 25 * Math.min(4, Math.max(1, ordinal || 3));" in ui_js
+    assert "severidadContexto(avance, esperado)" in ui_js
 
 
 def test_ui_router_no_degrada_informe_gestion_a_carga():
