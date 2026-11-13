@@ -130,6 +130,13 @@ class ConfirmImportRequest(BaseModel):
     accept_missing_complementaria: bool = False
     sheets_manual_cleanup_acknowledged: bool = False
 
+class InformeGestionEstrategiaRequest(BaseModel):
+    anio: int = 2026
+    trimestre: str = "T3"
+    # Claves públicas 3.1.1 .. 3.2. Los textos son libres y se guardan por
+    # (año, trimestre); el modo solo_trimestre/acumulado no los duplica.
+    secciones: dict[str, str] = {}
+
 class SheetSyncCreateRequest(BaseModel):
     url: str
     information_type: str = "actas_completo"
@@ -681,6 +688,54 @@ async def informes_formats_endpoint(
 async def informes_catalog_endpoint() -> list[dict]:
     from app.services.informes import report_catalog
     return report_catalog()
+
+
+@app.get("/api/informes/estrategias")
+async def informe_gestion_estrategias_get(
+    anio: int | None = Query(default=None, ge=2000, le=2100),
+    trimestre: str | None = Query(default=None, description="T1, T2, T3 o T4."),
+    session: Session = Depends(get_db),
+) -> dict:
+    """Textos de estrategias del informe de gestión para un periodo."""
+    from app.services.informe_gestion_estrategias import get_estrategias
+
+    try:
+        return get_estrategias(session, anio=anio, trimestre=trimestre)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.put("/api/informes/estrategias")
+async def informe_gestion_estrategias_put(
+    request: InformeGestionEstrategiaRequest,
+    session: Session = Depends(get_db),
+) -> dict:
+    """Guarda (upsert) los textos de estrategias de (año, trimestre)."""
+    from app.services.informe_gestion_estrategias import save_estrategias
+
+    try:
+        return save_estrategias(
+            session,
+            anio=request.anio,
+            trimestre=request.trimestre,
+            secciones=request.secciones,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/informes/estrategias/periodos")
+async def informe_gestion_estrategias_periodos(
+    anio: int | None = Query(default=None, ge=2000, le=2100),
+    session: Session = Depends(get_db),
+) -> list[dict]:
+    """Lista los periodos que ya tienen estrategias guardadas."""
+    from app.services.informe_gestion_estrategias import list_periodos
+
+    try:
+        return list_periodos(session, anio=anio)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get("/api/informes/word")

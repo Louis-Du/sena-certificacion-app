@@ -250,3 +250,43 @@ class ActLearner(Base):
 
     act: Mapped[Act] = relationship(back_populates="learners")
     learner: Mapped[Learner] = relationship(back_populates="acts")
+
+
+# Textos institucionales del bloque 3 del Informe de Gestión Administrativa.
+# La dependencia los redacta por periodo; el generador DOCX solo los inserta.
+# El modo de exportación (solo trimestre / acumulado) NO crea otro juego de
+# textos: la clave de persistencia es únicamente (año, trimestre).
+class InformeGestionEstrategia(Base):
+    __tablename__ = "informe_gestion_estrategias"
+    __table_args__ = (
+        UniqueConstraint(
+            "anio",
+            "trimestre",
+            name="uq_informe_gestion_estrategias_periodo",
+        ),
+        Index("ix_informe_gestion_estrategias_periodo", "anio", "trimestre"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    anio: Mapped[int] = mapped_column(Integer)
+    trimestre: Mapped[str] = mapped_column(String(2))
+    # 3.1.1 Educación Superior
+    educacion_superior: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 3.1.2 Técnico Laboral y Otros (sin incluir Media Técnica)
+    tecnico_laboral: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 3.1.3 Articulación con la Media
+    articulacion_media: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 3.1.4 Formación Complementaria
+    formacion_complementaria: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 3.1.5 Certificación Total / Centros de Formación
+    certificacion_total: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 3.2 Otras actividades del trimestre
+    otras_actividades: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
