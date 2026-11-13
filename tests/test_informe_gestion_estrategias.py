@@ -365,6 +365,7 @@ def test_ui_incluye_navegacion_y_pantalla_de_informe_gestion():
 def test_ui_rediseno_incluye_acordeones_y_borradores_rapidos():
     root = Path(__file__).resolve().parents[1]
     index = (root / "app" / "static" / "index.html").read_text(encoding="utf-8")
+    css = (root / "app" / "static" / "styles.css").read_text(encoding="utf-8")
     ui_js = (root / "app" / "static" / "ui-enhancements.js").read_text(
         encoding="utf-8"
     )
@@ -377,6 +378,10 @@ def test_ui_rediseno_incluye_acordeones_y_borradores_rapidos():
     assert index.count("data-estrategia-quick=") == 6
     assert index.count("data-estrategia-seccion=") == 6
     assert "Redactar estrategia aquí..." in index
+    # El icono informativo se retiró; el borrador rápido se oculta al expandir.
+    assert "informe-info-icon" not in index
+    assert ".informe-accordion.is-open .informe-quick-input" in css
+    assert "display: none;" in css
     # El comportamiento vive en el JS: abrir/cerrar, sincronizar borrador y badge.
     assert "function alternarAcordeon(button)" in ui_js
     assert 'button.setAttribute("aria-expanded", String(!abierto));' in ui_js
@@ -429,6 +434,8 @@ def test_ui_rediseno_conserva_estilos_principales():
         ".informe-save-button",
     ):
         assert selector in css
+
+    assert ".informe-info-icon" not in css
 
 
 def test_ui_router_no_degrada_informe_gestion_a_carga():

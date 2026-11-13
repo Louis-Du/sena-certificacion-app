@@ -5320,9 +5320,18 @@ body.has-conflict-banner .sidebar {
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
 }
 
+/* Al expandir, el borrador rápido se oculta porque aparece el textarea. */
+.informe-accordion.is-open .informe-accordion-head {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.informe-accordion.is-open .informe-quick-input {
+  display: none;
+}
+
 .informe-accordion-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(200px, 320px) 24px;
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 320px);
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
@@ -5413,21 +5422,6 @@ body.has-conflict-banner .sidebar {
   background: #fff;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
-}
-
-.informe-info-icon {
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border: 1px solid var(--line-strong);
-  border-radius: 50%;
-  color: var(--muted);
-  font-size: 0.7rem;
-  font-weight: 800;
-  font-style: italic;
-  font-family: Georgia, serif;
-  cursor: help;
 }
 
 .informe-sr-only {
@@ -5825,18 +5819,13 @@ body.has-conflict-banner .sidebar {
   }
 
   .informe-accordion-head {
-    grid-template-columns: minmax(0, 1fr) 24px;
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
   }
 
   .informe-quick-input {
     grid-column: 1 / -1;
     grid-row: 2;
-  }
-
-  .informe-info-icon {
-    grid-column: 2;
-    grid-row: 1;
   }
 
   .informe-export-grid {
