@@ -360,3 +360,24 @@ def test_ui_incluye_navegacion_y_pantalla_de_informe_gestion():
     assert '"informe-gestion"' in app_js
     assert "/api/informes/estrategias" in ui_js
     assert "/api/informes/word" in ui_js
+
+
+def test_ui_router_no_degrada_informe_gestion_a_carga():
+    """Regresión: ui-enhancements envuelve showView y debe conocer la vista.
+
+    Si su lista blanca no incluye ``informe-gestion``, el clic en el menú
+    termina mostrando la vista de carga.
+    """
+    root = Path(__file__).resolve().parents[1]
+    ui_js = (root / "app" / "static" / "ui-enhancements.js").read_text(
+        encoding="utf-8"
+    )
+
+    wrapper_start = ui_js.index("window.showView = function (viewName, updateHash)")
+    wrapper_end = ui_js.index("/* ---------------- Boot ---------------- */", wrapper_start)
+    wrapper = ui_js[wrapper_start:wrapper_end]
+    assert '"informe-gestion"' in wrapper
+    assert 'originalShowView(target, updateHash)' in wrapper
+    # También debe respetarse al entrar directo con #informe-gestion.
+    boot = ui_js[wrapper_end:]
+    assert '"informe-gestion"' in boot
