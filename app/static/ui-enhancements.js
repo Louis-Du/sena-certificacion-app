@@ -289,6 +289,9 @@
   const informeTabButtons = document.querySelectorAll("[data-informe-tab]");
   const informePanels = document.querySelectorAll("[data-informe-panel]");
   const informeTextareas = document.querySelectorAll("[data-estrategia-seccion]");
+  const informeQuickInputs = document.querySelectorAll("[data-estrategia-quick]");
+  const informeAccordionToggles = document.querySelectorAll("[data-accordion-toggle]");
+  const informeContextCards = document.querySelectorAll("[data-context-section]");
   const reportOpenEstrategias = document.getElementById("report-open-estrategias");
   const SECCIONES_INFORME = [
     ["3.1.1", "Educación Superior"],
@@ -299,11 +302,33 @@
     ["3.2", "Otras actividades del trimestre"],
   ];
   const ROMANOS = { T1: "I", T2: "II", T3: "III", T4: "IV" };
+  // Cada bloque del informe consume una categoría del consolidado ACTAS.
+  const CONTEXTO_POR_SECCION = {
+    "3.1.1": "superior",
+    "3.1.2": "tecnica",
+    "3.1.3": "articulacion",
+    "3.1.4": "complementaria",
+  };
+  const numeroInforme = new Intl.NumberFormat("es-CO");
+  const porcentajeInforme = new Intl.NumberFormat("es-CO", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+  const quickInputPorCodigo = new Map(
+    Array.from(informeQuickInputs).map((input) => [input.dataset.estrategiaQuick, input]),
+  );
+  const textareaPorCodigo = new Map(
+    Array.from(informeTextareas).map((textarea) => [
+      textarea.dataset.estrategiaSeccion,
+      textarea,
+    ]),
+  );
 
   let informePeriodoActual = { anio: 2026, trimestre: "T3" };
   let informeCargado = false;
   let informeDirty = false;
   let informeLoadToken = 0;
+  let informeContextoToken = 0;
 
   function setInformeStatus(element, message, kind) {
     if (!element) return;
@@ -334,8 +359,156 @@
   function marcarInformeDirty(dirty) {
     informeDirty = dirty;
     if (!informeBadge) return;
-    informeBadge.textContent = dirty ? "Cambios sin guardar" : "Guardado";
+    informeBadge.textContent = dirty ? "SIN GUARDAR" : "GUARDADO";
     informeBadge.className = "result-badge " + (dirty ? "pending" : "ready");
+  }
+
+  function sincronizarBorradoresRapidos(secciones) {
+    informeQuickInputs.forEach((input) => {
+      const codigo = input.dataset.estrategiaQuick;
+      input.value = secciones[codigo] || "";
+    });
+  }
+
+  function alternarAcordeon(button) {
+    const article = button.closest("[data-accordion-section]");
+    const panel = document.getElementById(button.getAttribute("aria-controls") || "");
+    if (!article || !panel) return;
+    const abierto = button.getAttribute("aria-expanded") === "true";
+    button.setAttribute("aria-expanded", String(!abierto));
+    article.classList.toggle("is-open", !abierto);
+    panel.hidden = abierto;
+  }
+
+  function numeroInformeValido(value) {
+    return (
+      value !== null &&
+      value !== undefined &&
+      value !== "" &&
+      Number.isFinite(Number(value))
+    );
+  }
+
+  function formatearNumeroInforme(value) {
+    return numeroInformeValido(value) ? numeroInforme.format(Number(value)) : "—";
+  }
+
+  function formatearPorcentajeInforme(value) {
+    return numeroInformeValido(value)
+      ? `${porcentajeInforme.format(Number(value))}%`
+      : "—";
+  }
+
+  function severidadContexto(avance) {
+    if (!numeroInformeValido(avance)) {
+      return { clase: "is-neutral", texto: "Sin datos" };
+    }
+    const valor = Number(avance);
+    if (valor >= 100) return { clase: "is-good", texto: "Meta cumplida" };
+    if (valor >= 60) return { clase: "is-good", texto: "En camino" };
+    if (valor >= 30) return { clase: "is-warning", texto: "En riesgo" };
+    return { clase: "is-critical", texto: "Crítico" };
+  }
+
+  function renderContextoSeccion(codigo, metrica) {
+    const card = Array.from(informeContextCards).find(
+      (element) => element.dataset.contextSection === codigo,
+    );
+    if (!card) return;
+
+    const meta = metrica?.meta ?? null;
+    const ejecucion = metrica?.certificados ?? metrica?.total_certificados ?? null;
+    let avance = metrica?.avance ?? null;
+    if (
+      !numeroInformeValido(avance) &&
+      numeroInformeValido(meta) &&
+      Number(meta) > 0 &&
+      numeroInformeValido(ejecucion)
+    ) {
+      avance = (Number(ejecucion) / Number(meta)) * 100;
+    }
+
+    const severidad = severidadContexto(avance);
+    const porcentaje = formatearPorcentajeInforme(avance);
+    const ancho = numeroInformeValido(avance)
+      ? Math.min(100, Math.max(0, Number(avance)))
+      : 0;
+
+    const metaEl = card.querySelector("[data-context-meta]");
+    const ejecucionEl = card.querySelector("[data-context-ejecucion]");
+    const ejecucionPctEl = card.querySelector("[data-context-ejecucion-pct]");
+    const pctEl = card.querySelector("[data-context-pct]");
+    const barEl = card.querySelector("[data-context-bar]");
+    const badgeEl = card.querySelector("[data-context-badge]");
+
+    if (metaEl) metaEl.textContent = formatearNumeroInforme(meta);
+    if (ejecucionEl) ejecucionEl.textContent = formatearNumeroInforme(ejecucion);
+    if (ejecucionPctEl) {
+      ejecucionPctEl.textContent = numeroInformeValido(avance)
+        ? `${porcentaje} del avance`
+        : "Sin porcentaje";
+    }
+    if (pctEl) pctEl.textContent = porcentaje;
+    if (barEl) barEl.style.width = `${ancho.toFixed(1)}%`;
+
+    card.classList.remove("is-neutral", "is-critical", "is-warning", "is-good");
+    card.classList.add(severidad.clase);
+    if (badgeEl) {
+      badgeEl.classList.remove("is-neutral", "is-critical", "is-warning", "is-good");
+      badgeEl.classList.add(severidad.clase);
+      const em = badgeEl.querySelector("em");
+      if (em) em.textContent = severidad.texto;
+    }
+  }
+
+  function renderContextoInforme(data, periodo) {
+    const etiqueta = etiquetaPeriodo(periodo);
+    document.querySelectorAll("[data-context-periodo]").forEach((element) => {
+      element.textContent = etiqueta;
+    });
+
+    const metricas = data?.metricas || data?.desglose_por_categoria || [];
+    const porCategoria = new Map(
+      metricas.map((metrica) => [metrica.category, metrica]),
+    );
+    Object.entries(CONTEXTO_POR_SECCION).forEach(([codigo, categoria]) => {
+      renderContextoSeccion(codigo, porCategoria.get(categoria));
+    });
+
+    const resumen = data?.resumen_ejecutivo || {};
+    renderContextoSeccion("3.1.5", {
+      meta: resumen.meta_total ?? resumen.total_meta ?? null,
+      certificados:
+        resumen.total_certificados ?? resumen.certificados_personas ?? null,
+      avance: resumen.avance_global ?? null,
+    });
+  }
+
+  async function cargarContextoInforme() {
+    if (!informeView || !informeContextCards.length) return;
+    const periodo = periodoInforme();
+    const modo = informeExportMode?.value || "acumulado";
+    const token = ++informeContextoToken;
+    try {
+      const params = new URLSearchParams({
+        year: String(periodo.anio),
+        trimestre: periodo.trimestre,
+        modo,
+      });
+      const response = await fetch(
+        `/api/informes/consolidado?${params.toString()}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) {
+        throw new Error("No se pudo cargar el contexto estadístico.");
+      }
+      const data = await response.json();
+      if (token !== informeContextoToken) return;
+      renderContextoInforme(data, periodo);
+    } catch (_) {
+      if (token !== informeContextoToken) return;
+      renderContextoInforme(null, periodo);
+    }
   }
 
   function renderResumenEstrategias(secciones) {
@@ -374,6 +547,7 @@
     informeTextareas.forEach((textarea) => {
       textarea.value = secciones[textarea.dataset.estrategiaSeccion] || "";
     });
+    sincronizarBorradoresRapidos(secciones);
     marcarInformeDirty(false);
     renderResumenEstrategias(secciones);
     const cargadas = SECCIONES_INFORME.filter(
@@ -393,6 +567,7 @@
     const periodo = periodoInforme();
     informePeriodoActual = periodo;
     const token = ++informeLoadToken;
+    cargarContextoInforme();
     setInformeStatus(informeStatus, "Cargando estrategias del periodo…", "info");
     try {
       const params = new URLSearchParams({
@@ -491,13 +666,34 @@
     button.addEventListener("click", () => activarTabInforme(button.dataset.informeTab));
   });
 
+  informeAccordionToggles.forEach((button) => {
+    button.addEventListener("click", () => alternarAcordeon(button));
+  });
+
   informeForm?.addEventListener("submit", (event) => guardarEstrategias({ event }));
   informeTextareas.forEach((textarea) => {
     textarea.addEventListener("input", () => {
+      const quick = quickInputPorCodigo.get(textarea.dataset.estrategiaSeccion);
+      if (quick) quick.value = textarea.value;
       marcarInformeDirty(true);
       renderResumenEstrategias(seccionesDelFormulario());
       setInformeStatus(informeStatus, "Cambios sin guardar.", "warning");
     });
+  });
+
+  informeQuickInputs.forEach((input) => {
+    const codigo = input.dataset.estrategiaQuick;
+    input.addEventListener("input", () => {
+      const textarea = textareaPorCodigo.get(codigo);
+      if (textarea) textarea.value = input.value;
+      marcarInformeDirty(true);
+      renderResumenEstrategias(seccionesDelFormulario());
+      setInformeStatus(informeStatus, "Cambios sin guardar.", "warning");
+    });
+  });
+
+  informeExportMode?.addEventListener("change", () => {
+    cargarContextoInforme();
   });
 
   async function cambiarPeriodoInforme() {

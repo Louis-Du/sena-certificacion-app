@@ -452,10 +452,10 @@
         </div>
       </div>
 
-      <div id="informe-gestion-view" class="app-view" hidden>
-        <header class="topbar">
+      <div id="informe-gestion-view" class="app-view informe-gestion-view" hidden>
+        <header class="topbar informe-hero">
           <div class="topbar-text">
-            <p class="eyebrow">SENA Certificación</p>
+            <p class="eyebrow">SENA CERTIFICACIÓN</p>
             <h1>Informe de gestión administrativa</h1>
             <p class="subtitle">Redacta por trimestre las estrategias del informe oficial y genera el DOCX con las cifras del consolidado.</p>
           </div>
@@ -474,72 +474,299 @@
           </div>
         </header>
 
-        <p class="metrics-scope-note" id="informe-periodo-note">
-          Los textos se guardan por <strong>año y trimestre</strong>. El modo de exportación
-          (solo trimestre o acumulado) cambia las cifras, no los textos.
-        </p>
+        <div class="informe-banner" id="informe-periodo-note" role="note">
+          <span class="informe-banner-icon" aria-hidden="true">i</span>
+          <p>Los textos se guardan por <strong>año y trimestre</strong>. El modo de exportación (solo trimestre o acumulado) cambia las cifras, no los textos.</p>
+        </div>
 
         <div class="pill-tabs informe-gestion-tabs" id="informe-gestion-tabs">
           <div class="pill-tab-list" role="tablist" aria-label="Secciones del informe de gestión">
-            <button class="pill-tab is-active" type="button" role="tab" id="informe-tab-estrategias" data-informe-tab="estrategias" aria-controls="informe-panel-estrategias" aria-selected="true">Estrategias</button>
+            <button class="pill-tab is-active" type="button" role="tab" id="informe-tab-estrategias" data-informe-tab="estrategias" aria-controls="informe-panel-estrategias" aria-selected="true">Estrategia o Actividades llevadas a cabo</button>
             <button class="pill-tab" type="button" role="tab" id="informe-tab-anexos" data-informe-tab="anexos" aria-controls="informe-panel-anexos" aria-selected="false">Anexos</button>
             <button class="pill-tab" type="button" role="tab" id="informe-tab-exportar" data-informe-tab="exportar" aria-controls="informe-panel-exportar" aria-selected="false">Exportar</button>
           </div>
 
-          <section class="pill-panel panel is-active" id="informe-panel-estrategias" data-informe-panel="estrategias" role="tabpanel" aria-labelledby="informe-tab-estrategias">
-            <div class="panel-heading">
-              <div>
-                <h2>Estrategias o actividades llevadas a cabo</h2>
-                <p>Estos textos se insertan en el bloque 3.1.x y 3.2 del informe oficial. Si una sección queda vacía se usará el placeholder institucional.</p>
-              </div>
-              <span class="result-badge" id="informe-estrategias-badge">Sin guardar</span>
-            </div>
+          <section class="pill-panel panel is-active informe-panel" id="informe-panel-estrategias" data-informe-panel="estrategias" role="tabpanel" aria-labelledby="informe-tab-estrategias">
             <form id="informe-estrategias-form" class="informe-estrategias-form">
-              <label class="informe-estrategia-field" for="estrategia-3-1-1">
-                <span><strong>3.1.1</strong> Educación Superior</span>
-                <textarea id="estrategia-3-1-1" data-estrategia-seccion="3.1.1" rows="3" placeholder="Actividades realizadas para el indicador de Educación Superior."></textarea>
-              </label>
-              <label class="informe-estrategia-field" for="estrategia-3-1-2">
-                <span><strong>3.1.2</strong> Técnico Laboral y Otros (sin incluir Media Técnica)</span>
-                <textarea id="estrategia-3-1-2" data-estrategia-seccion="3.1.2" rows="3" placeholder="Actividades realizadas para el indicador Técnico Laboral y Otros."></textarea>
-              </label>
-              <label class="informe-estrategia-field" for="estrategia-3-1-3">
-                <span><strong>3.1.3</strong> Articulación con la Media</span>
-                <textarea id="estrategia-3-1-3" data-estrategia-seccion="3.1.3" rows="3" placeholder="Actividades realizadas con las instituciones educativas y la media técnica."></textarea>
-              </label>
-              <label class="informe-estrategia-field" for="estrategia-3-1-4">
-                <span><strong>3.1.4</strong> Formación Complementaria</span>
-                <textarea id="estrategia-3-1-4" data-estrategia-seccion="3.1.4" rows="3" placeholder="Actividades realizadas para formación complementaria."></textarea>
-              </label>
-              <label class="informe-estrategia-field" for="estrategia-3-1-5">
-                <span><strong>3.1.5</strong> Certificación Total / Centros de Formación</span>
-                <textarea id="estrategia-3-1-5" data-estrategia-seccion="3.1.5" rows="3" placeholder="Actividades realizadas para la certificación total del centro de formación."></textarea>
-              </label>
-              <label class="informe-estrategia-field" for="estrategia-3-2">
-                <span><strong>3.2</strong> Otras actividades del trimestre</span>
-                <textarea id="estrategia-3-2" data-estrategia-seccion="3.2" rows="3" placeholder="Otras actividades llevadas a cabo en el trimestre."></textarea>
-              </label>
-              <div class="informe-estrategias-actions">
+              <div class="informe-section-head">
+                <div class="informe-section-copy">
+                  <p class="eyebrow">Bloque 3 · Estrategias</p>
+                  <h2>Estrategia o Actividades llevadas a cabo por Programa de Formación</h2>
+                  <p>Completa cada sección. Los textos se insertan en el DOCX del informe oficial; las secciones vacías conservan el placeholder institucional.</p>
+                </div>
+                <div class="informe-section-actions">
+                  <span class="result-badge" id="informe-estrategias-badge">GUARDADO</span>
+                  <button id="informe-estrategias-save" class="primary-button informe-save-button" type="submit">Guardar estrategias</button>
+                </div>
+              </div>
+
+              <div class="informe-accordion-list" id="informe-accordion-list">
+            <article class="informe-accordion" data-accordion-section="3.1.1">
+              <div class="informe-accordion-head">
+                <button class="informe-accordion-trigger" type="button" data-accordion-toggle aria-expanded="false" aria-controls="informe-accordion-panel-3-1-1">
+                  <span class="informe-accordion-code">3.1.1</span>
+                  <span class="informe-accordion-title">Educación Superior</span>
+                  <span class="informe-accordion-chevron" aria-hidden="true">+</span>
+                </button>
+                <input class="informe-quick-input" type="text" data-estrategia-quick="3.1.1" placeholder="Redactar estrategia aquí..." aria-label="Borrador rápido para 3.1.1 Educación Superior">
+                <span class="informe-info-icon" title="Indicador de Educación Superior. Al abrir la sección verás la meta anual y la ejecución del periodo.">i<span class="informe-sr-only"> Indicador de Educación Superior. Al abrir la sección verás la meta anual y la ejecución del periodo.</span></span>
+              </div>
+              <div class="informe-accordion-panel" id="informe-accordion-panel-3-1-1" hidden>
+                <div class="informe-context-card" data-context-section="3.1.1">
+                  <div class="informe-context-head">
+                    <h3>Contexto de Certificación <span class="informe-context-period">(al corte <span data-context-periodo>Trimestre III 2026</span>)</span></h3>
+                    <span class="informe-severity is-neutral" data-context-badge><span>AVANCE TOTAL DEL AÑO</span><em>Sin datos</em></span>
+                  </div>
+                  <div class="informe-context-grid">
+                    <div class="informe-context-metric">
+                      <span>Meta Anual</span>
+                      <strong data-context-meta>—</strong>
+                      <small>aprendices</small>
+                    </div>
+                    <div class="informe-context-metric">
+                      <span>Ejecución</span>
+                      <strong data-context-ejecucion>—</strong>
+                      <small data-context-ejecucion-pct>Sin porcentaje</small>
+                    </div>
+                  </div>
+                  <div class="informe-progress" role="img" aria-label="Avance del indicador">
+                    <div class="informe-progress-bar" data-context-bar style="width:0%"></div>
+                  </div>
+                  <div class="informe-context-foot">
+                    <span data-context-pct>0,0%</span>
+                    <span>Avance frente a la meta anual</span>
+                  </div>
+                </div>
+                <label class="informe-estrategia-field" for="estrategia-3-1-1">
+                  <span>Estrategia o Actividades llevadas a cabo para certificar <em>(Ingresa tu estrategia aquí)</em></span>
+                  <textarea id="estrategia-3-1-1" data-estrategia-seccion="3.1.1" rows="5" placeholder="Describe las actividades, acciones y gestiones realizadas para este programa de formación."></textarea>
+                </label>
+              </div>
+            </article>
+            <article class="informe-accordion" data-accordion-section="3.1.2">
+              <div class="informe-accordion-head">
+                <button class="informe-accordion-trigger" type="button" data-accordion-toggle aria-expanded="false" aria-controls="informe-accordion-panel-3-1-2">
+                  <span class="informe-accordion-code">3.1.2</span>
+                  <span class="informe-accordion-title">Técnico Laboral y Otros (sin incluir Media Técnica)</span>
+                  <span class="informe-accordion-chevron" aria-hidden="true">+</span>
+                </button>
+                <input class="informe-quick-input" type="text" data-estrategia-quick="3.1.2" placeholder="Redactar estrategia aquí..." aria-label="Borrador rápido para 3.1.2 Técnico Laboral y Otros (sin incluir Media Técnica)">
+                <span class="informe-info-icon" title="Indicador de Técnico Laboral y Otros sin incluir Media Técnica.">i<span class="informe-sr-only"> Indicador de Técnico Laboral y Otros sin incluir Media Técnica.</span></span>
+              </div>
+              <div class="informe-accordion-panel" id="informe-accordion-panel-3-1-2" hidden>
+                <div class="informe-context-card" data-context-section="3.1.2">
+                  <div class="informe-context-head">
+                    <h3>Contexto de Certificación <span class="informe-context-period">(al corte <span data-context-periodo>Trimestre III 2026</span>)</span></h3>
+                    <span class="informe-severity is-neutral" data-context-badge><span>AVANCE TOTAL DEL AÑO</span><em>Sin datos</em></span>
+                  </div>
+                  <div class="informe-context-grid">
+                    <div class="informe-context-metric">
+                      <span>Meta Anual</span>
+                      <strong data-context-meta>—</strong>
+                      <small>aprendices</small>
+                    </div>
+                    <div class="informe-context-metric">
+                      <span>Ejecución</span>
+                      <strong data-context-ejecucion>—</strong>
+                      <small data-context-ejecucion-pct>Sin porcentaje</small>
+                    </div>
+                  </div>
+                  <div class="informe-progress" role="img" aria-label="Avance del indicador">
+                    <div class="informe-progress-bar" data-context-bar style="width:0%"></div>
+                  </div>
+                  <div class="informe-context-foot">
+                    <span data-context-pct>0,0%</span>
+                    <span>Avance frente a la meta anual</span>
+                  </div>
+                </div>
+                <label class="informe-estrategia-field" for="estrategia-3-1-2">
+                  <span>Estrategia o Actividades llevadas a cabo para certificar <em>(Ingresa tu estrategia aquí)</em></span>
+                  <textarea id="estrategia-3-1-2" data-estrategia-seccion="3.1.2" rows="5" placeholder="Describe las actividades, acciones y gestiones realizadas para este programa de formación."></textarea>
+                </label>
+              </div>
+            </article>
+            <article class="informe-accordion" data-accordion-section="3.1.3">
+              <div class="informe-accordion-head">
+                <button class="informe-accordion-trigger" type="button" data-accordion-toggle aria-expanded="false" aria-controls="informe-accordion-panel-3-1-3">
+                  <span class="informe-accordion-code">3.1.3</span>
+                  <span class="informe-accordion-title">Articulación con la Media</span>
+                  <span class="informe-accordion-chevron" aria-hidden="true">+</span>
+                </button>
+                <input class="informe-quick-input" type="text" data-estrategia-quick="3.1.3" placeholder="Redactar estrategia aquí..." aria-label="Borrador rápido para 3.1.3 Articulación con la Media">
+                <span class="informe-info-icon" title="Indicador de Articulación con la Media Técnica.">i<span class="informe-sr-only"> Indicador de Articulación con la Media Técnica.</span></span>
+              </div>
+              <div class="informe-accordion-panel" id="informe-accordion-panel-3-1-3" hidden>
+                <div class="informe-context-card" data-context-section="3.1.3">
+                  <div class="informe-context-head">
+                    <h3>Contexto de Certificación <span class="informe-context-period">(al corte <span data-context-periodo>Trimestre III 2026</span>)</span></h3>
+                    <span class="informe-severity is-neutral" data-context-badge><span>AVANCE TOTAL DEL AÑO</span><em>Sin datos</em></span>
+                  </div>
+                  <div class="informe-context-grid">
+                    <div class="informe-context-metric">
+                      <span>Meta Anual</span>
+                      <strong data-context-meta>—</strong>
+                      <small>aprendices</small>
+                    </div>
+                    <div class="informe-context-metric">
+                      <span>Ejecución</span>
+                      <strong data-context-ejecucion>—</strong>
+                      <small data-context-ejecucion-pct>Sin porcentaje</small>
+                    </div>
+                  </div>
+                  <div class="informe-progress" role="img" aria-label="Avance del indicador">
+                    <div class="informe-progress-bar" data-context-bar style="width:0%"></div>
+                  </div>
+                  <div class="informe-context-foot">
+                    <span data-context-pct>0,0%</span>
+                    <span>Avance frente a la meta anual</span>
+                  </div>
+                </div>
+                <label class="informe-estrategia-field" for="estrategia-3-1-3">
+                  <span>Estrategia o Actividades llevadas a cabo para certificar <em>(Ingresa tu estrategia aquí)</em></span>
+                  <textarea id="estrategia-3-1-3" data-estrategia-seccion="3.1.3" rows="5" placeholder="Describe las actividades, acciones y gestiones realizadas para este programa de formación."></textarea>
+                </label>
+              </div>
+            </article>
+            <article class="informe-accordion" data-accordion-section="3.1.4">
+              <div class="informe-accordion-head">
+                <button class="informe-accordion-trigger" type="button" data-accordion-toggle aria-expanded="false" aria-controls="informe-accordion-panel-3-1-4">
+                  <span class="informe-accordion-code">3.1.4</span>
+                  <span class="informe-accordion-title">Formación Complementaria</span>
+                  <span class="informe-accordion-chevron" aria-hidden="true">+</span>
+                </button>
+                <input class="informe-quick-input" type="text" data-estrategia-quick="3.1.4" placeholder="Redactar estrategia aquí..." aria-label="Borrador rápido para 3.1.4 Formación Complementaria">
+                <span class="informe-info-icon" title="Indicador de Formación Complementaria.">i<span class="informe-sr-only"> Indicador de Formación Complementaria.</span></span>
+              </div>
+              <div class="informe-accordion-panel" id="informe-accordion-panel-3-1-4" hidden>
+                <div class="informe-context-card" data-context-section="3.1.4">
+                  <div class="informe-context-head">
+                    <h3>Contexto de Certificación <span class="informe-context-period">(al corte <span data-context-periodo>Trimestre III 2026</span>)</span></h3>
+                    <span class="informe-severity is-neutral" data-context-badge><span>AVANCE TOTAL DEL AÑO</span><em>Sin datos</em></span>
+                  </div>
+                  <div class="informe-context-grid">
+                    <div class="informe-context-metric">
+                      <span>Meta Anual</span>
+                      <strong data-context-meta>—</strong>
+                      <small>aprendices</small>
+                    </div>
+                    <div class="informe-context-metric">
+                      <span>Ejecución</span>
+                      <strong data-context-ejecucion>—</strong>
+                      <small data-context-ejecucion-pct>Sin porcentaje</small>
+                    </div>
+                  </div>
+                  <div class="informe-progress" role="img" aria-label="Avance del indicador">
+                    <div class="informe-progress-bar" data-context-bar style="width:0%"></div>
+                  </div>
+                  <div class="informe-context-foot">
+                    <span data-context-pct>0,0%</span>
+                    <span>Avance frente a la meta anual</span>
+                  </div>
+                </div>
+                <label class="informe-estrategia-field" for="estrategia-3-1-4">
+                  <span>Estrategia o Actividades llevadas a cabo para certificar <em>(Ingresa tu estrategia aquí)</em></span>
+                  <textarea id="estrategia-3-1-4" data-estrategia-seccion="3.1.4" rows="5" placeholder="Describe las actividades, acciones y gestiones realizadas para este programa de formación."></textarea>
+                </label>
+              </div>
+            </article>
+            <article class="informe-accordion" data-accordion-section="3.1.5">
+              <div class="informe-accordion-head">
+                <button class="informe-accordion-trigger" type="button" data-accordion-toggle aria-expanded="false" aria-controls="informe-accordion-panel-3-1-5">
+                  <span class="informe-accordion-code">3.1.5</span>
+                  <span class="informe-accordion-title">Certificación Total / Centros de Formación</span>
+                  <span class="informe-accordion-chevron" aria-hidden="true">+</span>
+                </button>
+                <input class="informe-quick-input" type="text" data-estrategia-quick="3.1.5" placeholder="Redactar estrategia aquí..." aria-label="Borrador rápido para 3.1.5 Certificación Total / Centros de Formación">
+                <span class="informe-info-icon" title="Indicador de Certificación Total de los Centros de Formación.">i<span class="informe-sr-only"> Indicador de Certificación Total de los Centros de Formación.</span></span>
+              </div>
+              <div class="informe-accordion-panel" id="informe-accordion-panel-3-1-5" hidden>
+                <div class="informe-context-card" data-context-section="3.1.5">
+                  <div class="informe-context-head">
+                    <h3>Contexto de Certificación <span class="informe-context-period">(al corte <span data-context-periodo>Trimestre III 2026</span>)</span></h3>
+                    <span class="informe-severity is-neutral" data-context-badge><span>AVANCE TOTAL DEL AÑO</span><em>Sin datos</em></span>
+                  </div>
+                  <div class="informe-context-grid">
+                    <div class="informe-context-metric">
+                      <span>Meta Anual</span>
+                      <strong data-context-meta>—</strong>
+                      <small>aprendices</small>
+                    </div>
+                    <div class="informe-context-metric">
+                      <span>Ejecución</span>
+                      <strong data-context-ejecucion>—</strong>
+                      <small data-context-ejecucion-pct>Sin porcentaje</small>
+                    </div>
+                  </div>
+                  <div class="informe-progress" role="img" aria-label="Avance del indicador">
+                    <div class="informe-progress-bar" data-context-bar style="width:0%"></div>
+                  </div>
+                  <div class="informe-context-foot">
+                    <span data-context-pct>0,0%</span>
+                    <span>Avance frente a la meta anual</span>
+                  </div>
+                </div>
+                <label class="informe-estrategia-field" for="estrategia-3-1-5">
+                  <span>Estrategia o Actividades llevadas a cabo para certificar <em>(Ingresa tu estrategia aquí)</em></span>
+                  <textarea id="estrategia-3-1-5" data-estrategia-seccion="3.1.5" rows="5" placeholder="Describe las actividades, acciones y gestiones realizadas para este programa de formación."></textarea>
+                </label>
+              </div>
+            </article>
+            <article class="informe-accordion" data-accordion-section="3.2">
+              <div class="informe-accordion-head">
+                <button class="informe-accordion-trigger" type="button" data-accordion-toggle aria-expanded="false" aria-controls="informe-accordion-panel-3-2">
+                  <span class="informe-accordion-code">3.2</span>
+                  <span class="informe-accordion-title">Otras actividades del trimestre</span>
+                  <span class="informe-accordion-chevron" aria-hidden="true">+</span>
+                </button>
+                <input class="informe-quick-input" type="text" data-estrategia-quick="3.2" placeholder="Redactar estrategia aquí..." aria-label="Borrador rápido para 3.2 Otras actividades del trimestre">
+                <span class="informe-info-icon" title="Actividades adicionales que se relacionan en el informe del trimestre.">i<span class="informe-sr-only"> Actividades adicionales que se relacionan en el informe del trimestre.</span></span>
+              </div>
+              <div class="informe-accordion-panel" id="informe-accordion-panel-3-2" hidden>
+                <div class="informe-context-card is-neutral">
+                  <div class="informe-context-head">
+                    <h3>Otras actividades del trimestre</h3>
+                    <span class="informe-severity is-neutral"><span>SIN INDICADOR ASOCIADO</span><em>Contexto informativo</em></span>
+                  </div>
+                  <p class="informe-context-note">Esta sección no tiene meta ni ejecución asociada. Registra aquí las actividades adicionales que se incluirán en el bloque 3.2 del informe oficial.</p>
+                </div>
+                <label class="informe-estrategia-field" for="estrategia-3-2">
+                  <span>Estrategia o Actividades llevadas a cabo para certificar <em>(Ingresa tu estrategia aquí)</em></span>
+                  <textarea id="estrategia-3-2" data-estrategia-seccion="3.2" rows="5" placeholder="Describe las actividades, acciones y gestiones realizadas para este programa de formación."></textarea>
+                </label>
+              </div>
+            </article>
+              </div>
+
+              <div class="informe-form-footer">
                 <p id="informe-estrategias-status" class="detail-feedback" role="status"></p>
-                <button id="informe-estrategias-save" class="primary-button" type="submit">Guardar estrategias</button>
+                <p class="informe-form-hint">Puedes escribir un borrador rápido en la barra de cada sección o abrirla para consultar el contexto estadístico y redactar el texto completo.</p>
               </div>
             </form>
           </section>
 
-          <section class="pill-panel panel" id="informe-panel-anexos" data-informe-panel="anexos" role="tabpanel" aria-labelledby="informe-tab-anexos" hidden>
-            <div class="panel-heading">
-              <div><h2>Anexos del informe</h2><p>Espacio reservado para los soportes del trimestre.</p></div>
+          <section class="pill-panel panel informe-panel" id="informe-panel-anexos" data-informe-panel="anexos" role="tabpanel" aria-labelledby="informe-tab-anexos" hidden>
+            <div class="informe-section-head">
+              <div class="informe-section-copy">
+                <p class="eyebrow">Bloque de soportes</p>
+                <h2>Anexos del informe</h2>
+                <p>Espacio reservado para los soportes documentales del trimestre.</p>
+              </div>
+              <span class="result-badge pending">PRÓXIMAMENTE</span>
             </div>
             <div class="informe-empty-state">
               <span aria-hidden="true">📎</span>
-              <h3>Próximamente</h3>
-              <p>La carga y gestión de archivos de anexos no está disponible en esta entrega. El informe se puede generar sin anexos.</p>
+              <h3>Carga de anexos próximamente</h3>
+              <p>La gestión de archivos no está disponible en esta entrega. El informe se puede generar sin anexos.</p>
             </div>
           </section>
 
-          <section class="pill-panel panel" id="informe-panel-exportar" data-informe-panel="exportar" role="tabpanel" aria-labelledby="informe-tab-exportar" hidden>
-            <div class="panel-heading">
-              <div><h2>Generar informe de gestión</h2><p>Selecciona cómo calcular las cifras del periodo. Los textos guardados son los mismos en ambos modos.</p></div>
+          <section class="pill-panel panel informe-panel" id="informe-panel-exportar" data-informe-panel="exportar" role="tabpanel" aria-labelledby="informe-tab-exportar" hidden>
+            <div class="informe-section-head">
+              <div class="informe-section-copy">
+                <p class="eyebrow">Cierre del informe</p>
+                <h2>Generar informe de gestión</h2>
+                <p>Selecciona cómo calcular las cifras del periodo. Los textos guardados son los mismos en ambos modos.</p>
+              </div>
             </div>
             <div class="informe-export-grid">
               <div class="informe-export-summary">
@@ -555,7 +782,7 @@
                     <option value="solo_trimestre">Solo el trimestre</option>
                   </select>
                 </label>
-                <button id="informe-export-generate" class="primary-button" type="button">Generar DOCX del informe</button>
+                <button id="informe-export-generate" class="primary-button informe-save-button" type="button">Generar DOCX del informe</button>
                 <p id="informe-export-status" class="detail-feedback" role="status"></p>
                 <p class="informe-export-meta">Fuente de las cifras: consolidado ACTAS y metas institucionales. Fuente oficial del informe: SOFIA Plus.</p>
               </div>

@@ -362,6 +362,75 @@ def test_ui_incluye_navegacion_y_pantalla_de_informe_gestion():
     assert "/api/informes/word" in ui_js
 
 
+def test_ui_rediseno_incluye_acordeones_y_borradores_rapidos():
+    root = Path(__file__).resolve().parents[1]
+    index = (root / "app" / "static" / "index.html").read_text(encoding="utf-8")
+    ui_js = (root / "app" / "static" / "ui-enhancements.js").read_text(
+        encoding="utf-8"
+    )
+
+    # Los seis bloques se presentan como acordeones contraídos por defecto.
+    assert index.count("data-accordion-toggle") == 6
+    assert index.count('aria-expanded="false"') >= 6
+    assert index.count('class="informe-accordion-panel"') == 6
+    # Un borrador rápido por sección, separado de los seis textareas persistidos.
+    assert index.count("data-estrategia-quick=") == 6
+    assert index.count("data-estrategia-seccion=") == 6
+    assert "Redactar estrategia aquí..." in index
+    # El comportamiento vive en el JS: abrir/cerrar, sincronizar borrador y badge.
+    assert "function alternarAcordeon(button)" in ui_js
+    assert 'button.setAttribute("aria-expanded", String(!abierto));' in ui_js
+    assert "function sincronizarBorradoresRapidos(secciones)" in ui_js
+    assert 'informeBadge.textContent = dirty ? "SIN GUARDAR" : "GUARDADO";' in ui_js
+
+
+def test_ui_contexto_estadistico_usa_el_consolidado_por_seccion():
+    root = Path(__file__).resolve().parents[1]
+    index = (root / "app" / "static" / "index.html").read_text(encoding="utf-8")
+    ui_js = (root / "app" / "static" / "ui-enhancements.js").read_text(
+        encoding="utf-8"
+    )
+
+    # Contexto por bloque: 3.1.1 a 3.1.5; 3.2 queda como sección informativa.
+    assert index.count("data-context-section=") == 5
+    assert index.count("data-context-badge") == 5
+    assert "Contexto de Certificación" in index
+    assert "Meta Anual" in index
+    assert "Ejecución" in index
+    assert "informe-progress-bar" in index
+
+    # Mapeo explícito a las categorías del dataset consolidado.
+    assert '"3.1.1": "superior"' in ui_js
+    assert '"3.1.2": "tecnica"' in ui_js
+    assert '"3.1.3": "articulacion"' in ui_js
+    assert '"3.1.4": "complementaria"' in ui_js
+    assert 'renderContextoSeccion("3.1.5"' in ui_js
+    assert "/api/informes/consolidado" in ui_js
+    assert "async function cargarContextoInforme()" in ui_js
+    # El modo de exportación cambia las cifras y debe recargar el contexto.
+    assert "informeExportMode?.addEventListener(\"change\"" in ui_js
+    assert "function severidadContexto(avance)" in ui_js
+
+
+def test_ui_rediseno_conserva_estilos_principales():
+    root = Path(__file__).resolve().parents[1]
+    css = (root / "app" / "static" / "styles.css").read_text(encoding="utf-8")
+
+    for selector in (
+        ".informe-gestion-view",
+        ".informe-hero",
+        ".informe-banner",
+        ".informe-accordion",
+        ".informe-quick-input",
+        ".informe-context-card",
+        ".informe-severity.is-critical",
+        ".informe-progress-bar",
+        ".informe-estrategia-field textarea",
+        ".informe-save-button",
+    ):
+        assert selector in css
+
+
 def test_ui_router_no_degrada_informe_gestion_a_carga():
     """Regresión: ui-enhancements envuelve showView y debe conocer la vista.
 
