@@ -150,6 +150,12 @@ let conflictDismissedFingerprint = (() => {
 let nativeNotificationFingerprint = null;
 let conflictConfirmBypass = false;
 let conflictResolutionLoading = false;
+// Ultima importacion observada del worker de Google Sheets. Cuando cambia, las
+// vistas abiertas (aprendices, detalle, actas e indicadores) se recargan solas:
+// el escaneo de fondo importa cada minuto, pero sin esta senal la pantalla
+// seguia mostrando el estado anterior hasta pulsar "Actualizar".
+let sheetsLastImportAt = null;
+let sheetsAutoRefreshInFlight = false;
 
 // Estados finales posibles de un requisito en conflicto. La decisión nunca se
 // deduce de "no tocar": las tres opciones son explícitas y excluyentes.
@@ -1517,6 +1523,11 @@ async function confirmImport() {
       setConflictBannerVisible(false);
       hideReview();
       window.SenaUI?.closeImportModal?.();
+      // La confirmacion manual ya actualiza las vistas de abajo; se registra la
+      // marca para que el polling no repita el refresco automatico.
+      if (response?.config?.last_import_at) {
+        sheetsLastImportAt = response.config.last_import_at;
+      }
       await loadSheetsStatus();
     } else {
       setImportSuccessUI(result);
@@ -4048,12 +4059,62 @@ function dismissConflictBannerForSession() {
   );
 }
 
+async function refreshViewsAfterSheetsImport() {
+  if (sheetsAutoRefreshInFlight) return;
+  sheetsAutoRefreshInFlight = true;
+  try {
+    const visibleView = [...views].find((view) => !view.hidden);
+    const viewName = visibleView ? visibleView.id.replace(/-view$/, "") : "carga";
+    if (viewName === "aprendices") {
+      await loadLearners();
+      // Si la ficha esta abierta, se refresca el aprendiz que el usuario esta
+      // viendo; loadLearners ya actualiza el listado que queda detras.
+      if (!learnerDetail.hidden && window.currentLearnerId) {
+        await loadLearnerDetail(window.currentLearnerId);
+      }
+    } else if (viewName === "indicadores") {
+      await loadIndicadores();
+      window.SenaUI?.loadIndicadoresExtras?.();
+    } else if (viewName === "actas") {
+      await loadActs();
+      if (!actDetail.hidden && currentActId) {
+        await loadActDetail(currentActId);
+      }
+    } else {
+      await loadHistory();
+    }
+    window.showToast?.(
+      "Datos actualizados automáticamente desde Google Sheets.",
+      "success",
+      { duration: 4500 },
+    );
+  } catch (error) {
+    // Un fallo al repintar no debe detener el polling ni el worker de fondo.
+  } finally {
+    sheetsAutoRefreshInFlight = false;
+  }
+}
+
+function rememberSheetsImport(data) {
+  const importAt = data?.last_import_at || null;
+  if (!importAt) return false;
+  if (sheetsLastImportAt === null) {
+    // Primera lectura de la sesion: la vista ya se cargo con estos datos.
+    sheetsLastImportAt = importAt;
+    return false;
+  }
+  if (sheetsLastImportAt === importAt) return false;
+  sheetsLastImportAt = importAt;
+  return true;
+}
+
 async function loadSheetsStatus() {
   try {
     const response = await fetch("/api/sheets/sync", { cache: "no-store" });
     if (!response.ok) return;
     const data = await response.json();
     if (!data.configured) {
+      sheetsLastImportAt = null;
       updateConflictBanner(data);
       if (conflictPollTimer) {
         window.clearInterval(conflictPollTimer);
@@ -4064,8 +4125,12 @@ async function loadSheetsStatus() {
     // El polling ligero solo se mantiene cuando hay una hoja configurada.
     startConflictPolling();
     updateConflictBanner(data);
+    const importChanged = rememberSheetsImport(data);
     if (data.notification_pending) {
       sendNativeConflictNotification(data).catch(() => {});
+    }
+    if (importChanged) {
+      refreshViewsAfterSheetsImport().catch(() => {});
     }
     if (sheetsUrlInput && !sheetsUrlInput.value) sheetsUrlInput.value = data.url || "";
     if (sheetsToggleButton) {

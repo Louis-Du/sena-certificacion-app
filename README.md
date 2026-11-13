@@ -55,6 +55,11 @@ dentro del proceso de la aplicacion (tambien dentro del `.exe`) cada
 6. Si todos los cruces ya tienen un desempate guardado, los reaplica en
    silencio e importa el lote sin abrir de nuevo el flujo de intervencion.
 
+La interfaz consulta `GET /api/sheets/sync` cada 12 segundos. Cuando
+`last_import_at` cambia (es decir, el worker acaba de importar), la vista abierta
+se recarga sola: listado y ficha del aprendiz, detalle de actas o indicadores,
+sin recargar la pagina ni pedir al usuario que pulse "Actualizar".
+
 ### Desempate condicional (`conflict_resolution`)
 
 `conflict_resolution` no es un estado permanente: solo vale mientras el
@@ -175,6 +180,9 @@ confirmacion limpia el estado pendiente.
 | El modal "Antes de confirmar" advierte que solo se lee Sheets y que la correccion es manual | `test_second_confirmation_modal_has_required_warning_and_actions` |
 | El POST de importacion espera la segunda confirmacion cuando hubo conflictos | `test_import_post_waits_for_second_confirmation_when_conflicts_exist` |
 | El acuse de correccion manual queda solo como trazabilidad local | `test_resolve_records_manual_sheets_cleanup_acknowledgement` |
+| El escaneo automatico refleja el acta nueva en listado, detalle e indicadores | `test_auto_scan_updates_learner_list_detail_and_indicators` |
+| El ciclo sin cambios no mueve `last_import_at` (evita recargas inutiles) | `test_auto_scan_unchanged_cycle_does_not_advance_last_import` |
+| La UI recarga la vista abierta cuando cambia `last_import_at` | `tests/test_sheets_auto_refresh_ui.py` |
 | El bridge nativo deduplica por huella y el `.exe` declara dependencias | `tests/test_desktop_launcher.py` |
 
 ## Ejecutar en desarrollo
