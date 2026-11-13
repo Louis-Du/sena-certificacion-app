@@ -366,6 +366,7 @@ def export_report_docx(
     *,
     report_type: str = "consolidado",
     year: int | None = None,
+    anio: int | None = None,
     quarter: int | None = None,
     cutoff: date | None = None,
     trimestre: Any = None,
@@ -373,9 +374,13 @@ def export_report_docx(
 ) -> bytes:
     if report_type not in {"consolidado", "general"}:
         raise ValueError("El informe de gestión Word está disponible para el informe consolidado.")
-    # ``quarter`` se conserva por compatibilidad con clientes anteriores;
-    # ``trimestre`` (T1..T4) es el parámetro nuevo. Sin ninguno de los dos se
-    # usa T3 acumulado, que mantiene el corte Ene-Sep histórico.
+    # ``anio`` es el alias explícito de ``year`` usado por la sección de
+    # Informe de gestión. ``quarter`` se conserva por compatibilidad con
+    # clientes anteriores; ``trimestre`` (T1..T4) es el parámetro nuevo.
+    if year is None:
+        year = anio
+    # Sin año/trimestre se usa T3 acumulado, que mantiene el corte Ene-Sep
+    # histórico.
     trimestre_efectivo = trimestre
     if trimestre_efectivo is None and quarter is not None:
         trimestre_efectivo = f"T{quarter}"

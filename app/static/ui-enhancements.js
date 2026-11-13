@@ -344,6 +344,15 @@
     };
   }
 
+  function mismoPeriodo(primero, segundo) {
+    return Boolean(
+      primero &&
+        segundo &&
+        primero.anio === segundo.anio &&
+        primero.trimestre === segundo.trimestre,
+    );
+  }
+
   function etiquetaPeriodo({ anio, trimestre }) {
     return `Trimestre ${ROMANOS[trimestre] || trimestre} ${anio}`;
   }
@@ -399,18 +408,35 @@
       : "—";
   }
 
-  function severidadContexto(avance) {
+  function severidadContexto(avance, esperado = null) {
     if (!numeroInformeValido(avance)) {
       return { clase: "is-neutral", texto: "Sin datos" };
     }
     const valor = Number(avance);
     if (valor >= 100) return { clase: "is-good", texto: "Meta cumplida" };
+    if (numeroInformeValido(esperado)) {
+      // Misma regla de prorrateo del informe: 25 % por trimestre acumulado.
+      const referencia = Number(esperado);
+      if (referencia > 0 && valor >= referencia) {
+        return { clase: "is-good", texto: "En camino" };
+      }
+      if (referencia > 0 && valor >= referencia * 0.6) {
+        return { clase: "is-warning", texto: "En riesgo" };
+      }
+      return { clase: "is-critical", texto: "Crítico" };
+    }
     if (valor >= 60) return { clase: "is-good", texto: "En camino" };
     if (valor >= 30) return { clase: "is-warning", texto: "En riesgo" };
     return { clase: "is-critical", texto: "Crítico" };
   }
 
-  function renderContextoSeccion(codigo, metrica) {
+  function prorrateoEsperado(trimestre, modo) {
+    if (modo === "solo_trimestre") return 25;
+    const ordinal = Number.parseInt(String(trimestre || "").replace(/\D/g, ""), 10);
+    return 25 * Math.min(4, Math.max(1, ordinal || 3));
+  }
+
+  function renderContextoSeccion(codigo, metrica, esperado = null) {
     const card = Array.from(informeContextCards).find(
       (element) => element.dataset.contextSection === codigo,
     );
@@ -428,7 +454,7 @@
       avance = (Number(ejecucion) / Number(meta)) * 100;
     }
 
-    const severidad = severidadContexto(avance);
+    const severidad = severidadContexto(avance, esperado);
     const porcentaje = formatearPorcentajeInforme(avance);
     const ancho = numeroInformeValido(avance)
       ? Math.min(100, Math.max(0, Number(avance)))
@@ -467,12 +493,14 @@
       element.textContent = etiqueta;
     });
 
+    const modo = informeExportMode?.value || "acumulado";
+    const esperado = prorrateoEsperado(periodo.trimestre, modo);
     const metricas = data?.metricas || data?.desglose_por_categoria || [];
     const porCategoria = new Map(
       metricas.map((metrica) => [metrica.category, metrica]),
     );
     Object.entries(CONTEXTO_POR_SECCION).forEach(([codigo, categoria]) => {
-      renderContextoSeccion(codigo, porCategoria.get(categoria));
+      renderContextoSeccion(codigo, porCategoria.get(categoria), esperado);
     });
 
     const resumen = data?.resumen_ejecutivo || {};
@@ -481,7 +509,7 @@
       certificados:
         resumen.total_certificados ?? resumen.certificados_personas ?? null,
       avance: resumen.avance_global ?? null,
-    });
+    }, esperado);
   }
 
   async function cargarContextoInforme() {
@@ -709,7 +737,7 @@
   async function cambiarPeriodoInforme() {
     const anterior = { ...informePeriodoActual };
     const nuevo = periodoInforme();
-    if (nuevo.anio === anterior.anio && nuevo.trimestre === anterior.trimestre) {
+    if (mismoPeriodo(nuevo, anterior)) {
       return;
     }
     if (informeDirty) {
@@ -745,8 +773,7 @@
     // (año, trimestre). No depende de haber visitado la pestaña Estrategias.
     if (
       !informeDirty &&
-      (periodo.anio !== informePeriodoActual.anio ||
-        periodo.trimestre !== informePeriodoActual.trimestre)
+      !mismoPeriodo(periodo, informePeriodoActual)
     ) {
       await cargarEstrategias();
     }

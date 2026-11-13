@@ -582,6 +582,12 @@ async def informes_export_endpoint(
     report_type: str = Query(default="consolidado", alias="type"),
     format: str = Query(default="xlsx", pattern="^(pdf|xlsx|csv|docx)$"),
     year: int | None = Query(default=None, ge=2000, le=2100),
+    anio: int | None = Query(
+        default=None,
+        ge=2000,
+        le=2100,
+        description="Alias de year. Periodo (año) del informe.",
+    ),
     scope: str = Query(default="consolidado", pattern="^(consolidado|filtrado)$"),
     detail: str = Query(default="completo", pattern="^(completo|ejecutivo)$"),
     search: str = Query(default=""),
@@ -601,12 +607,13 @@ async def informes_export_endpoint(
         export_report_pdf,
         export_report_xlsx,
     )
+    year_efectivo = year if year is not None else anio
     try:
         if format == "csv":
             content = export_report_csv(
                 session,
                 report_type=report_type,
-                year=year,
+                year=year_efectivo,
                 scope=scope,
                 detail=detail,
                 search=search,
@@ -620,7 +627,7 @@ async def informes_export_endpoint(
             content = export_report_pdf(
                 session,
                 report_type=report_type,
-                year=year,
+                year=year_efectivo,
                 scope=scope,
                 detail=detail,
                 search=search,
@@ -634,18 +641,21 @@ async def informes_export_endpoint(
             content = export_report_docx(
                 session,
                 report_type=report_type,
-                year=year,
+                year=year_efectivo,
                 trimestre=trimestre,
                 modo=modo,
             )
             media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             codigo = (trimestre or "T3").upper()
-            filename = f"informe_gestion_{year or 2026}_{codigo}_{modo or 'acumulado'}.docx"
+            filename = (
+                f"informe_gestion_{year_efectivo or 2026}_{codigo}_"
+                f"{modo or 'acumulado'}.docx"
+            )
         else:
             content = export_report_xlsx(
                 session,
                 report_type=report_type,
-                year=year,
+                year=year_efectivo,
                 scope=scope,
                 detail=detail,
                 search=search,
@@ -741,6 +751,12 @@ async def informe_gestion_estrategias_periodos(
 @app.get("/api/informes/word")
 async def informes_word_endpoint(
     year: int | None = Query(default=None, ge=2000, le=2100),
+    anio: int | None = Query(
+        default=None,
+        ge=2000,
+        le=2100,
+        description="Alias de year. Periodo (año) del informe.",
+    ),
     trimestre: str | None = Query(
         default=None,
         description="T1, T2, T3 o T4. Si se omite, se usa T3 (compatibilidad).",
@@ -758,11 +774,12 @@ async def informes_word_endpoint(
     cutoff: date | None = Query(default=None),
     session: Session = Depends(get_db),
 ) -> Response:
+    year_efectivo = year if year is not None else anio
     try:
         from app.services.informes import export_report_docx
         content = export_report_docx(
             session,
-            year=year,
+            year=year_efectivo,
             quarter=quarter,
             trimestre=trimestre,
             modo=modo,
@@ -773,7 +790,10 @@ async def informes_word_endpoint(
     except FileNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     codigo = (trimestre or (f"T{quarter}" if quarter else "T3")).upper()
-    filename = f"informe_gestion_{year or date.today().year}_{codigo}_{modo or 'acumulado'}.docx"
+    filename = (
+        f"informe_gestion_{year_efectivo or date.today().year}_{codigo}_"
+        f"{modo or 'acumulado'}.docx"
+    )
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
