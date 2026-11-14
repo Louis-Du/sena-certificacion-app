@@ -2,8 +2,10 @@
 
 Cubre:
 * persistencia única por ``(año, trimestre)`` y aislamiento entre periodos;
+* HTML restringido (negrita, cursiva y listas) con saneado en guardado/lectura;
 * API REST mínima (GET/PUT/listado de periodos);
 * inserción de los textos en 3.1.x y 3.2 sin heredar la negrita del rótulo;
+* runs con negrita/cursiva y listas con sangría en el DOCX;
 * placeholder institucional cuando la sección está vacía;
 * idempotencia al regenerar el mismo periodo;
 * regresión de indicadores T3 acumulado y un periodo adicional T3 solo
@@ -26,6 +28,7 @@ from app.services.informe_gestion_estrategias import (
     list_periodos,
     save_estrategias,
 )
+from app.services.rich_text import sanitize_estrategia_html
 from tests.test_informes_trimestres import _seed_periodo
 
 FIXTURE_30 = (
@@ -78,6 +81,23 @@ def _parrafo_con_fragmento(content: bytes, fragment: str):
         if fragment in paragraph.text:
             return paragraph
     raise AssertionError(f"No se encontró el fragmento {fragment!r} en el DOCX.")
+
+
+def _run_con_formato(content: bytes, fragment: str, *, bold=None, italic=None):
+    document = Document(BytesIO(content))
+    for paragraph in document.paragraphs:
+        for run in paragraph.runs:
+            if fragment not in run.text:
+                continue
+            if bold is not None and run.bold is not bold:
+                continue
+            if italic is not None and run.italic is not italic:
+                continue
+            return paragraph, run
+    raise AssertionError(
+        f"No se encontró un run con {fragment!r} "
+        f"(bold={bold!r}, italic={italic!r}) en el DOCX."
+    )
 
 
 def _metricas(data: dict) -> dict[str, dict]:
@@ -201,6 +221,70 @@ def test_api_rechaza_trimestre_o_seccion_invalidos(client):
     assert "3.9" in bad_seccion.json()["detail"]
 
 
+def test_guardar_y_recuperar_estrategias_con_formato(session_factory):
+    """El HTML allowlist (negrita + lista) sobrevive a guardar y recuperar."""
+    html = (
+        "<p>Actividades <strong>prioritarias</strong> del periodo</p>"
+        "<ul><li>Primer ítem</li><li>Segundo ítem</li></ul>"
+    )
+    with session_factory() as session:
+        save_estrategias(
+            session,
+            anio=2026,
+            trimestre="T3",
+            secciones={"3.1.1": html},
+        )
+        recuperado = get_estrategias(session, anio=2026, trimestre="T3")
+
+    valor = recuperado["secciones"]["3.1.1"]
+    assert valor == html
+    assert "<strong>prioritarias</strong>" in valor
+    assert valor.count("<li>") == 2
+
+
+def test_sanitiza_html_de_estrategias_en_guardado_y_lectura(client):
+    """Se elimina lo ejecutable y se conserva solo el formato permitido."""
+    payload = (
+        '<p onclick="alert(1)">Hola <strong>mundo</strong>'
+        "<script>alert(2)</script></p>"
+        '<iframe src="https://example.com"></iframe>'
+        '<span style="color:red">texto</span>'
+    )
+    saved = client.put(
+        "/api/informes/estrategias",
+        json={"anio": 2026, "trimestre": "T3", "secciones": {"3.1.1": payload}},
+    )
+    assert saved.status_code == 200, saved.text
+    valor = saved.json()["secciones"]["3.1.1"]
+
+    assert "<script" not in valor
+    assert "<iframe" not in valor
+    assert "onclick" not in valor
+    assert "style=" not in valor
+    assert "alert(2)" not in valor
+    assert "<p>Hola <strong>mundo</strong></p>" in valor
+    assert "texto" in valor
+
+    loaded = client.get(
+        "/api/informes/estrategias", params={"anio": 2026, "trimestre": "T3"}
+    )
+    assert loaded.status_code == 200, loaded.text
+    assert loaded.json()["secciones"]["3.1.1"] == valor
+
+
+def test_sanitizador_normaliza_etiquetas_y_conserva_texto_plano():
+    assert (
+        sanitize_estrategia_html("<b>uno</b> <i>dos</i>")
+        == "<strong>uno</strong> <em>dos</em>"
+    )
+    assert sanitize_estrategia_html("<div>párrafo</div>") == "<p>párrafo</p>"
+    # Texto histórico sin etiquetas: no se altera (incluye comparaciones < 5).
+    assert sanitize_estrategia_html("Legado con < 5 casos") == "Legado con < 5 casos"
+    # Idempotencia del saneado.
+    saneado = sanitize_estrategia_html("<p><strong>x</strong></p>")
+    assert sanitize_estrategia_html(saneado) == saneado
+
+
 # ---------------------------------------------------------------------------
 # DOCX
 # ---------------------------------------------------------------------------
@@ -259,6 +343,82 @@ def test_docx_sin_estrategias_usa_placeholder(client):
     assert response.status_code == 200, response.text
     text = _texto_docx(response.content)
     assert text.count(PLACEHOLDER_ESTRATEGIAS) == 6
+
+
+def test_docx_convierte_negrita_cursiva_y_listas_de_estrategias(client):
+    """El HTML guardado se traduce a runs/párrafos, no a marcado visible."""
+    with client.session_factory() as session:
+        _seed_periodo(session)
+
+    secciones = {
+        "3.1.1": (
+            "<p>Introducción <strong>[[NEGRITA_T3]]</strong> del periodo.</p>"
+            "<ul><li>[[VINETA_T3]] primera acción</li>"
+            "<li>Segunda acción</li></ul>"
+        ),
+        "3.1.2": (
+            "<ol><li>[[NUMERADA_T3]] primera acción</li>"
+            "<li>Segunda acción</li></ol>"
+        ),
+        "3.1.3": "Texto plano de articulación.",
+        "3.1.4": "<p><em>[[CURSIVA_T3]]</em> jornada de inscripción.</p>",
+        "3.1.5": "Texto plano de certificación total.",
+        "3.2": "<p>[[OTRAS_T3]] actividades adicionales.</p>",
+    }
+    saved = client.put(
+        "/api/informes/estrategias",
+        json={"anio": 2026, "trimestre": "T3", "secciones": secciones},
+    )
+    assert saved.status_code == 200, saved.text
+
+    response = client.get("/api/informes/word?trimestre=T3&modo=acumulado")
+    assert response.status_code == 200, response.text
+    contenido = response.content
+    texto = _texto_docx(contenido)
+
+    # Negrita y cursiva reales en los runs.
+    _, run_negrita = _run_con_formato(contenido, "[[NEGRITA_T3]]", bold=True)
+    assert run_negrita.bold is True
+    _, run_cursiva = _run_con_formato(contenido, "[[CURSIVA_T3]]", italic=True)
+    assert run_cursiva.italic is True
+
+    # Viñeta con sangría francesa y numeración legible.
+    parrafo_vineta = _parrafo_con_fragmento(contenido, "[[VINETA_T3]]")
+    assert parrafo_vineta.text.startswith("• [[VINETA_T3]]")
+    assert parrafo_vineta.paragraph_format.left_indent is not None
+    assert parrafo_vineta.paragraph_format.first_line_indent is not None
+    assert int(parrafo_vineta.paragraph_format.first_line_indent) < 0
+
+    parrafo_numerada = _parrafo_con_fragmento(contenido, "[[NUMERADA_T3]]")
+    assert parrafo_numerada.text.startswith("1. [[NUMERADA_T3]]")
+
+    # Nunca se vuelca el HTML como texto visible.
+    for etiqueta in ("<p>", "<strong>", "<ul>", "<li>", "<em>", "<ol>"):
+        assert etiqueta not in texto
+
+    # El cuerpo de una estrategia sin marcas no hereda negrita ni cursiva.
+    parrafo_plano = _parrafo_con_fragmento(contenido, "Texto plano de articulación.")
+    assert all(
+        run.bold is not True and run.italic is not True
+        for run in parrafo_plano.runs
+        if run.text.strip()
+    )
+
+
+def test_docx_estrategia_con_solo_marcado_usa_placeholder(client):
+    """Un editor vacío puede guardar ``<p><br></p>``; el DOCX usa placeholder."""
+    with client.session_factory() as session:
+        _seed_periodo(session)
+        save_estrategias(
+            session,
+            anio=2026,
+            trimestre="T3",
+            secciones={"3.1.1": "<p><br></p>"},
+        )
+
+    response = client.get("/api/informes/word?trimestre=T3&modo=acumulado")
+    assert response.status_code == 200, response.text
+    assert _texto_docx(response.content).count(PLACEHOLDER_ESTRATEGIAS) == 6
 
 
 def test_t2_no_devuelve_ni_exporta_textos_de_t3(client):
@@ -497,9 +657,11 @@ def test_ui_rediseno_incluye_acordeones_y_borradores_rapidos():
     assert index.count("data-accordion-toggle") == 6
     assert index.count('aria-expanded="false"') >= 6
     assert index.count('class="informe-accordion-panel"') == 6
-    # Un borrador rápido por sección, separado de los seis textareas persistidos.
+    # Un borrador rápido por sección, separado de los seis editores persistidos.
     assert index.count("data-estrategia-quick=") == 6
     assert index.count("data-estrategia-seccion=") == 6
+    assert index.count('contenteditable="true"') == 6
+    assert '<textarea id="estrategia' not in index
     assert "Redactar estrategia aquí..." in index
     # El icono informativo se retiró; el borrador rápido se oculta al expandir.
     assert "informe-info-icon" not in index
@@ -510,6 +672,49 @@ def test_ui_rediseno_incluye_acordeones_y_borradores_rapidos():
     assert 'button.setAttribute("aria-expanded", String(!abierto));' in ui_js
     assert "function sincronizarBorradoresRapidos(secciones)" in ui_js
     assert 'informeBadge.textContent = dirty ? "SIN GUARDAR" : "GUARDADO";' in ui_js
+
+
+def test_ui_editor_restringido_con_negrita_cursiva_y_listas():
+    """Cada sección expone un editor contenteditable con barra compacta."""
+    root = Path(__file__).resolve().parents[1]
+    index = (root / "app" / "static" / "index.html").read_text(encoding="utf-8")
+    css = (root / "app" / "static" / "styles.css").read_text(encoding="utf-8")
+    ui_js = (root / "app" / "static" / "ui-enhancements.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert index.count("informe-editor-toolbar") == 6
+    for comando in (
+        "bold",
+        "italic",
+        "insertUnorderedList",
+        "insertOrderedList",
+        "undo",
+        "redo",
+    ):
+        assert f'data-editor-command="{comando}"' in index
+    assert index.count("data-placeholder=") >= 6
+    # No hay controles de color, tablas ni imágenes en la v1.
+    assert "contenteditable" in index
+    assert "execCommand" not in index
+
+    # El editor usa contenteditable controlado, sin dependencias nuevas.
+    assert "function normalizarHtmlEstrategia(value)" in ui_js
+    assert "function textoPlanoEstrategia(value)" in ui_js
+    assert 'document.execCommand("styleWithCSS", false, false);' in ui_js
+    assert 'editor.addEventListener("paste"' in ui_js
+    assert 'getData("text/plain")' in ui_js
+    assert "secciones[editor.dataset.estrategiaSeccion] = normalizarHtmlEstrategia(" in ui_js
+
+    for selector in (
+        ".informe-editor",
+        ".informe-editor-toolbar",
+        ".informe-editor-button",
+        ".informe-editor-button.is-active",
+        ".informe-editor-area",
+        ".informe-editor-area.is-empty::before",
+    ):
+        assert selector in css
 
 
 def test_ui_contexto_estadistico_usa_el_consolidado_por_seccion():
@@ -553,7 +758,10 @@ def test_ui_rediseno_conserva_estilos_principales():
         ".informe-context-card",
         ".informe-severity.is-critical",
         ".informe-progress-bar",
-        ".informe-estrategia-field textarea",
+        ".informe-estrategia-field",
+        ".informe-editor",
+        ".informe-editor-toolbar",
+        ".informe-editor-area",
         ".informe-save-button",
     ):
         assert selector in css
