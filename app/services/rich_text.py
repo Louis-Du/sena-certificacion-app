@@ -455,7 +455,23 @@ class _DocxHTMLParser(HTMLParser):
         self.blocks.append(RichBlock(kind, runs, level, number))
 
     def _append_text(self, data: str) -> None:
-        text = re.sub(r"[ \t\r\n]+", " ", data.replace("\xa0", " "))
+        text = (
+            data.replace("\xa0", " ")
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+        )
+        if not text:
+            return
+        # Los datos con saltos reales pueden contener listas escritas como
+        # texto (``1. uno\n2. dos``). Se conservan como líneas para que
+        # ``_flush`` las convierta en bloques independientes.
+        for index, line in enumerate(text.split("\n")):
+            if index:
+                self._append_break()
+            self._append_text_line(line)
+
+    def _append_text_line(self, data: str) -> None:
+        text = re.sub(r"[ \t\f\v]+", " ", data)
         if not text:
             return
         if not text.strip():

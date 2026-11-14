@@ -289,7 +289,6 @@
   const informeTabButtons = document.querySelectorAll("[data-informe-tab]");
   const informePanels = document.querySelectorAll("[data-informe-panel]");
   const informeTextareas = document.querySelectorAll("[data-estrategia-seccion]");
-  const informeQuickInputs = document.querySelectorAll("[data-estrategia-quick]");
   const informeAccordionToggles = document.querySelectorAll("[data-accordion-toggle]");
   const informeContextCards = document.querySelectorAll("[data-context-section]");
   const reportOpenEstrategias = document.getElementById("report-open-estrategias");
@@ -314,15 +313,6 @@
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   });
-  const quickInputPorCodigo = new Map(
-    Array.from(informeQuickInputs).map((input) => [input.dataset.estrategiaQuick, input]),
-  );
-  const editorPorCodigo = new Map(
-    Array.from(informeTextareas).map((editor) => [
-      editor.dataset.estrategiaSeccion,
-      editor,
-    ]),
-  );
 
   let informePeriodoActual = { anio: 2026, trimestre: "T3" };
   let informeCargado = false;
@@ -546,10 +536,23 @@
     informeBadge.className = "result-badge " + (dirty ? "pending" : "ready");
   }
 
-  function sincronizarBorradoresRapidos(secciones) {
-    informeQuickInputs.forEach((input) => {
-      const codigo = input.dataset.estrategiaQuick;
-      input.value = textoPlanoEstrategia(secciones[codigo] || "");
+  function resumenLineaEstrategia(value) {
+    const texto = textoPlanoEstrategia(value).replace(/\s+/g, " ").trim();
+    if (!texto) return "Vacío";
+    return texto.length > 80 ? `${texto.slice(0, 77)}…` : texto;
+  }
+
+  // El acordeón contraído solo muestra el estado del texto. La edición vive
+  // exclusivamente en el editor enriquecido que aparece al expandir.
+  function actualizarEstadoAcordeones(secciones) {
+    informeAccordionToggles.forEach((toggle) => {
+      const article = toggle.closest("[data-accordion-section]");
+      const codigo = article?.dataset.accordionSection;
+      const status = article?.querySelector("[data-accordion-status]");
+      if (!codigo || !status) return;
+      const resumen = resumenLineaEstrategia(secciones[codigo] || "");
+      status.textContent = resumen;
+      status.classList.toggle("is-filled", resumen !== "Vacío");
     });
   }
 
@@ -714,6 +717,7 @@
   }
 
   function renderResumenEstrategias(secciones, periodo = periodoInforme()) {
+    actualizarEstadoAcordeones(secciones);
     const cargadas = SECCIONES_INFORME.filter(
       ([key]) => Boolean(normalizarHtmlEstrategia(secciones[key] || "")),
     ).length;
@@ -753,7 +757,6 @@
       );
       actualizarPlaceholderEditor(editor);
     });
-    sincronizarBorradoresRapidos(secciones);
     marcarInformeDirty(false);
     renderResumenEstrategias(secciones, periodo);
     const cargadas = SECCIONES_INFORME.filter(
@@ -880,6 +883,16 @@
 
   informeAccordionToggles.forEach((button) => {
     button.addEventListener("click", () => alternarAcordeon(button));
+    // Toda la fila contraída abre la sección; el editor solo existe al
+    // expandirla (no hay campos editables fuera de él).
+    const head = button.closest(".informe-accordion-head");
+    head?.addEventListener("click", (event) => {
+      if (event.target.closest("[data-accordion-toggle]")) return;
+      if (event.target.closest("input, textarea, button, a, [contenteditable]")) {
+        return;
+      }
+      button.click();
+    });
   });
 
   informeForm?.addEventListener("submit", (event) => guardarEstrategias({ event }));
@@ -924,8 +937,6 @@
   informeTextareas.forEach((editor) => {
     editor.addEventListener("input", () => {
       actualizarPlaceholderEditor(editor);
-      const quick = quickInputPorCodigo.get(editor.dataset.estrategiaSeccion);
-      if (quick) quick.value = textoPlanoEstrategia(editor.innerHTML);
       marcarInformeDirty(true);
       renderResumenEstrategias(seccionesDelFormulario());
       setInformeStatus(informeStatus, "Cambios sin guardar.", "warning");
@@ -964,22 +975,6 @@
     if (activo && activo.matches("[data-estrategia-seccion]")) {
       actualizarEstadoToolbar(activo);
     }
-  });
-
-  informeQuickInputs.forEach((input) => {
-    const codigo = input.dataset.estrategiaQuick;
-    input.addEventListener("input", () => {
-      const editor = editorPorCodigo.get(codigo);
-      if (editor) {
-        editor.innerHTML = input.value
-          ? `<p>${escapeHtml(input.value)}</p>`
-          : "";
-        actualizarPlaceholderEditor(editor);
-      }
-      marcarInformeDirty(true);
-      renderResumenEstrategias(seccionesDelFormulario());
-      setInformeStatus(informeStatus, "Cambios sin guardar.", "warning");
-    });
   });
 
   informeExportMode?.addEventListener("change", () => {

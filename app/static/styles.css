@@ -5320,18 +5320,10 @@ body.has-conflict-banner .sidebar {
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
 }
 
-/* Al expandir, el borrador rápido se oculta porque aparece el textarea. */
-.informe-accordion.is-open .informe-accordion-head {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.informe-accordion.is-open .informe-quick-input {
-  display: none;
-}
-
+/* La fila contraída solo muestra título y estado; no hay campos editables. */
 .informe-accordion-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(200px, 320px);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
@@ -5367,11 +5359,28 @@ body.has-conflict-banner .sidebar {
 }
 
 .informe-accordion-title {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   font-size: 0.94rem;
   font-weight: 700;
   line-height: 1.35;
   text-overflow: ellipsis;
+}
+
+.informe-accordion-status {
+  flex: 0 1 auto;
+  max-width: 38%;
+  overflow: hidden;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.informe-accordion-status.is-filled {
+  color: #475569;
 }
 
 .informe-accordion-chevron {
@@ -5394,34 +5403,6 @@ body.has-conflict-banner .sidebar {
   background: var(--accent);
   color: #fff;
   transform: rotate(45deg);
-}
-
-.informe-quick-input {
-  width: 100%;
-  min-height: 38px;
-  padding: 8px 14px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: #f8fafc;
-  color: var(--ink);
-  font-size: 0.84rem;
-  transition: background var(--transition), border-color var(--transition),
-    box-shadow var(--transition);
-}
-
-.informe-quick-input::placeholder {
-  color: #94a3b8;
-}
-
-.informe-quick-input:hover {
-  background: #f1f5f9;
-}
-
-.informe-quick-input:focus {
-  outline: none;
-  background: #fff;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
 }
 
 .informe-sr-only {
@@ -5918,11 +5899,6 @@ body.has-conflict-banner .sidebar {
   .informe-accordion-head {
     grid-template-columns: minmax(0, 1fr);
     gap: 10px;
-  }
-
-  .informe-quick-input {
-    grid-column: 1 / -1;
-    grid-row: 2;
   }
 
   .informe-export-grid {

@@ -468,6 +468,85 @@ def test_docx_convierte_markdown_legado_en_formato_real(client):
     )
 
 
+def test_docx_estrategia_bold_sin_asteriscos(client):
+    """``**MARCA_BOLD**`` se convierte en un run negrita, sin asteriscos."""
+    with client.session_factory() as session:
+        _seed_periodo(session)
+        save_estrategias(
+            session,
+            anio=2026,
+            trimestre="T3",
+            secciones={
+                "3.1.1": (
+                    "Texto **MARCA_BOLD** del periodo\n"
+                    "1. Primera acción\n"
+                    "2. Segunda acción"
+                )
+            },
+        )
+
+    response = client.get("/api/informes/word?trimestre=T3&modo=acumulado")
+    assert response.status_code == 200, response.text
+    contenido = response.content
+    texto = _texto_docx(contenido)
+
+    assert "MARCA_BOLD" in texto
+    assert "**MARCA_BOLD**" not in texto
+    assert "**" not in texto
+    _, run = _run_con_formato(contenido, "MARCA_BOLD", bold=True)
+    assert run.text == "MARCA_BOLD"
+    # Los dos ítems de la lista son párrafos independientes y bien formados.
+    assert (
+        _parrafo_con_fragmento(contenido, "1. Primera acción").text.strip()
+        == "1. Primera acción"
+    )
+    assert (
+        _parrafo_con_fragmento(contenido, "2. Segunda acción").text.strip()
+        == "2. Segunda acción"
+    )
+
+
+def test_docx_estrategia_listas_sin_escapes(client):
+    """Viñetas/números con ``**`` y ``\\.`` se insertan como formato real."""
+    with client.session_factory() as session:
+        _seed_periodo(session)
+        save_estrategias(
+            session,
+            anio=2026,
+            trimestre="T3",
+            secciones={
+                "3.1.1": (
+                    "<p>ffxfx**dxdxfxff**</p>"
+                    "<p>• **n**</p>"
+                    "<p>2\\. m</p>"
+                    "<p>3\\. j*kk*</p>"
+                )
+            },
+        )
+
+    response = client.get("/api/informes/word?trimestre=T3&modo=acumulado")
+    assert response.status_code == 200, response.text
+    contenido = response.content
+    texto = _texto_docx(contenido)
+
+    assert "**" not in texto
+    assert "\\." not in texto
+    _, run_negrita = _run_con_formato(contenido, "dxdxfxff", bold=True)
+    assert run_negrita.text == "dxdxfxff"
+
+    parrafo_vineta = _parrafo_con_fragmento(contenido, "• n")
+    assert parrafo_vineta.text.strip() == "• n"
+    assert any(
+        run.text == "n" and run.bold is True for run in parrafo_vineta.runs
+    )
+
+    assert _parrafo_con_fragmento(contenido, "2. m").text.strip() == "2. m"
+    parrafo_tres = _parrafo_con_fragmento(contenido, "3. jkk")
+    assert parrafo_tres.text.strip() == "3. jkk"
+    _, run_cursiva = _run_con_formato(contenido, "kk", italic=True)
+    assert run_cursiva.text == "kk"
+
+
 def test_docx_estrategia_con_solo_marcado_usa_placeholder(client):
     """Un editor vacío puede guardar ``<p><br></p>``; el DOCX usa placeholder."""
     with client.session_factory() as session:
@@ -708,7 +787,7 @@ def test_ui_incluye_navegacion_y_pantalla_de_informe_gestion():
     assert "/api/informes/word" in ui_js
 
 
-def test_ui_rediseno_incluye_acordeones_y_borradores_rapidos():
+def test_ui_acordeones_sin_input_editable_en_fila_contraida():
     root = Path(__file__).resolve().parents[1]
     index = (root / "app" / "static" / "index.html").read_text(encoding="utf-8")
     css = (root / "app" / "static" / "styles.css").read_text(encoding="utf-8")
@@ -720,20 +799,22 @@ def test_ui_rediseno_incluye_acordeones_y_borradores_rapidos():
     assert index.count("data-accordion-toggle") == 6
     assert index.count('aria-expanded="false"') >= 6
     assert index.count('class="informe-accordion-panel"') == 6
-    # Un borrador rápido por sección, separado de los seis editores persistidos.
-    assert index.count("data-estrategia-quick=") == 6
+    # La fila contraída no tiene campos editables: solo el editor expandido.
+    assert index.count("data-estrategia-quick=") == 0
+    assert "informe-quick-input" not in index
     assert index.count("data-estrategia-seccion=") == 6
     assert index.count('contenteditable="true"') == 6
     assert '<textarea id="estrategia' not in index
-    assert "Redactar estrategia aquí..." in index
-    # El icono informativo se retiró; el borrador rápido se oculta al expandir.
+    # El estado/preview en texto plano vive en la propia fila.
+    assert index.count("data-accordion-status") == 6
     assert "informe-info-icon" not in index
-    assert ".informe-accordion.is-open .informe-quick-input" in css
-    assert "display: none;" in css
-    # El comportamiento vive en el JS: abrir/cerrar, sincronizar borrador y badge.
+    assert ".informe-accordion-status" in css
+    assert ".informe-quick-input" not in css
+    # El comportamiento vive en el JS: abrir/cerrar, estado y badge.
     assert "function alternarAcordeon(button)" in ui_js
     assert 'button.setAttribute("aria-expanded", String(!abierto));' in ui_js
-    assert "function sincronizarBorradoresRapidos(secciones)" in ui_js
+    assert "function actualizarEstadoAcordeones(secciones)" in ui_js
+    assert "function resumenLineaEstrategia(value)" in ui_js
     assert 'informeBadge.textContent = dirty ? "SIN GUARDAR" : "GUARDADO";' in ui_js
 
 
@@ -822,7 +903,7 @@ def test_ui_rediseno_conserva_estilos_principales():
         ".informe-hero",
         ".informe-banner",
         ".informe-accordion",
-        ".informe-quick-input",
+        ".informe-accordion-status",
         ".informe-context-card",
         ".informe-severity.is-critical",
         ".informe-progress-bar",
@@ -853,7 +934,7 @@ def test_ui_periodo_compartido_confirma_antes_de_cambiar():
     assert "function restaurarPeriodoInforme(periodo)" in ui_js
     assert "function mismoPeriodo(primero, segundo)" in ui_js
     assert "await cargarEstrategias();" in ui_js
-    # Entrar en Exportar refresca el resumen sin pisar borradores.
+    # Entrar en Exportar refresca el resumen sin pisar textos sin guardar.
     assert 'if (nombre === "exportar" && !informeDirty)' in ui_js
     # Cambiar periodo recarga estrategias y el contexto numérico del corte.
     assert "function cargarContextoInforme()" in ui_js
