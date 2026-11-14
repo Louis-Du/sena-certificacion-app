@@ -24,6 +24,8 @@ from docx import Document
 from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
+from app.services.rich_text import html_to_docx_paragraphs
+
 TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "templates" / "informe_gestion_administrativa.docx"
 MONTHS_ES = (
     "enero",
@@ -601,23 +603,39 @@ def _strip_annex_references(text: str) -> str:
     return re.sub(r"\s{2,}", " ", cleaned).strip()
 
 
-def _estrategia_texto(
-    estrategias: dict[str, str] | None, seccion: str
-) -> str:
-    """Texto redactado por la dependencia o el placeholder institucional."""
-    if not estrategias:
-        return PLACEHOLDER_ESTRATEGIAS
-    texto = str(estrategias.get(seccion) or "").strip()
-    return texto or PLACEHOLDER_ESTRATEGIAS
+ROTULO_ESTRATEGIA = "Estrategia o Actividades llevadas a cabo: "
+
+# Prefijo del párrafo de la plantilla -> (sección, rótulo a anteponer).
+# El rótulo solo se antepone donde la plantilla lo trae; 3.1.1, 3.1.3 y 3.2
+# sustituyen únicamente el cuerpo redactado.
+_ESTRATEGIAS_NARRATIVA: tuple[tuple[str, str, str | None], ...] = (
+    ("Dentro de las estrategias establecidas", "3.1.1", None),
+    (
+        "Estrategia o Actividades llevadas a cabo: Para avanzar",
+        "3.1.2",
+        ROTULO_ESTRATEGIA,
+    ),
+    ("A través de la Coordinación de programas especiales", "3.1.3", None),
+    (
+        "Estrategia o Actividades llevadas a cabo. En el periodo",
+        "3.1.4",
+        ROTULO_ESTRATEGIA,
+    ),
+    (
+        "Estrategia o Actividades llevadas a cabo.  Dentro",
+        "3.1.5",
+        ROTULO_ESTRATEGIA,
+    ),
+    ("Atención al usuario en jornadas", "3.2", None),
+)
 
 
-def _estrategia_con_rotulo(
-    estrategias: dict[str, str] | None, seccion: str
-) -> str:
-    return (
-        "Estrategia o Actividades llevadas a cabo: "
-        f"{_estrategia_texto(estrategias, seccion)}"
-    )
+def _estrategia_por_texto(texto: str) -> tuple[str, str | None] | None:
+    """Devuelve ``(sección, rótulo)`` si el párrafo es una estrategia."""
+    for prefijo, seccion, rotulo in _ESTRATEGIAS_NARRATIVA:
+        if texto.startswith(prefijo):
+            return seccion, rotulo
+    return None
 
 
 def _update_narrative(
@@ -637,6 +655,27 @@ def _update_narrative(
         if text.upper() == "ANEXOS":
             break
 
+        estrategia = _estrategia_por_texto(text)
+        if estrategia is not None:
+            # Las estrategias se insertan como HTML restringido -> párrafos y
+            # runs con negrita/cursiva/listas. El placeholder se aplica cuando
+            # la sección no tiene contenido.
+            seccion, rotulo = estrategia
+            body_run = _first_body_run(paragraph)
+            body_properties = _run_properties(body_run)
+            if body_properties is None:
+                body_properties = _run_properties(
+                    _first_meaningful_run(paragraph)
+                )
+            html_to_docx_paragraphs(
+                paragraph,
+                (estrategias or {}).get(seccion) or "",
+                placeholder=PLACEHOLDER_ESTRATEGIAS,
+                prefix=rotulo,
+                body_properties=body_properties,
+            )
+            continue
+
         updated: str | None = None
         if text.startswith("La Meta Anual asignada"):
             updated = _sentence_superior(dataset, contexto)
@@ -650,12 +689,8 @@ def _update_narrative(
                 f"esperado, lo que permite establecer que es una ejecución "
                 f"{calificacion}."
             )
-        elif text.startswith("Dentro de las estrategias establecidas"):
-            updated = _estrategia_texto(estrategias, "3.1.1")
         elif text.startswith("¿Cómo fue la gestión del periodo para el Indicador"):
             updated = _sentence_tecnica(dataset, contexto)
-        elif text.startswith("Estrategia o Actividades llevadas a cabo: Para avanzar"):
-            updated = _estrategia_con_rotulo(estrategias, "3.1.2")
         elif text.startswith("Certificación Técnico Laboral y Otros:"):
             updated = ""
         elif text.startswith("Se remiten semanalmente actas"):
@@ -664,8 +699,6 @@ def _update_narrative(
             updated = ""
         elif text.startswith("El componente de Certificación alcanzó"):
             updated = _sentence_articulacion(dataset, contexto)
-        elif text.startswith("A través de la Coordinación de programas especiales"):
-            updated = _estrategia_texto(estrategias, "3.1.3")
         elif (
             text.startswith("¿Cómo fue la gestión en el periodo")
             and "formación Complementaria" in text
@@ -683,16 +716,10 @@ def _update_narrative(
         elif text.startswith("Aprendices con requisitos pendientes para certificación:"):
             # Bloque de limitaciones del original: se conserva completo.
             updated = _strip_annex_references(text)
-        elif text.startswith("Estrategia o Actividades llevadas a cabo. En el periodo"):
-            updated = _estrategia_con_rotulo(estrategias, "3.1.4")
-        elif text.startswith("Estrategia o Actividades llevadas a cabo.  Dentro"):
-            updated = _estrategia_con_rotulo(estrategias, "3.1.5")
         elif text.startswith("Realizar llamadas") or text.startswith(
             "Trabajar de la mano con el Líder"
         ):
             updated = ""
-        elif text.startswith("Atención al usuario en jornadas"):
-            updated = _estrategia_texto(estrategias, "3.2")
         elif text.startswith("Coordinación realización") or text.startswith(
             "Matrículas I Convocatoria"
         ) or text.startswith("Inducción nuevos aprendices"):

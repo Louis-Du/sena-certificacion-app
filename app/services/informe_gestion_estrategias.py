@@ -4,6 +4,11 @@ La dependencia redacta las actividades del bloque 3 del informe oficial. Estos
 textos no se deducen de los datos del consolidado: se guardan por
 ``(año, trimestre)`` y el generador DOCX los inserta al exportar.
 
+El campo de cada sección acepta HTML restringido (párrafos, saltos, negrita,
+cursiva y listas) o el texto plano histórico. Todo valor se sanea con
+:func:`app.services.rich_text.sanitize_estrategia_html` antes de guardarse y al
+devolverse por API.
+
 El modo de exportación (``solo_trimestre`` / ``acumulado``) solo afecta a las
 cifras; no crea un juego distinto de estrategias.
 """
@@ -18,6 +23,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import InformeGestionEstrategia
+from app.services.rich_text import sanitize_estrategia_html
 
 # Orden y rótulos visibles para la UI y el DOCX.
 SECCIONES: tuple[tuple[str, str], ...] = (
@@ -68,7 +74,12 @@ def normalizar_anio(value: Any) -> int:
 
 
 def _texto(value: Any) -> str:
-    return str(value).strip() if value is not None else ""
+    """Normaliza el valor de una sección y elimina HTML no permitido.
+
+    Los textos históricos en plano se devuelven tal cual (solo se recortan los
+    extremos); el HTML del editor se sanea con la allowlist de ``rich_text``.
+    """
+    return sanitize_estrategia_html(value)
 
 
 def _registro(
