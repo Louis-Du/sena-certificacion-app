@@ -547,6 +547,57 @@ def test_docx_estrategia_listas_sin_escapes(client):
     assert run_cursiva.text == "kk"
 
 
+def test_docx_estrategias_ocupan_ancho_normal_sin_columnas(client):
+    """Ningún bloque de estrategia hereda la sangría/columna de la plantilla.
+
+    El párrafo 3.1.2 de la plantilla trae ``w:ind left=9498 hanging=9236``;
+    al clonarlo el texto quedaba en una franja al margen derecho. El DOCX
+    generado debe mantener el ancho normal y el texto continuo por párrafo.
+    """
+    with client.session_factory() as session:
+        _seed_periodo(session)
+
+    secciones = {
+        "3.1.1": (
+            "<p>Estrategia [[ANCHO_311]] mm ghh continua</p>"
+            "<ul><li>Viñeta [[VINETA_311]] uno</li>"
+            "<li>Viñeta dos</li></ul>"
+            "<ol><li>Paso [[PASO_311]] uno</li>"
+            "<li>Paso dos</li></ol>"
+        ),
+        "3.1.2": (
+            "<p>Estrategia [[ANCHO_312]] mm ghh continua</p>"
+            "<ul><li>Viñeta [[VINETA_312]] uno</li>"
+            "<li>Viñeta dos</li></ul>"
+        ),
+        "3.2": "<p>Otra estrategia [[ANCHO_32]] mm ghh continua</p>",
+    }
+    saved = client.put(
+        "/api/informes/estrategias",
+        json={"anio": 2026, "trimestre": "T3", "secciones": secciones},
+    )
+    assert saved.status_code == 200, saved.text
+
+    response = client.get("/api/informes/word?trimestre=T3&modo=acumulado")
+    assert response.status_code == 200, response.text
+    contenido = response.content
+
+    # La cadena completa debe vivir en UN párrafo (no una letra por párrafo).
+    for fragmento in (
+        "[[ANCHO_311]] mm ghh",
+        "[[ANCHO_312]] mm ghh",
+        "[[ANCHO_32]] mm ghh",
+        "[[VINETA_311]] uno",
+        "[[VINETA_312]] uno",
+        "[[PASO_311]] uno",
+    ):
+        parrafo = _parrafo_con_fragmento(contenido, fragmento)
+        assert parrafo.paragraph_format.left_indent is not None
+        # 1000 twips ≈ 0,7": muy por debajo de los 9498 de la plantilla.
+        assert parrafo.paragraph_format.left_indent.twips <= 1000, fragmento
+        assert parrafo.paragraph_format.right_indent.twips <= 1000, fragmento
+
+
 def test_docx_estrategia_con_solo_marcado_usa_placeholder(client):
     """Un editor vacío puede guardar ``<p><br></p>``; el DOCX usa placeholder."""
     with client.session_factory() as session:

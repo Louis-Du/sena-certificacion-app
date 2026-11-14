@@ -25,7 +25,7 @@ from typing import Any
 
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Inches
+from docx.shared import Inches, Twips
 from docx.text.paragraph import Paragraph
 
 # Único subconjunto aceptado por la API y por el DOCX.
@@ -607,6 +607,59 @@ def _add_run(paragraph, text: str, properties, *, bold: bool, italic: bool):
     return run
 
 
+# --- Layout de los bloques de estrategia -----------------------------------
+# La plantilla trae párrafos de estrategia con sangrías residuales de columnas
+# (p. ej. ``w:left="9498" w:hanging="9236"``). Si se clonan tal cual, el texto
+# se dibuja en una franja estrecha al margen derecho. Todos los bloques se
+# normalizan al ancho del cuerpo normal de la plantilla.
+_STRATEGY_LEFT_TWIPS = 262
+_STRATEGY_RIGHT_TWIPS = 441
+_STRATEGY_BASE_LEFT = Twips(_STRATEGY_LEFT_TWIPS)
+_PPR_LAYOUT_TAGS = (
+    "w:numPr",
+    "w:framePr",
+    "w:sectPr",
+    "w:pPrChange",
+    "w:textDirection",
+    "w:tabs",
+    "w:cnfStyle",
+)
+_IND_RESET_ATTRS = (
+    "w:firstLine",
+    "w:hanging",
+    "w:start",
+    "w:end",
+    "w:leftChars",
+    "w:rightChars",
+    "w:firstLineChars",
+    "w:hangingChars",
+)
+
+
+def _normalize_strategy_pPr(paragraph) -> Any:
+    """Clona el ``pPr`` de la plantilla sin columnas ni sangrías residuales.
+
+    Conserva estilo, espaciado, alineación y fuente; elimina numeración de
+    plantilla, marcos/columnas y cualquier sangría heredada para fijar el
+    ancho normal del cuerpo.
+    """
+    if paragraph._p.pPr is not None:
+        pPr = deepcopy(paragraph._p.pPr)
+    else:
+        pPr = OxmlElement("w:pPr")
+    for tag in _PPR_LAYOUT_TAGS:
+        for element in pPr.findall(qn(tag)):
+            pPr.remove(element)
+    ind = pPr.get_or_add_ind()
+    ind.set(qn("w:left"), str(_STRATEGY_LEFT_TWIPS))
+    ind.set(qn("w:right"), str(_STRATEGY_RIGHT_TWIPS))
+    for attr in _IND_RESET_ATTRS:
+        key = qn(attr)
+        if key in ind.attrib:
+            del ind.attrib[key]
+    return pPr
+
+
 def _write_block(
     paragraph,
     block: RichBlock,
@@ -614,6 +667,7 @@ def _write_block(
     properties,
     base_left_indent,
 ) -> None:
+    paragraph.paragraph_format.right_indent = Twips(_STRATEGY_RIGHT_TWIPS)
     if block.kind in {"bullet", "number"}:
         marker = "• " if block.kind == "bullet" else f"{block.number}. "
         if base_left_indent is None:
@@ -623,6 +677,9 @@ def _write_block(
         paragraph.paragraph_format.left_indent = left
         paragraph.paragraph_format.first_line_indent = -Inches(0.25)
         _add_run(paragraph, marker, properties, bold=False, italic=False)
+    else:
+        paragraph.paragraph_format.left_indent = base_left_indent
+        paragraph.paragraph_format.first_line_indent = Twips(0)
 
     for rich_run in block.runs:
         parts = rich_run.text.split("\n")
@@ -672,11 +729,8 @@ def html_to_docx_paragraphs(
         else:
             blocks.insert(0, RichBlock("paragraph", [RichRun(prefix, bold=True)]))
 
-    base_pPr = deepcopy(paragraph._p.pPr) if paragraph._p.pPr is not None else None
-    if base_pPr is not None:
-        for num_pr in base_pPr.findall(qn("w:numPr")):
-            base_pPr.remove(num_pr)
-    base_left_indent = paragraph.paragraph_format.left_indent
+    base_pPr = _normalize_strategy_pPr(paragraph)
+    base_left_indent = _STRATEGY_BASE_LEFT
 
     created: list[Paragraph] = []
     previous_element = paragraph._p
@@ -686,15 +740,13 @@ def html_to_docx_paragraphs(
             for child in list(target._p):
                 if child.tag != qn("w:pPr"):
                     target._p.remove(child)
-            if base_pPr is not None:
-                current_pPr = target._p.pPr
-                if current_pPr is not None:
-                    target._p.remove(current_pPr)
-                target._p.insert(0, deepcopy(base_pPr))
+            current_pPr = target._p.pPr
+            if current_pPr is not None:
+                target._p.remove(current_pPr)
+            target._p.insert(0, deepcopy(base_pPr))
         else:
             element = OxmlElement("w:p")
-            if base_pPr is not None:
-                element.append(deepcopy(base_pPr))
+            element.append(deepcopy(base_pPr))
             previous_element.addnext(element)
             target = Paragraph(element, paragraph._parent)
         _write_block(
