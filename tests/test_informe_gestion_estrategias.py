@@ -405,6 +405,69 @@ def test_docx_convierte_negrita_cursiva_y_listas_de_estrategias(client):
     )
 
 
+def test_docx_convierte_markdown_legado_en_formato_real(client):
+    """Los textos históricos con ``**``/``*``/``***``/``1\\.`` se interpretan."""
+    with client.session_factory() as session:
+        _seed_periodo(session)
+
+    secciones = {
+        "3.1.1": (
+            "Prue**bfsgs** jjs*sss* ***hshs***\n"
+            "1\\. sss\n"
+            "2. otra cosa"
+        ),
+        "3.1.2": "<p>Intro **fuerte**<br>• viñeta uno<br>• viñeta dos</p>",
+        "3.1.3": "<p>**negrita** y 1\\. escape</p>",
+        "3.1.4": "Texto plano sin marcas.",
+        "3.1.5": "Otro texto plano.",
+        "3.2": "<p>Otras actividades.</p>",
+    }
+    saved = client.put(
+        "/api/informes/estrategias",
+        json={"anio": 2026, "trimestre": "T3", "secciones": secciones},
+    )
+    assert saved.status_code == 200, saved.text
+
+    response = client.get("/api/informes/word?trimestre=T3&modo=acumulado")
+    assert response.status_code == 200, response.text
+    contenido = response.content
+    texto = _texto_docx(contenido)
+
+    # Ningún marcador de Markdown queda visible en el Word.
+    assert "**" not in texto
+    assert "***" not in texto
+    assert "1\\." not in texto
+    for fragmento in ("Prue", "bfsgs", "jjs", "sss", "hshs"):
+        assert fragmento in texto
+
+    # Negrita, cursiva y ambas en runs reales, sin los asteriscos.
+    _, run_negrita = _run_con_formato(contenido, "bfsgs", bold=True)
+    assert run_negrita.text == "bfsgs"
+    _, run_cursiva = _run_con_formato(contenido, "sss", italic=True)
+    assert run_cursiva.text == "sss"
+    _, run_ambas = _run_con_formato(contenido, "hshs", bold=True, italic=True)
+    assert run_ambas.text == "hshs"
+
+    # La numeración escrita como texto se convierte en ítems independientes.
+    assert (
+        _parrafo_con_fragmento(contenido, "1. sss").text.strip() == "1. sss"
+    )
+    assert (
+        _parrafo_con_fragmento(contenido, "2. otra cosa").text.strip()
+        == "2. otra cosa"
+    )
+
+    # Las viñetas dentro de un párrafo con ``<br>`` también se separan.
+    assert (
+        _parrafo_con_fragmento(contenido, "• viñeta uno").text.strip()
+        == "• viñeta uno"
+    )
+    assert (
+        _parrafo_con_fragmento(contenido, "• viñeta dos").text.strip()
+        == "• viñeta dos"
+    )
+
+
 def test_docx_estrategia_con_solo_marcado_usa_placeholder(client):
     """Un editor vacío puede guardar ``<p><br></p>``; el DOCX usa placeholder."""
     with client.session_factory() as session:
@@ -704,6 +767,11 @@ def test_ui_editor_restringido_con_negrita_cursiva_y_listas():
     assert 'document.execCommand("styleWithCSS", false, false);' in ui_js
     assert 'editor.addEventListener("paste"' in ui_js
     assert 'getData("text/plain")' in ui_js
+    # El pegado conserva el formato de Word mediante text/html saneado.
+    assert 'getData("text/html")' in ui_js
+    assert "function htmlParaPegadoEstrategia(value)" in ui_js
+    assert "function textoPlanoAHtmlEstrategia(texto)" in ui_js
+    assert 'document.execCommand("insertHTML", false, htmlSeguro);' in ui_js
     assert "secciones[editor.dataset.estrategiaSeccion] = normalizarHtmlEstrategia(" in ui_js
 
     for selector in (

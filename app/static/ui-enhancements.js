@@ -439,6 +439,34 @@
     return salida.innerHTML;
   }
 
+  function textoPlanoAHtmlEstrategia(texto) {
+    return String(texto || "")
+      .replace(/\r\n?/g, "\n")
+      .split("\n")
+      .map((linea) => linea.trim())
+      .filter(Boolean)
+      .map((linea) => `<p>${escapeHtml(linea)}</p>`)
+      .join("");
+  }
+
+  // Convierte el HTML externo (Word, navegador, Excel) al subconjunto que
+  // entiende el editor. ``template`` no ejecuta scripts y el normalizador
+  // elimina las etiquetas peligrosas junto con su contenido.
+  function htmlParaPegadoEstrategia(value) {
+    const html = String(value || "").trim();
+    if (!html) return "";
+    if (!/<[a-z][^>]*>/i.test(html)) {
+      return textoPlanoAHtmlEstrategia(html);
+    }
+    const plantilla = document.createElement("template");
+    plantilla.innerHTML = html;
+    const contenedor = document.createElement("div");
+    contenedor.appendChild(plantilla.content);
+    const salida = document.createElement("div");
+    normalizarNodoEstrategia(contenedor, salida);
+    return salida.innerHTML;
+  }
+
   function textoPlanoEstrategia(value) {
     const html = normalizarHtmlEstrategia(value);
     if (!html) return "";
@@ -902,17 +930,28 @@
       renderResumenEstrategias(seccionesDelFormulario());
       setInformeStatus(informeStatus, "Cambios sin guardar.", "warning");
     });
-    // Pegado como texto plano: evita arrastrar estilos/tablas de Word.
+    // Pegado con formato: Word y los navegadores entregan ``text/html``. Se
+    // sanea con la misma allowlist del backend y se inserta conservando
+    // negrita, cursiva y listas. Sin HTML se insertan párrafos de texto plano.
     editor.addEventListener("paste", (event) => {
       event.preventDefault();
-      const texto =
-        (event.clipboardData || window.clipboardData)?.getData("text/plain") ||
-        "";
+      const portapapeles = event.clipboardData || window.clipboardData;
+      const html = portapapeles?.getData("text/html") || "";
+      const texto = portapapeles?.getData("text/plain") || "";
+      const htmlSeguro = htmlParaPegadoEstrategia(html);
       editor.focus();
       try {
-        document.execCommand("insertText", false, texto);
+        if (htmlSeguro) {
+          document.execCommand("insertHTML", false, htmlSeguro);
+        } else if (texto) {
+          document.execCommand(
+            "insertHTML",
+            false,
+            textoPlanoAHtmlEstrategia(texto),
+          );
+        }
       } catch (_) {
-        editor.textContent += texto;
+        if (texto) editor.textContent += texto;
       }
       editor.dispatchEvent(new Event("input", { bubbles: true }));
     });

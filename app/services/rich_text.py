@@ -9,8 +9,9 @@ línea, negrita, cursiva y listas. Este módulo centraliza dos responsabilidades
 * ``html_to_docx_paragraphs`` traduce ese HTML a párrafos y runs de
   ``python-docx`` sin volcar marcado como texto visible.
 
-Los textos históricos en plano se conservan tal cual: al parsearlos se tratan
-como párrafos simples.
+Los textos históricos se conservan: si venían en Markdown (``**negrita**``,
+``1\\.``, viñetas) se interpretan al exportar; si son plano simple se insertan
+como párrafos normales.
 """
 
 from __future__ import annotations
@@ -150,6 +151,218 @@ class RichBlock:
     number: int = 0
 
 
+# --- Markdown legado / pegado sin HTML -------------------------------------
+# Los textos guardados antes del editor podían venir en Markdown. El DOCX debe
+# interpretar sus marcas y no escribirlas como texto visible.
+_MD_ESCAPABLE = set("\\`*_{}[]()#+-.!>~|")
+_MD_BULLET_RE = re.compile(
+    r"^(?P<indent>[ \t]*)(?:[-*+]|[•·▪◦‣∙\uf0b7])\s+(?P<text>.+?)\s*$"
+)
+_MD_ORDERED_RE = re.compile(
+    r"^(?P<indent>[ \t]*)(?P<number>\d+)\\?[.)]\s+(?P<text>.+?)\s*$"
+)
+
+
+def _md_indent_level(indent: str) -> int:
+    spaces = indent.replace("\t", "    ")
+    return min(4, len(spaces) // 2)
+
+
+def _find_md_closing(
+    text: str, marker: str, start: int, *, single: bool
+) -> int:
+    """Busca el cierre de una marca Markdown, ignorando escapes."""
+    index = start
+    length = len(text)
+    while index < length:
+        if text[index] == "\\":
+            index += 2
+            continue
+        if text.startswith(marker, index):
+            valid = True
+            if single:
+                if index > 0 and text[index - 1] == marker:
+                    valid = False
+                if index + 1 < length and text[index + 1] == marker:
+                    valid = False
+            else:
+                if index > 0 and text[index - 1] == marker[0]:
+                    valid = False
+                if (
+                    index + len(marker) < length
+                    and text[index + len(marker)] == marker[0]
+                ):
+                    valid = False
+            if (
+                valid
+                and index > start
+                and not text[start].isspace()
+                and not text[index - 1].isspace()
+            ):
+                return index
+        index += 1
+    return -1
+
+
+def _inline_markdown_runs(
+    text: str, *, bold: bool = False, italic: bool = False
+) -> list[RichRun]:
+    """Convierte ``**negrita**``, ``*cursiva*`` y ``***ambas***`` en runs.
+
+    También elimina los escapes de Markdown (``1\\.`` -> ``1.``) para que no
+    aparezcan barras invertidas en el Word.
+    """
+    runs: list[RichRun] = []
+    buffer: list[str] = []
+
+    def flush() -> None:
+        if buffer:
+            runs.append(RichRun("".join(buffer), bold=bold, italic=italic))
+            buffer.clear()
+
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if char == "\\":
+            if index + 1 < len(text) and text[index + 1] in _MD_ESCAPABLE:
+                buffer.append(text[index + 1])
+                index += 2
+                continue
+            if index + 1 == len(text):
+                # Barra final usada como salto duro por algunos serializadores.
+                index += 1
+                continue
+            buffer.append(char)
+            index += 1
+            continue
+
+        if text.startswith("***", index) or text.startswith("___", index):
+            marker = text[index : index + 3]
+            end = _find_md_closing(text, marker, index + 3, single=False)
+            if end != -1:
+                flush()
+                runs.extend(
+                    _inline_markdown_runs(
+                        text[index + 3 : end], bold=True, italic=True
+                    )
+                )
+                index = end + 3
+                continue
+
+        if text.startswith("**", index) or text.startswith("__", index):
+            marker = text[index : index + 2]
+            end = _find_md_closing(text, marker, index + 2, single=False)
+            if end != -1:
+                flush()
+                runs.extend(
+                    _inline_markdown_runs(
+                        text[index + 2 : end], bold=True, italic=italic
+                    )
+                )
+                index = end + 2
+                continue
+
+        if char in "*_":
+            if char == "_" and index > 0 and text[index - 1].isalnum():
+                buffer.append(char)
+                index += 1
+                continue
+            end = _find_md_closing(text, char, index + 1, single=True)
+            if end != -1:
+                flush()
+                runs.extend(
+                    _inline_markdown_runs(
+                        text[index + 1 : end], bold=bold, italic=True
+                    )
+                )
+                index = end + 1
+                continue
+
+        buffer.append(char)
+        index += 1
+
+    flush()
+    return runs
+
+
+def _lstrip_runs(runs: list[RichRun]) -> None:
+    for run in runs:
+        run.text = run.text.lstrip()
+        if run.text:
+            return
+
+
+def _runs_text(runs: list[RichRun]) -> str:
+    return "".join(run.text for run in runs)
+
+
+def _parse_md_list_line(line: str) -> tuple[str, int, int, str] | None:
+    """Devuelve ``(kind, level, number, resto)`` si la línea es un ítem."""
+    bullet = _MD_BULLET_RE.match(line)
+    if bullet:
+        return (
+            "bullet",
+            _md_indent_level(bullet.group("indent")),
+            0,
+            bullet.group("text"),
+        )
+    ordered = _MD_ORDERED_RE.match(line)
+    if ordered:
+        return (
+            "number",
+            _md_indent_level(ordered.group("indent")),
+            int(ordered.group("number")),
+            ordered.group("text"),
+        )
+    return None
+
+
+def _drop_run_prefix(runs: list[RichRun], count: int) -> None:
+    """Elimina ``count`` caracteres del inicio de una lista de runs."""
+    while runs and count > 0:
+        run = runs[0]
+        if len(run.text) <= count:
+            count -= len(run.text)
+            runs.pop(0)
+        else:
+            run.text = run.text[count:]
+            count = 0
+    _lstrip_runs(runs)
+
+
+def _split_runs_newlines(runs: list[RichRun]) -> list[list[RichRun]]:
+    """Divide los runs en líneas lógicas conservando su formato."""
+    lines: list[list[RichRun]] = [[]]
+    for run in runs:
+        chunks = run.text.split("\n")
+        for index, chunk in enumerate(chunks):
+            if index:
+                lines.append([])
+            if chunk:
+                lines[-1].append(RichRun(chunk, run.bold, run.italic))
+    return lines
+
+
+def markdown_to_blocks(text: str) -> list[RichBlock]:
+    """Convierte texto plano/Markdown legado en bloques con formato."""
+    blocks: list[RichBlock] = []
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        if not line.strip():
+            continue
+        parsed = _parse_md_list_line(line)
+        if parsed is not None:
+            kind, level, number, rest = parsed
+            runs = _inline_markdown_runs(rest)
+            if runs:
+                blocks.append(RichBlock(kind, runs, level, number))
+            continue
+        runs = _inline_markdown_runs(line.strip())
+        if runs:
+            blocks.append(RichBlock("paragraph", runs))
+    return blocks
+
+
 class _DocxHTMLParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -185,14 +398,61 @@ class _DocxHTMLParser(HTMLParser):
         runs = [run for run in block.runs if run.text]
         if not runs:
             return
-        # Recorta espacios en los extremos del bloque, no entre runs.
-        runs[0].text = runs[0].text.lstrip()
-        runs[-1].text = runs[-1].text.rstrip()
-        runs = [run for run in runs if run.text]
+        # Un párrafo con saltos puede contener una lista escrita como texto
+        # (``uno<br>1. dos``). En ese caso cada línea pasa a ser su bloque.
+        if not self.list_stack:
+            lines = _split_runs_newlines(runs)
+            if len(lines) > 1:
+                parsed = [
+                    _parse_md_list_line(_runs_text(line).strip())
+                    for line in lines
+                ]
+                if any(parsed[1:]):
+                    for index, (line, item) in enumerate(zip(lines, parsed)):
+                        self._emit_line(
+                            line, item, block if index == 0 else None
+                        )
+                    return
+        self._trim_runs(runs)
         if not runs:
             return
         block.runs = runs
         self.blocks.append(block)
+
+    @staticmethod
+    def _trim_runs(runs: list[RichRun]) -> None:
+        # Recorta espacios en los extremos del bloque, no entre runs.
+        runs[0].text = runs[0].text.lstrip()
+        runs[-1].text = runs[-1].text.rstrip()
+
+    def _emit_line(
+        self,
+        runs: list[RichRun],
+        parsed: tuple[str, int, int, str] | None,
+        fallback: RichBlock | None = None,
+    ) -> None:
+        runs = [run for run in runs if run.text]
+        if not runs:
+            return
+        self._trim_runs(runs)
+        runs = [run for run in runs if run.text]
+        if not runs:
+            return
+        if parsed is None:
+            if fallback is None or fallback.kind == "paragraph":
+                self.blocks.append(RichBlock("paragraph", runs))
+            else:
+                self.blocks.append(
+                    RichBlock(fallback.kind, runs, fallback.level, fallback.number)
+                )
+            return
+        kind, level, number, rest = parsed
+        prefix = len(_runs_text(runs)) - len(rest)
+        if prefix > 0:
+            _drop_run_prefix(runs, prefix)
+        if not runs:
+            return
+        self.blocks.append(RichBlock(kind, runs, level, number))
 
     def _append_text(self, data: str) -> None:
         text = re.sub(r"[ \t\r\n]+", " ", data.replace("\xa0", " "))
@@ -207,9 +467,24 @@ class _DocxHTMLParser(HTMLParser):
             ):
                 block.runs.append(RichRun(" ", self.bold > 0, self.italic > 0))
             return
+        at_start = not self.list_stack and (
+            self.current is None
+            or (self.current.kind == "paragraph" and not self.current.runs)
+        )
+        if at_start:
+            parsed = _parse_md_list_line(text.lstrip())
+            if parsed is not None:
+                kind, level, number, rest = parsed
+                block = self._ensure_block()
+                block.kind = kind
+                block.level = level
+                block.number = number
+                text = rest
         block = self._ensure_block()
-        block.runs.append(
-            RichRun(text, bold=self.bold > 0, italic=self.italic > 0)
+        block.runs.extend(
+            _inline_markdown_runs(
+                text, bold=self.bold > 0, italic=self.italic > 0
+            )
         )
 
     def _append_break(self) -> None:
@@ -297,10 +572,7 @@ def html_to_blocks(value: Any) -> list[RichBlock]:
     if not text:
         return []
     if not _TAG_PATTERN.search(text):
-        lines = [unescape(line).strip() for line in text.splitlines()]
-        return [
-            RichBlock("paragraph", [RichRun(line)]) for line in lines if line
-        ]
+        return markdown_to_blocks(unescape(text))
     parser = _DocxHTMLParser()
     parser.feed(text)
     parser.close()
