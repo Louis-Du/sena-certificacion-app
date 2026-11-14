@@ -111,10 +111,73 @@ def test_orden_automatico_y_codigo_manual(client):
     assert primero.json()["orden"] == 1
     assert segundo.json()["orden"] == 2
     assert segundo.json()["codigo"] == "A-2"
+    assert segundo.json()["rotulo"] == "A-2"
 
     items = client.get("/api/informes/anexos?anio=2026&trimestre=T3").json()["items"]
     assert [item["titulo"] for item in items] == ["Primero", "Segundo"]
     assert [item["numero"] for item in items] == [1, 2]
+
+
+def test_titulo_no_repite_el_prefijo_anexo(client):
+    creado = _crear_anexo(
+        client,
+        titulo="ANEXO 1. Actas con aprendices por certificar",
+        codigo="1",
+    )
+    assert creado.status_code == 201, creado.text
+    payload = creado.json()
+    assert payload["titulo"] == "Actas con aprendices por certificar"
+    assert payload["codigo"] == "ANEXO 1"
+    assert payload["numero"] == 1
+    assert payload["rotulo"] == "ANEXO 1"
+
+
+def test_codigo_manual_reserva_numero_y_los_automaticos_no_lo_repiten(client):
+    primero = _crear_anexo(client, titulo="Primero")  # automático: 1
+    segundo = _crear_anexo(client, titulo="Segundo", codigo="N° 3")  # manual: 3
+    tercero = _crear_anexo(client, titulo="Tercero")  # automático: 2
+
+    assert segundo.status_code == 201, segundo.text
+    assert segundo.json()["codigo"] == "ANEXO 3"
+    numeros = [
+        primero.json()["numero"],
+        segundo.json()["numero"],
+        tercero.json()["numero"],
+    ]
+    assert numeros == [1, 3, 2]
+
+    items = client.get("/api/informes/anexos?anio=2026&trimestre=T3").json()["items"]
+    assert [item["numero"] for item in items] == [1, 3, 2]
+    assert len({item["numero"] for item in items}) == 3
+
+
+def test_codigo_duplicado_se_rechaza_en_crear_y_actualizar(client):
+    primero = _crear_anexo(client, titulo="Uno", codigo="ANEXO 1")
+    segundo = _crear_anexo(client, titulo="Dos", codigo="2")
+    assert primero.status_code == 201, primero.text
+    assert segundo.status_code == 201, segundo.text
+    assert segundo.json()["codigo"] == "ANEXO 2"
+
+    duplicado = _crear_anexo(client, titulo="Tres", codigo="1")
+    assert duplicado.status_code == 400, duplicado.text
+    assert "ya está usado" in duplicado.json()["detail"]
+
+    colision = client.patch(
+        f"/api/informes/anexos/{segundo.json()['id']}",
+        data={"codigo": "ANEXO 1"},
+    )
+    assert colision.status_code == 400, colision.text
+
+    # El propio código del registro no cuenta como colisión.
+    propio = client.patch(
+        f"/api/informes/anexos/{segundo.json()['id']}",
+        data={"codigo": "ANEXO 2"},
+    )
+    assert propio.status_code == 200, propio.text
+
+    # Un anexo sin código evita el 1 y el 2 ya reservados.
+    automatico = _crear_anexo(client, titulo="Automático")
+    assert automatico.json()["numero"] == 3
 
 
 # ---------------------------------------------------------------------------
@@ -159,9 +222,16 @@ def test_reemplazar_archivo_desde_patch(client):
     )
     assert response.status_code == 200, response.text
     assert response.json()["content_type"] == "image/png"
-    # El binario anterior se elimina al confirmar el reemplazo.
+    assert response.json()["nombre_archivo"] == "nueva.png"
+    # El binario anterior se elimina al confirmar el reemplazo y la descarga
+    # apunta al archivo nuevo.
     assert not archivo_viejo.exists()
-    assert list(storage_dir().glob("2026-T3-*.png"))
+    archivo_nuevo = next(storage_dir().glob("2026-T3-*.png"))
+    assert archivo_nuevo.read_bytes() == PNG_1X1
+    descarga = client.get(f"/api/informes/anexos/{creado['id']}/download")
+    assert descarga.status_code == 200, descarga.text
+    assert descarga.content == PNG_1X1
+    assert "nueva.png" in descarga.headers.get("content-disposition", "")
 
 
 def test_eliminar_anexo_borra_registro_y_archivo(client, session_factory):
@@ -193,6 +263,9 @@ def test_validaciones_de_tipo_titulo_y_descarga(client):
         files={"file": ("captura.png", PNG_1X1, "image/png")},
     )
     assert sin_titulo.status_code == 400, sin_titulo.text
+
+    codigo_cero = _crear_anexo(client, titulo="Código cero", codigo="0")
+    assert codigo_cero.status_code == 400, codigo_cero.text
 
     creado = _crear_anexo(client, titulo="Descargable").json()
     descarga = client.get(f"/api/informes/anexos/{creado['id']}/download")
@@ -294,6 +367,124 @@ def test_regresion_estrategias_siguen_en_el_docx_con_anexos(client):
     assert "[[ANEXO_CON_ESTRATEGIA]]" in texto
     # Las secciones sin texto conservan el placeholder institucional.
     assert "Pendiente de registro por la dependencia." in texto
+
+
+def test_docx_numeracion_sin_doble_prefijo(client):
+    with client.session_factory() as session:
+        _seed_periodo(session)
+    _crear_anexo(
+        client,
+        titulo="ANEXO 1. Actas por certificar",
+        codigo="ANEXO 1",
+    )
+    _crear_anexo(client, titulo="Soportes de articulación")
+
+    from app.services.informes import export_report_docx
+
+    with client.session_factory() as session:
+        contenido = export_report_docx(
+            session, anio=2026, trimestre="T3", modo="acumulado"
+        )
+
+    texto = _texto_docx(contenido)
+    assert "ANEXO 1. Actas por certificar" in texto
+    assert "ANEXO 1. ANEXO 1." not in texto
+    assert "ANEXO 2. Soportes de articulación" in texto
+    assert texto.count("ANEXO 1.") == 1
+
+
+def test_docx_deduplica_codigos_heredados(client, session_factory):
+    """Filas antiguas con el mismo código no repiten el rótulo en el DOCX."""
+    with session_factory() as session:
+        _seed_periodo(session)
+        session.add_all(
+            [
+                InformeGestionAnexo(
+                    anio=2026,
+                    trimestre="T3",
+                    codigo="ANEXO 3",
+                    titulo="Primero heredado",
+                    nombre_archivo="a.pdf",
+                    content_type="application/pdf",
+                    ruta_archivo="a.pdf",
+                    tamano=1,
+                    orden=1,
+                ),
+                InformeGestionAnexo(
+                    anio=2026,
+                    trimestre="T3",
+                    codigo="ANEXO 3",
+                    titulo="Segundo heredado",
+                    nombre_archivo="b.pdf",
+                    content_type="application/pdf",
+                    ruta_archivo="b.pdf",
+                    tamano=1,
+                    orden=2,
+                ),
+            ]
+        )
+        session.commit()
+
+    from app.services.informes import export_report_docx
+
+    with client.session_factory() as session:
+        contenido = export_report_docx(
+            session, anio=2026, trimestre="T3", modo="acumulado"
+        )
+
+    texto = _texto_docx(contenido)
+    assert texto.count("ANEXO 3.") == 1
+    assert "ANEXO 3. Primero heredado" in texto
+    assert "ANEXO 1. Segundo heredado" in texto
+
+
+def test_docx_pdf_solo_lista_titulo_y_descripcion(client):
+    with client.session_factory() as session:
+        _seed_periodo(session)
+    _crear_anexo(
+        client,
+        titulo="Informe escaneado",
+        descripcion="Soporte en PDF del periodo.",
+        archivo=("soporte.pdf", PDF_MINIMO, "application/pdf"),
+    )
+
+    from app.services.informes import export_report_docx
+
+    with client.session_factory() as session:
+        contenido = export_report_docx(
+            session, anio=2026, trimestre="T3", modo="acumulado"
+        )
+
+    document = Document(BytesIO(contenido))
+    texto = "\n".join(paragraph.text for paragraph in document.paragraphs)
+    assert "ANEXO 1. Informe escaneado" in texto
+    assert "Soporte en PDF del periodo." in texto
+    # Decisión de producto: no se embebe el binario PDF en el Word.
+    assert len(document.inline_shapes) == 0
+    assert "Soporte en archivo" not in texto
+
+
+def test_docx_imagen_se_inserta_con_aspecto(client):
+    with client.session_factory() as session:
+        _seed_periodo(session)
+    _crear_anexo(client, titulo="Captura cuadrada")
+
+    from app.services.informes import export_report_docx
+
+    with client.session_factory() as session:
+        contenido = export_report_docx(
+            session, anio=2026, trimestre="T3", modo="acumulado"
+        )
+
+    document = Document(BytesIO(contenido))
+    assert len(document.inline_shapes) == 1
+    shape = document.inline_shapes[0]
+    assert shape.width > 0 and shape.height > 0
+    # El PNG de prueba es cuadrado: se conserva la proporción al escalarlo.
+    assert abs(shape.width - shape.height) <= 10000
+    assert "ANEXO 1. Captura cuadrada" in "\n".join(
+        paragraph.text for paragraph in document.paragraphs
+    )
 
 
 def test_anexos_no_dependen_del_modo_de_exportacion(client):
