@@ -858,6 +858,401 @@
     }
   }
 
+  /* ---------------- Informe de gestión: anexos del periodo ---------------- */
+  const informeAnexoForm = document.getElementById("informe-anexo-form");
+  const informeAnexoFile = document.getElementById("informe-anexo-file");
+  const informeAnexoTitulo = document.getElementById("informe-anexo-titulo");
+  const informeAnexoDescripcion = document.getElementById(
+    "informe-anexo-descripcion",
+  );
+  const informeAnexoCodigo = document.getElementById("informe-anexo-codigo");
+  const informeAnexoOrden = document.getElementById("informe-anexo-orden");
+  const informeAnexoSubmit = document.getElementById("informe-anexo-submit");
+  const informeAnexoStatus = document.getElementById("informe-anexo-status");
+  const informeAnexosList = document.getElementById("informe-anexos-list");
+  const informeAnexosEmpty = document.getElementById("informe-anexos-empty");
+  const informeAnexosBadge = document.getElementById("informe-anexos-badge");
+  const informeAnexosPeriodo = document.getElementById(
+    "informe-anexos-periodo",
+  );
+  const informeExportAnexos = document.getElementById("informe-export-anexos");
+
+  const ANEXO_MAX_BYTES = 10 * 1024 * 1024;
+  const ANEXO_TIPOS = new Set([
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ]);
+  let informeAnexosToken = 0;
+  let informeAnexosCache = [];
+
+  function formatoBytesAnexo(bytes) {
+    const valor = Number(bytes) || 0;
+    if (valor >= 1024 * 1024) {
+      return `${(valor / (1024 * 1024)).toFixed(1).replace(".", ",")} MB`;
+    }
+    if (valor >= 1024) return `${Math.round(valor / 1024)} KB`;
+    return `${valor} B`;
+  }
+
+  function etiquetaTipoAnexo(contentType, nombreArchivo) {
+    const tipo = String(contentType || "");
+    if (tipo === "image/png") return "PNG";
+    if (tipo === "image/jpeg") return "JPEG";
+    if (tipo === "image/webp") return "WEBP";
+    if (tipo === "application/pdf") return "PDF";
+    if (tipo.includes("wordprocessingml")) return "DOCX";
+    const extension = String(nombreArchivo || "").split(".").pop();
+    return (extension || "Archivo").toUpperCase();
+  }
+
+  function actualizarBadgeAnexos(total) {
+    if (informeAnexosBadge) {
+      informeAnexosBadge.textContent = `${total} ${
+        total === 1 ? "ANEXO" : "ANEXOS"
+      }`;
+      informeAnexosBadge.className =
+        "result-badge" + (total ? " ready" : " pending");
+    }
+    if (informeExportAnexos) {
+      informeExportAnexos.textContent = total
+        ? `Anexos del periodo: ${total}. Se incluirán en la sección 5 del DOCX.`
+        : "Anexos del periodo: sin anexos cargados. El informe se genera igualmente.";
+    }
+  }
+
+  async function mensajeErrorAnexo(response, fallback) {
+    try {
+      const data = await response.json();
+      if (data?.detail) return data.detail;
+    } catch (_) {}
+    return fallback;
+  }
+
+  function campoAnexo(etiqueta, control) {
+    const label = document.createElement("label");
+    label.textContent = etiqueta;
+    label.appendChild(control);
+    return label;
+  }
+
+  function botonAccionAnexo(texto, accion) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "informe-anexo-action";
+    button.dataset.anexoAction = accion;
+    button.textContent = texto;
+    return button;
+  }
+
+  function crearTarjetaAnexo(item) {
+    const card = document.createElement("li");
+    card.className = "informe-anexo-card";
+    card.dataset.anexoId = String(item.id);
+
+    const head = document.createElement("div");
+    head.className = "informe-anexo-card-head";
+    const code = document.createElement("span");
+    code.className = "informe-anexo-code";
+    code.textContent = item.codigo || `ANEXO ${item.numero || item.id}`;
+    const type = document.createElement("span");
+    type.className = "informe-anexo-type";
+    type.textContent = `${etiquetaTipoAnexo(item.content_type, item.nombre_archivo)} · ${formatoBytesAnexo(item.tamano)}`;
+    head.append(code, type);
+
+    const title = document.createElement("h4");
+    title.textContent = item.titulo || "Anexo sin título";
+    card.append(head, title);
+
+    if (item.descripcion) {
+      const desc = document.createElement("p");
+      desc.className = "informe-anexo-desc";
+      desc.textContent = item.descripcion;
+      card.appendChild(desc);
+    }
+
+    const meta = document.createElement("p");
+    meta.className = "informe-anexo-meta";
+    meta.textContent = item.nombre_archivo || "";
+    card.appendChild(meta);
+
+    const actions = document.createElement("div");
+    actions.className = "informe-anexo-actions";
+    if (item.download_url) {
+      const download = document.createElement("a");
+      download.className = "informe-anexo-action";
+      download.href = item.download_url;
+      download.textContent = "Descargar";
+      download.setAttribute("download", "");
+      actions.appendChild(download);
+    }
+    const edit = botonAccionAnexo("Editar", "edit");
+    edit.addEventListener("click", () => editarAnexo(card, item));
+    const remove = botonAccionAnexo("Eliminar", "delete");
+    remove.addEventListener("click", () => eliminarAnexo(item));
+    actions.append(edit, remove);
+    card.appendChild(actions);
+    return card;
+  }
+
+  function editarAnexo(card, item) {
+    const form = document.createElement("form");
+    form.className = "informe-anexo-edit";
+
+    const titulo = document.createElement("input");
+    titulo.type = "text";
+    titulo.maxLength = 255;
+    titulo.required = true;
+    titulo.value = item.titulo || "";
+
+    const descripcion = document.createElement("textarea");
+    descripcion.rows = 3;
+    descripcion.maxLength = 4000;
+    descripcion.value = item.descripcion || "";
+
+    const codigo = document.createElement("input");
+    codigo.type = "text";
+    codigo.maxLength = 40;
+    codigo.value = item.codigo || "";
+    codigo.placeholder = "Automático";
+
+    const orden = document.createElement("input");
+    orden.type = "number";
+    orden.min = "1";
+    orden.step = "1";
+    orden.value = item.orden ?? "";
+
+    const fila = document.createElement("div");
+    fila.className = "informe-anexo-row";
+    fila.append(campoAnexo("Código", codigo), campoAnexo("Orden", orden));
+
+    const status = document.createElement("p");
+    status.className = "detail-feedback";
+    status.setAttribute("role", "status");
+
+    const acciones = document.createElement("div");
+    acciones.className = "informe-anexo-edit-actions";
+    const guardar = document.createElement("button");
+    guardar.type = "submit";
+    guardar.className = "primary-button informe-save-button";
+    guardar.textContent = "Guardar cambios";
+    const cancelar = botonAccionAnexo("Cancelar", "cancel-edit");
+    acciones.append(guardar, cancelar);
+
+    form.append(
+      campoAnexo("Título", titulo),
+      campoAnexo("Descripción", descripcion),
+      fila,
+      acciones,
+      status,
+    );
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const body = new FormData();
+      body.append("titulo", titulo.value.trim());
+      body.append("descripcion", descripcion.value);
+      body.append("codigo", codigo.value.trim());
+      if (orden.value) body.append("orden", orden.value);
+      guardar.disabled = true;
+      setInformeStatus(status, "Guardando cambios…", "info");
+      try {
+        const response = await fetch(`/api/informes/anexos/${item.id}`, {
+          method: "PATCH",
+          body,
+        });
+        if (!response.ok) {
+          throw new Error(
+            await mensajeErrorAnexo(
+              response,
+              "No se pudieron guardar los cambios del anexo.",
+            ),
+          );
+        }
+        showToast("Anexo actualizado correctamente.", "success");
+        await cargarAnexos();
+      } catch (error) {
+        setInformeStatus(
+          status,
+          error.message || "No se pudieron guardar los cambios.",
+          "error",
+        );
+      } finally {
+        guardar.disabled = false;
+      }
+    });
+
+    cancelar.addEventListener("click", () => {
+      card.replaceWith(crearTarjetaAnexo(item));
+    });
+
+    card.classList.add("is-editing");
+    card.replaceChildren(form);
+  }
+
+  async function eliminarAnexo(item) {
+    const confirmado = window.confirm(
+      `¿Eliminar el anexo "${item.titulo}"? También se borrará el archivo.`,
+    );
+    if (!confirmado) return;
+    try {
+      const response = await fetch(`/api/informes/anexos/${item.id}`, {
+        method: "DELETE",
+      });
+      if (!response.ok && response.status !== 404) {
+        throw new Error(
+          await mensajeErrorAnexo(response, "No se pudo eliminar el anexo."),
+        );
+      }
+      showToast("Anexo eliminado.", "success");
+      await cargarAnexos();
+    } catch (error) {
+      setInformeStatus(
+        informeAnexoStatus,
+        error.message || "No se pudo eliminar el anexo.",
+        "error",
+      );
+      showToast(error.message || "No se pudo eliminar el anexo.", "error");
+    }
+  }
+
+  async function subirAnexo(event) {
+    event.preventDefault();
+    const periodo = periodoInforme();
+    const archivo = informeAnexoFile?.files?.[0];
+    const titulo = (informeAnexoTitulo?.value || "").trim();
+    if (!titulo) {
+      setInformeStatus(
+        informeAnexoStatus,
+        "El título del anexo es obligatorio.",
+        "error",
+      );
+      return;
+    }
+    if (!archivo) {
+      setInformeStatus(
+        informeAnexoStatus,
+        "Selecciona un archivo para el anexo.",
+        "error",
+      );
+      return;
+    }
+    if (archivo.size > ANEXO_MAX_BYTES) {
+      setInformeStatus(
+        informeAnexoStatus,
+        "El archivo supera el máximo de 10 MB.",
+        "error",
+      );
+      return;
+    }
+    if (archivo.type && !ANEXO_TIPOS.has(archivo.type)) {
+      setInformeStatus(
+        informeAnexoStatus,
+        "Tipo de archivo no permitido. Usa PNG, JPEG, WEBP, PDF o DOCX.",
+        "error",
+      );
+      return;
+    }
+    const body = new FormData();
+    body.append("anio", String(periodo.anio));
+    body.append("trimestre", periodo.trimestre);
+    body.append("titulo", titulo);
+    body.append("descripcion", informeAnexoDescripcion?.value || "");
+    if (informeAnexoCodigo?.value.trim()) {
+      body.append("codigo", informeAnexoCodigo.value.trim());
+    }
+    if (informeAnexoOrden?.value) {
+      body.append("orden", informeAnexoOrden.value);
+    }
+    body.append("file", archivo, archivo.name);
+
+    if (informeAnexoSubmit) informeAnexoSubmit.disabled = true;
+    setInformeStatus(informeAnexoStatus, "Subiendo anexo…", "info");
+    try {
+      const response = await fetch("/api/informes/anexos", {
+        method: "POST",
+        body,
+      });
+      if (!response.ok) {
+        throw new Error(
+          await mensajeErrorAnexo(response, "No se pudo subir el anexo."),
+        );
+      }
+      informeAnexoForm?.reset();
+      setInformeStatus(
+        informeAnexoStatus,
+        `Anexo cargado en ${etiquetaPeriodo(periodo)}.`,
+        "success",
+      );
+      showToast("Anexo cargado correctamente.", "success");
+      await cargarAnexos();
+    } catch (error) {
+      setInformeStatus(
+        informeAnexoStatus,
+        error.message || "No se pudo subir el anexo.",
+        "error",
+      );
+      showToast(error.message || "No se pudo subir el anexo.", "error");
+    } finally {
+      if (informeAnexoSubmit) informeAnexoSubmit.disabled = false;
+    }
+  }
+
+  function renderAnexos(items) {
+    informeAnexosCache = Array.isArray(items) ? items : [];
+    actualizarBadgeAnexos(informeAnexosCache.length);
+    if (!informeAnexosList || !informeAnexosEmpty) return;
+    if (!informeAnexosCache.length) {
+      informeAnexosList.hidden = true;
+      informeAnexosList.replaceChildren();
+      informeAnexosEmpty.hidden = false;
+      return;
+    }
+    informeAnexosEmpty.hidden = true;
+    informeAnexosList.hidden = false;
+    informeAnexosList.replaceChildren(
+      ...informeAnexosCache.map(crearTarjetaAnexo),
+    );
+  }
+
+  async function cargarAnexos() {
+    if (!informeView) return;
+    const periodo = periodoInforme();
+    const token = ++informeAnexosToken;
+    if (informeAnexosPeriodo) {
+      informeAnexosPeriodo.textContent = etiquetaPeriodo(periodo);
+    }
+    try {
+      const params = new URLSearchParams({
+        anio: String(periodo.anio),
+        trimestre: periodo.trimestre,
+      });
+      const response = await fetch(
+        `/api/informes/anexos?${params.toString()}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) {
+        throw new Error(
+          await mensajeErrorAnexo(
+            response,
+            "No se pudieron cargar los anexos del periodo.",
+          ),
+        );
+      }
+      const data = await response.json();
+      if (token !== informeAnexosToken) return;
+      renderAnexos(data?.items || []);
+    } catch (error) {
+      if (token !== informeAnexosToken) return;
+      renderAnexos([]);
+      setInformeStatus(informeAnexoStatus, error.message, "error");
+    }
+  }
+
+  informeAnexoForm?.addEventListener("submit", subirAnexo);
+
   function activarTabInforme(nombre) {
     informeTabButtons.forEach((button) => {
       const activo = button.dataset.informeTab === nombre;
@@ -874,6 +1269,11 @@
     // Estrategias en esta sesión (nunca se pisa un borrador sin guardar).
     if (nombre === "exportar" && !informeDirty) {
       cargarEstrategias();
+    }
+    // El catálogo de anexos también se refresca al abrir su pestaña, para
+    // reflejar cambios hechos en otra sesión.
+    if (nombre === "anexos") {
+      cargarAnexos();
     }
   }
 
@@ -1013,6 +1413,7 @@
     }
     informePeriodoActual = nuevo;
     await cargarEstrategias();
+    await cargarAnexos();
   }
 
   informeAnio?.addEventListener("change", cambiarPeriodoInforme);
@@ -1108,10 +1509,12 @@
     if (event.detail?.view !== "informe-gestion") return;
     activarTabInforme("estrategias");
     if (!informeCargado || informeDirty === false) cargarEstrategias();
+    cargarAnexos();
   });
 
   if (informeView && !informeView.hidden) {
     cargarEstrategias();
+    cargarAnexos();
   }
 
   function observeFeedback() {

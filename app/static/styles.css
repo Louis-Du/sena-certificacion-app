@@ -5777,6 +5777,217 @@ body.has-conflict-banner .sidebar {
   font-size: 0.86rem;
 }
 
+/* Catálogo y carga de anexos (bloque 5) */
+.informe-anexos-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.82fr) minmax(0, 1.18fr);
+  gap: 24px;
+  align-items: start;
+  margin-top: 20px;
+}
+
+.informe-anexo-form {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.informe-anexo-form h3,
+.informe-anexos-catalogo-head h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+}
+
+.informe-anexo-periodo {
+  margin: -6px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.informe-anexo-form label,
+.informe-anexo-edit label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.informe-anexo-form input[type="text"],
+.informe-anexo-form input[type="number"],
+.informe-anexo-form textarea,
+.informe-anexo-edit input[type="text"],
+.informe-anexo-edit input[type="number"],
+.informe-anexo-edit textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9rem;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.informe-anexo-form textarea,
+.informe-anexo-edit textarea {
+  min-height: 84px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.informe-anexo-form input[type="file"] {
+  width: 100%;
+  padding: 8px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.82rem;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.informe-anexo-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.informe-anexos-catalogo {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.informe-anexos-catalogo-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.informe-anexos-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.informe-anexo-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.informe-anexo-card.is-editing {
+  border-color: #99f6e4;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+}
+
+.informe-anexo-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.informe-anexo-code {
+  flex-shrink: 0;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--green-dark);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.informe-anexo-type {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.informe-anexo-card h4 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.informe-anexo-desc {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.informe-anexo-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  word-break: break-word;
+}
+
+.informe-anexo-actions,
+.informe-anexo-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.informe-anexo-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition),
+    background var(--transition);
+}
+
+.informe-anexo-action:hover,
+.informe-anexo-action:focus-visible {
+  border-color: var(--accent);
+  color: var(--green-dark);
+  background: var(--accent-soft);
+  outline: none;
+}
+
+.informe-anexo-edit {
+  display: grid;
+  gap: 12px;
+}
+
 .informe-export-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
@@ -5902,6 +6113,14 @@ body.has-conflict-banner .sidebar {
   }
 
   .informe-export-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .informe-anexos-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .informe-anexo-row {
     grid-template-columns: 1fr;
   }
 

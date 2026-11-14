@@ -807,16 +807,52 @@
           <section class="pill-panel panel informe-panel" id="informe-panel-anexos" data-informe-panel="anexos" role="tabpanel" aria-labelledby="informe-tab-anexos" hidden>
             <div class="informe-section-head">
               <div class="informe-section-copy">
-                <p class="eyebrow">Bloque de soportes</p>
+                <p class="eyebrow">Bloque 5 · Soportes</p>
                 <h2>Anexos del informe</h2>
-                <p>Espacio reservado para los soportes documentales del trimestre.</p>
+                <p>Adjunta capturas o documentos del periodo. Se guardan por año y trimestre y se incluyen en la sección 5 del DOCX. El informe se puede generar sin anexos.</p>
               </div>
-              <span class="result-badge pending">PRÓXIMAMENTE</span>
+              <div class="informe-section-actions">
+                <span class="result-badge" id="informe-anexos-badge">0 ANEXOS</span>
+              </div>
             </div>
-            <div class="informe-empty-state">
-              <span aria-hidden="true">📎</span>
-              <h3>Carga de anexos próximamente</h3>
-              <p>La gestión de archivos no está disponible en esta entrega. El informe se puede generar sin anexos.</p>
+
+            <div class="informe-anexos-grid">
+              <form id="informe-anexo-form" class="informe-anexo-form">
+                <h3>Cargar anexo</h3>
+                <p class="informe-anexo-periodo">Periodo actual: <strong id="informe-anexos-periodo">Trimestre III 2026</strong></p>
+                <label for="informe-anexo-titulo">Título <span aria-hidden="true">*</span>
+                  <input id="informe-anexo-titulo" name="titulo" type="text" maxlength="255" required placeholder="Ej. Actas con aprendices por certificar">
+                </label>
+                <label for="informe-anexo-descripcion">Descripción
+                  <textarea id="informe-anexo-descripcion" name="descripcion" rows="3" maxlength="4000" placeholder="Nota o contexto que acompañará el anexo en el informe."></textarea>
+                </label>
+                <div class="informe-anexo-row">
+                  <label for="informe-anexo-codigo">Código (opcional)
+                    <input id="informe-anexo-codigo" name="codigo" type="text" maxlength="40" placeholder="ANEXO 1">
+                  </label>
+                  <label for="informe-anexo-orden">Orden (opcional)
+                    <input id="informe-anexo-orden" name="orden" type="number" min="1" step="1" placeholder="Automático">
+                  </label>
+                </div>
+                <label for="informe-anexo-file">Archivo (PNG, JPEG, WEBP, PDF o DOCX · máx. 10 MB)
+                  <input id="informe-anexo-file" name="file" type="file" accept="image/png,image/jpeg,image/webp,application/pdf,.docx" required>
+                </label>
+                <button id="informe-anexo-submit" class="primary-button informe-save-button" type="submit">Subir anexo</button>
+                <p id="informe-anexo-status" class="detail-feedback" role="status"></p>
+              </form>
+
+              <div class="informe-anexos-catalogo">
+                <div class="informe-anexos-catalogo-head">
+                  <h3>Anexos del periodo</h3>
+                  <p>Se listan en el orden indicado. Si no escribes un código, el informe los numera automáticamente.</p>
+                </div>
+                <div class="informe-empty-state" id="informe-anexos-empty">
+                  <span aria-hidden="true">📎</span>
+                  <h3>No hay anexos para este trimestre</h3>
+                  <p>Carga capturas o documentos para incluirlos en la sección 5 del informe. También puedes generar el DOCX sin anexos.</p>
+                </div>
+                <ul id="informe-anexos-list" class="informe-anexos-list" hidden></ul>
+              </div>
             </div>
           </section>
 
@@ -833,6 +869,7 @@
                 <h3>Estrategias cargadas</h3>
                 <p id="informe-export-periodo">Trimestre III 2026</p>
                 <ul id="informe-export-summary"></ul>
+                <p class="informe-export-hint" id="informe-export-anexos">Anexos del periodo: se incluyen en la sección 5 del DOCX.</p>
                 <p class="informe-export-hint" id="informe-export-hint">Las secciones vacías se generarán con el placeholder institucional.</p>
               </div>
               <div class="informe-export-controls">
@@ -1067,7 +1104,7 @@
 
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
   <script src="/static/vendor/chart.umd.min.js"></script>
-  <script src="/static/app.js?v=20261112-v24"></script>
-  <script src="/static/ui-enhancements.js?v=20261112-v13"></script>
+  <script src="/static/app.js?v=20261114-v25"></script>
+  <script src="/static/ui-enhancements.js?v=20261114-v14"></script>
 </body>
 </html>
