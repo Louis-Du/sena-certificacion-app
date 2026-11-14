@@ -126,6 +126,8 @@ def upsert_requirement_status(
     note: str | None = None,
     force_history: bool = False,
     dedupe_history: bool = False,
+    decision_source: str | None = None,
+    conflict_fingerprint: str | None = None,
 ) -> Requirement:
     """Crea o actualiza un requisito y registra historial cuando hay un hecho.
 
@@ -164,6 +166,8 @@ def upsert_requirement_status(
             recorded_at=recorded_at,
             note=note,
             dedupe=dedupe_history,
+            decision_source=decision_source,
+            conflict_fingerprint=conflict_fingerprint,
         )
         session.flush()
         return requirement
@@ -179,6 +183,8 @@ def upsert_requirement_status(
             recorded_at=recorded_at,
             note=note,
             dedupe=dedupe_history,
+            decision_source=decision_source,
+            conflict_fingerprint=conflict_fingerprint,
         )
     elif force_history:
         _record_requirement_status_change(
@@ -190,6 +196,8 @@ def upsert_requirement_status(
             recorded_at=recorded_at,
             note=note,
             dedupe=dedupe_history,
+            decision_source=decision_source,
+            conflict_fingerprint=conflict_fingerprint,
         )
     if observations is not None:
         requirement.observations = observations
@@ -206,24 +214,31 @@ def _record_requirement_status_change(
     recorded_at: datetime | None = None,
     note: str | None = None,
     dedupe: bool = False,
+    decision_source: str | None = None,
+    conflict_fingerprint: str | None = None,
 ) -> None:
     if recorded_at is None:
         recorded_at = datetime.now(timezone.utc)
     if dedupe:
         # Mismo aprendiz, requisito, estado, origen y dia: es el mismo hecho.
         # La comparacion por dia permite que la reimportacion de un consolidado
-        # no agregue una fila identica cada vez que se carga el archivo.
+        # no agregue una fila identica cada vez que se carga el archivo. Cuando
+        # hay huella de conflicto, tambien debe coincidir: si el hecho cambio,
+        # la decision anterior ya no aplica y se registra una nueva.
         event_day = recorded_at.date().isoformat()
-        duplicate = session.scalar(
-            select(RequirementStatusHistory.id)
-            .where(
-                RequirementStatusHistory.learner_id == learner_id,
-                RequirementStatusHistory.requirement_type == requirement_type,
-                RequirementStatusHistory.status == status,
-                RequirementStatusHistory.source == source,
-                func.date(RequirementStatusHistory.recorded_at) == event_day,
+        conditions = [
+            RequirementStatusHistory.learner_id == learner_id,
+            RequirementStatusHistory.requirement_type == requirement_type,
+            RequirementStatusHistory.status == status,
+            RequirementStatusHistory.source == source,
+            func.date(RequirementStatusHistory.recorded_at) == event_day,
+        ]
+        if conflict_fingerprint:
+            conditions.append(
+                RequirementStatusHistory.conflict_fingerprint == conflict_fingerprint
             )
-            .limit(1)
+        duplicate = session.scalar(
+            select(RequirementStatusHistory.id).where(*conditions).limit(1)
         )
         if duplicate is not None:
             return
@@ -235,6 +250,8 @@ def _record_requirement_status_change(
             recorded_at=recorded_at,
             source=source,
             note=note,
+            decision_source=decision_source,
+            conflict_fingerprint=conflict_fingerprint,
         )
     )
 
@@ -276,6 +293,8 @@ def list_requirement_history(
             ),
             "source": event.source,
             "note": event.note,
+            "decision_source": event.decision_source,
+            "conflict_fingerprint": event.conflict_fingerprint,
         }
         for event in events
     ]
@@ -294,13 +313,18 @@ def validate_status(status: str) -> None:
 def evidence_status(value: Any) -> str:
     """Traduce el valor de una columna de evidencias de ACTAS 2026 a un estado.
 
-    ``X``/``x`` -> "Cumplido", ``N.A``/``N.A.``/``NA`` -> "No aplica" y
-    celdas vacías -> "Sin información". Nunca se inventa un estado.
+    ``X``/``x`` -> "Cumplido", ``N.A``/``N.A.``/``NA`` -> "No aplica",
+    ``Pendiente`` (texto explícito) -> "Pendiente" y una celda vacía ->
+    "Sin información". Una celda vacía no es una decisión: nunca se inventa
+    ``Pendiente`` por omisión. El motivo de no certificación es la única fuente
+    que puede justificar ese estado cuando la columna no lo dice.
     """
     from app.services.parsers import normalize_text
 
     texto = normalize_text(value)
-    if texto in {"x", "si", "cumplido"}:
+    if not texto or texto in {"nan", "nat", "none", "null"}:
+        return "Sin información"
+    if texto in {"x", "si", "cumplido", "cumplida", "aprobado"}:
         return "Cumplido"
     if texto.replace(" ", "").replace(".", "") in {"na", "noaplica"}:
         return "No aplica"

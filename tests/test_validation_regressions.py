@@ -62,6 +62,28 @@ def _labels(body: dict) -> str:
     return " ".join(check["label"] for check in body["checks"])
 
 
+def _manual_requirement_resolutions(
+    conflicts: list[dict], status: str | None = None
+) -> list[dict]:
+    """Decisiones para los conflictos que requieren intervención humana.
+
+    Los conflictos ``auto_resolved`` no se envían: el backend aplica la regla y
+    deja la auditoría con origen ``rule``. Un estado explícito siempre debe ser
+    uno de los tres válidos; ``Sin información`` no es una decisión.
+    """
+    return [
+        {
+            "identification": item["identification"],
+            "requirement_type": item["requirement_type"],
+            "status": status or item.get("suggested_status") or "Pendiente",
+            "source": "bulk",
+            "conflict_fingerprint": item["fingerprint"],
+        }
+        for item in conflicts
+        if not item.get("auto_resolved")
+    ]
+
+
 @pytest.mark.parametrize(
     "name",
     [
@@ -271,10 +293,14 @@ def test_incorrect_actas_counters_match_preview_and_saved_records(client: TestCl
         {"identification": item["identification"], "status": "CERTIFICADOS"}
         for item in conflicts
     ]
+    requirement_resolutions = _manual_requirement_resolutions(
+        body["requirement_conflicts"]
+    )
     confirmed = client.post(
         f"/api/imports/{validation_id}/confirm",
         json={
             "conflict_resolutions": resolutions,
+            "requirement_conflict_resolutions": requirement_resolutions,
             "accept_missing_complementaria": True,
         },
     )
@@ -402,12 +428,77 @@ def test_new_conflicted_learner_is_not_assigned_an_invented_status(
         assert "ACTAS 2026 · PENDIENTES" in learner.data_sources
 
 
+def test_requirement_evidence_mismatch_requires_resolution_and_applies_selected_status(
+    client: TestClient, tmp_path
+):
+    conflict_path = tmp_path / "actas_conflicto_requisito.xlsx"
+    conflict_path.write_bytes(
+        _multi_sheet_xlsx(
+            certificados=[
+                {
+                    "DOCUMENTO": "9001",
+                    "NOMBRES": "Aprendiz Con Incongruencia",
+                    "FICHA": "3001",
+                    "NIVEL": "Tecnólogo",
+                    "ESTADO": "Pendiente Documento",
+                    "MOTIVO DE NO CERTIFICACION": "No anexa T&T",
+                    "Evidencia de la presentación de las pruebas Saber T y T. ( SOLO TGO)": "X",
+                    "Copia del Documento de Identidad vigente": "",
+                }
+            ],
+            pendientes=[],
+        )
+    )
+
+    body = _validate(client, conflict_path, "actas_completo")
+    requirement_conflicts = body["requirement_conflicts"]
+    # Solo hay una contradicción real: la columna X de Saber TyT contra el motivo
+    # que dice que no anexa T&T. El documento de identidad vacío no crea un
+    # conflicto fantasma porque el motivo no lo nombra.
+    assert {
+        (item["requirement_type"], item["pattern"])
+        for item in requirement_conflicts
+    } == {("saber_tyt", "evidence_fulfilled_motivo_missing")}
+    assert all(
+        item["requirement_type"] != "documento_identidad"
+        for item in requirement_conflicts
+    )
+
+    blocked = client.post(
+        f"/api/imports/{body['validation_id']}/confirm",
+        json={"accept_missing_complementaria": True},
+    )
+    assert blocked.status_code == 400
+    assert "requisito" in blocked.json()["detail"].lower()
+
+    confirmed = client.post(
+        f"/api/imports/{body['validation_id']}/confirm",
+        json={
+            "accept_missing_complementaria": True,
+            "requirement_conflict_resolutions": _manual_requirement_resolutions(
+                requirement_conflicts, status="Pendiente"
+            ),
+        },
+    )
+    assert confirmed.status_code == 200
+    with client.session_factory() as session:
+        learner = session.query(Learner).filter_by(identification="9001").one()
+        requirements = {
+            item.requirement_type: item.status
+            for item in learner.requirements
+        }
+        assert requirements["saber_tyt"] == "Pendiente"
+        # La celda vacía se conserva como Sin información; el motivo no nombra
+        # el documento de identidad, así que no se inventa un estado.
+        assert requirements["documento_identidad"] == "Sin información"
+
+
 def test_correct_actas_expands_complementaria_and_reports_the_breakdown(client: TestClient):
     path = CORRECTOS / "ACTAS_2026_correcto.xlsx"
 
     body = _validate(client, path, "actas_completo")
 
-    assert body["status"] == "ready"
+    assert body["status"] == "warning"
     assert body["records_found"] == 21
     assert body["valid_records"] == 21
     assert body["breakdown"] == {
@@ -427,7 +518,15 @@ def test_correct_actas_expands_complementaria_and_reports_the_breakdown(client: 
     assert preview["records_count"] == 21
     assert preview["new_records"] == 21
 
-    confirmed = client.post(f"/api/imports/{validation_id}/confirm", json={"accept_missing_complementaria": True}).json()
+    confirmed = client.post(
+        f"/api/imports/{validation_id}/confirm",
+        json={
+            "accept_missing_complementaria": True,
+            "requirement_conflict_resolutions": _manual_requirement_resolutions(
+                body["requirement_conflicts"]
+            ),
+        },
+    ).json()
     assert confirmed["records_count"] == 21
     assert confirmed["new_records"] == 21
     with client.session_factory() as session:

@@ -182,11 +182,15 @@ def test_preview_then_confirm_imports_with_conflict_resolution(client):
         {"identification": item["identification"], "status": "CERTIFICADOS"}
         for item in data["preview"]["coherence_conflicts"]
     ]
+    requirement_resolutions = _requirement_resolutions(
+        data["preview"]["requirement_conflicts"]
+    )
     confirm = client.post(
         "/api/sheets/sync/confirm",
         json={
             "validation_id": data["validation_id"],
             "conflict_resolutions": resolutions,
+            "requirement_conflict_resolutions": requirement_resolutions,
             "accept_missing_complementaria": True,
         },
     )
@@ -264,6 +268,23 @@ def _resolutions(conflicts: list[dict]) -> list[dict]:
     return [
         {"identification": item["identification"], "status": "CERTIFICADOS"}
         for item in conflicts
+    ]
+
+
+def _requirement_resolutions(
+    requirements: list[dict], status: str | None = None
+) -> list[dict]:
+    """Decisiones para los requisitos que no se resuelven por regla automática."""
+    return [
+        {
+            "identification": item["identification"],
+            "requirement_type": item["requirement_type"],
+            "status": status or item.get("suggested_status") or "Pendiente",
+            "source": "bulk",
+            "conflict_fingerprint": item["fingerprint"],
+        }
+        for item in requirements
+        if not item.get("auto_resolved")
     ]
 
 
@@ -398,6 +419,9 @@ def test_resolve_pending_imports_lot_and_clears_state(client):
         "/api/sheets/sync/resolve",
         json={
             "conflict_resolutions": _resolutions(pending["conflicts"]),
+            "requirement_conflict_resolutions": _requirement_resolutions(
+                pending["requirement_conflicts"]
+            ),
             "accept_missing_complementaria": True,
         },
     )
@@ -437,6 +461,9 @@ def test_resolve_records_manual_sheets_cleanup_acknowledgement(client):
         "/api/sheets/sync/resolve",
         json={
             "conflict_resolutions": _resolutions(pending["conflicts"]),
+            "requirement_conflict_resolutions": _requirement_resolutions(
+                pending["requirement_conflicts"]
+            ),
             "accept_missing_complementaria": True,
             "sheets_manual_cleanup_acknowledged": True,
         },
@@ -477,6 +504,9 @@ def test_resolution_recovers_staged_lot_after_restart(client):
         "/api/sheets/sync/resolve",
         json={
             "conflict_resolutions": _resolutions(pending["conflicts"]),
+            "requirement_conflict_resolutions": _requirement_resolutions(
+                pending["requirement_conflicts"]
+            ),
             "accept_missing_complementaria": True,
         },
     )
@@ -580,6 +610,9 @@ def _resolve_all_pending(client, status: str = "CERTIFICADOS") -> dict:
                 {"identification": item["identification"], "status": status}
                 for item in pending["conflicts"]
             ],
+            "requirement_conflict_resolutions": _requirement_resolutions(
+                pending["requirement_conflicts"]
+            ),
             "accept_missing_complementaria": True,
         },
     )
@@ -698,6 +731,8 @@ def test_new_conflict_after_resolved_one_only_requests_the_new_document(client):
 
 def test_pending_lot_imports_when_resolution_is_already_saved(client):
     """Aunque el hash no cambie, un cruce ya decidido no debe quedar bloqueado."""
+    from app.models import RequirementStatusHistory
+
     content = _run_conflict_sync(client)
     pending = client.get("/api/sheets/sync/pending-conflicts").json()
     document = pending["conflicts"][0]["identification"]
@@ -707,8 +742,32 @@ def test_pending_lot_imports_when_resolution_is_already_saved(client):
         if learner is None:
             learner = Learner(identification=document, name="Aprendiz en conflicto")
             session.add(learner)
+            session.flush()
         learner.conflict_resolution = "CERTIFICADOS"
         learner.last_conflict_resolution = "CERTIFICADOS"
+        # Las decisiones de requisitos guardadas también se reaplican sin
+        # intervención: el lote no debe quedar bloqueado por ellas.
+        for item in pending["requirement_conflicts"]:
+            requirement_learner = session.query(Learner).filter_by(
+                identification=item["identification"]
+            ).one_or_none()
+            if requirement_learner is None:
+                requirement_learner = Learner(
+                    identification=item["identification"],
+                    name=item.get("name") or "Aprendiz en conflicto",
+                )
+                session.add(requirement_learner)
+                session.flush()
+            session.add(
+                RequirementStatusHistory(
+                    learner_id=requirement_learner.id,
+                    requirement_type=item["requirement_type"],
+                    status=item.get("suggested_status") or "Pendiente",
+                    source="conflict:requirement",
+                    decision_source="user",
+                    conflict_fingerprint=item["fingerprint"],
+                )
+            )
         session.commit()
 
     with _fake_download(content):
@@ -737,3 +796,123 @@ def test_resolved_lot_is_unchanged_on_next_scan(client):
         response = client.post("/api/sheets/sync/run")
     assert response.json()["last_status"] == "unchanged"
     assert response.json()["conflict_pending"] is False
+
+
+# ---------------------------------------------------------------------------
+# Escaneo automatico: el lote importado por el worker debe quedar visible de
+# inmediato en listado, detalle e indicadores (sin recargar la aplicacion).
+# ---------------------------------------------------------------------------
+AUTO_SCAN_XLSX = (
+    Path(__file__).parents[1]
+    / "archivos_prueba"
+    / "correctos"
+    / "ACTAS_2026_30_REGISTROS_completo.xlsx"
+)
+AUTO_SCAN_DOCUMENT = "1043966273"
+AUTO_SCAN_URL = "https://docs.google.com/spreadsheets/d/AUTOSCAN1/edit"
+
+
+def _set_acta_for_document(content: bytes, document: str, acta: str) -> bytes:
+    """Simula que el usuario asigna un acta en la hoja CERTIFICADOS."""
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(BytesIO(content))
+    worksheet = workbook["CERTIFICADOS"]
+    headers = [str(cell.value or "").strip().upper() for cell in worksheet[1]]
+    document_column = headers.index("NÚMERO DE DOCUMENTO") + 1
+    acta_column = headers.index("ACTA") + 1
+
+    for row in range(2, worksheet.max_row + 1):
+        value = str(worksheet.cell(row=row, column=document_column).value or "").strip()
+        if value == document:
+            worksheet.cell(row=row, column=acta_column, value=acta)
+            break
+    else:  # pragma: no cover - fixture regression
+        raise AssertionError(f"No se encontro el documento {document} en CERTIFICADOS")
+
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+def _auto_scan_cycle(client, content: bytes) -> dict:
+    with _fake_download(content):
+        response = client.post("/api/sheets/sync/run")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _learner_from_api(client, document: str) -> dict:
+    listing = client.get("/api/learners", params={"search": document}).json()
+    matches = [item for item in listing["items"] if item["identification"] == document]
+    assert matches, f"El aprendiz {document} no aparece en el listado"
+    return matches[0]
+
+
+def _acta_from_indicadores(client, number: str) -> dict | None:
+    data = client.get("/api/indicadores").json()
+    return next(
+        (item for item in data["ultimas_actas"] if item["number"] == number),
+        None,
+    )
+
+
+def test_auto_scan_updates_learner_list_detail_and_indicators(client):
+    """Un cambio de ACTA en Google Sheets se refleja tras el ciclo automatico.
+
+    Reproduce el flujo del worker: descarga el XLSX, detecta el hash nuevo e
+    importa sin intervencion. Los tres consumidores de la UI deben leer el
+    estado nuevo en la misma base de datos.
+    """
+    content = AUTO_SCAN_XLSX.read_bytes()
+    client.post("/api/sheets/sync", json={"url": AUTO_SCAN_URL})
+
+    first = _auto_scan_cycle(client, content)
+    assert first["last_status"] == "imported"
+
+    # Estado inicial visible por la API: acta 362025.
+    learner = _learner_from_api(client, AUTO_SCAN_DOCUMENT)
+    assert learner["act_number"] == "362025"
+    detail = client.get(f"/api/learners/{learner['id']}").json()
+    assert detail["basic_info"]["act_number"] == "362025"
+    assert _acta_from_indicadores(client, "362025") is not None
+
+    first_import_at = first["last_import_at"]
+    assert first_import_at is not None
+
+    # La hoja asigna una acta distinta al aprendiz.
+    updated = _set_acta_for_document(content, AUTO_SCAN_DOCUMENT, "992026")
+    second = _auto_scan_cycle(client, updated)
+    assert second["last_status"] == "imported"
+    assert second["last_hash"] == hashlib.sha256(updated).hexdigest()
+    assert second["last_import_at"] != first_import_at
+
+    # El listado de aprendices ya trae la acta nueva.
+    refreshed = _learner_from_api(client, AUTO_SCAN_DOCUMENT)
+    assert refreshed["act_number"] == "992026"
+
+    # El detalle del aprendiz tambien.
+    refreshed_detail = client.get(f"/api/learners/{refreshed['id']}").json()
+    assert refreshed_detail["basic_info"]["act_number"] == "992026"
+
+    # Los indicadores recontaron las actas del lote vigente.
+    acta = _acta_from_indicadores(client, "992026")
+    assert acta is not None
+    assert acta["aprendices_count"] == 1
+
+
+def test_auto_scan_unchanged_cycle_does_not_advance_last_import(client):
+    """El ciclo de 60 s sin cambios no debe alterar la marca de importacion.
+
+    El polling de la UI usa ``last_import_at`` para decidir si refresca; una
+    marca que cambiara en cada ciclo provocaria recargas innecesarias.
+    """
+    content = AUTO_SCAN_XLSX.read_bytes()
+    client.post("/api/sheets/sync", json={"url": AUTO_SCAN_URL})
+
+    first = _auto_scan_cycle(client, content)
+    assert first["last_status"] == "imported"
+
+    second = _auto_scan_cycle(client, content)
+    assert second["last_status"] == "unchanged"
+    assert second["last_import_at"] == first["last_import_at"]

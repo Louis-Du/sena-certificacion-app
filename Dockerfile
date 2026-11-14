@@ -23,6 +23,9 @@ FROM base AS test
 COPY pytest.ini ./
 COPY tests ./tests
 COPY archivos_prueba ./archivos_prueba
+# Pruebas del lanzador de escritorio: leen estos archivos desde la raiz.
+COPY demo.py ./
+COPY SenaCertificacionDemo.spec ./
 
 CMD ["pytest"]
 
