@@ -17,6 +17,20 @@ referencia:
 
 Tipos permitidos en v1 (validados por firma binaria, no solo por la extensión):
 PNG, JPEG, WEBP, PDF y DOCX. Tamaño máximo: 10 MB.
+
+Regla de numeración (única para catálogo y DOCX):
+
+* El listado se ordena por ``orden`` ascendente y, a igual orden, por ``id``
+  (el alta asigna automáticamente ``max(orden) + 1``, así que el orden por
+  defecto es el de creación).
+* El rótulo siempre es ``ANEXO {n}. {titulo}``. ``n`` es la posición 1..N o el
+  número de un código manual único y válido (``ANEXO 3``, ``3``, ``N° 3`` …).
+* Los códigos manuales numéricos reservan su número. Los anexos sin código
+  reciben el menor número libre, de modo que no haya dos ``ANEXO 3`` ni huecos
+  cuando todos los códigos están vacíos.
+* El título se guarda sin el prefijo ``ANEXO N``: el sistema lo agrega al
+  exportar, de modo que nunca se produce ``ANEXO 1. ANEXO 1. …``.
+* Un código repetido en el mismo ``(año, trimestre)`` se rechaza con 400.
 """
 
 from __future__ import annotations
@@ -44,6 +58,19 @@ MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 MAX_TITULO = 255
 MAX_CODIGO = 40
 MAX_DESCRIPCION = 4000
+
+# Código manual que representa un número de anexo: "ANEXO 3", "Anexo N° 3",
+# "N° 3", "3", "3." … Cualquier otro texto ("A-2") se conserva como rótulo.
+_CODIGO_NUMERICO_RE = re.compile(
+    r"^\s*(?:anexo\s*(?:n[°º.]?\s*)?|n[°º.]?\s*)?(\d{1,3})\s*[.):\-–—]?\s*$",
+    re.IGNORECASE,
+)
+# Prefijo "ANEXO 3. " / "Anexo N° 3: " que el usuario no debe repetir en el
+# título porque el rotulador del DOCX ya lo agrega.
+_PREFIJO_TITULO_RE = re.compile(
+    r"^\s*anexo\s*(?:n[°º.]?\s*)?\d{1,3}\s*[.):\-–—]*\s*",
+    re.IGNORECASE,
+)
 
 DOCX_MIME = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -123,15 +150,106 @@ def _limpiar_texto(value: Any) -> str:
 
 
 def _titulo(value: Any) -> str:
+    """Título sin el prefijo ``ANEXO N`` que agrega el DOCX."""
     titulo = _limpiar_texto(value)
+    for _ in range(3):
+        limpio = _PREFIJO_TITULO_RE.sub("", titulo).strip()
+        if limpio == titulo:
+            break
+        titulo = limpio
     if not titulo:
-        raise AnexoError("El título del anexo es obligatorio.")
+        raise AnexoError(
+            "El título debe describir el soporte; el sistema agrega «ANEXO N»."
+        )
     return titulo[:MAX_TITULO]
 
 
 def _codigo(value: Any) -> str | None:
+    """Normaliza el código manual a ``ANEXO N`` cuando representa un número."""
     codigo = _limpiar_texto(value)
-    return codigo[:MAX_CODIGO] or None
+    if not codigo:
+        return None
+    coincidencia = _CODIGO_NUMERICO_RE.match(codigo)
+    if coincidencia:
+        numero = int(coincidencia.group(1))
+        if numero < 1:
+            raise AnexoError("El código debe ser un número mayor o igual a 1.")
+        return f"ANEXO {numero}"
+    return codigo[:MAX_CODIGO]
+
+
+def _numero_de_codigo(codigo: str | None) -> int | None:
+    """Número reservado por un código manual numérico, si lo hay."""
+    if not codigo:
+        return None
+    coincidencia = _CODIGO_NUMERICO_RE.match(codigo)
+    return int(coincidencia.group(1)) if coincidencia else None
+
+
+def _rotulo(numero: int, codigo: str | None) -> str:
+    """Rótulo del DOCX: ``ANEXO {n}`` salvo códigos no numéricos propios."""
+    if codigo and _numero_de_codigo(codigo) is None:
+        return codigo
+    return f"ANEXO {numero}"
+
+
+def _asignar_numeros(registros: list[InformeGestionAnexo]) -> dict[int, int]:
+    """Reserva los números manuales y reparte los libres en orden de listado.
+
+    ``registros`` debe venir ordenado por ``(orden, id)``. Si todos los códigos
+    están vacíos la asignación es 1..N; si hay un código ``ANEXO 3``, ese
+    número queda reservado y los automáticos toman 1, 2, 4… evitando repetir.
+
+    Los datos creados antes de validar la unicidad pueden traer dos filas con
+    ``ANEXO 3``. La primera conserva el 3 y la segunda recibe el menor número
+    libre, de modo que el DOCX nunca repite un rótulo.
+    """
+    reservados: set[int] = set()
+    numeros: dict[int, int] = {}
+    pendientes: list[InformeGestionAnexo] = []
+    for registro in registros:
+        manual = _numero_de_codigo(registro.codigo)
+        if manual is not None and manual not in reservados:
+            numeros[registro.id] = manual
+            reservados.add(manual)
+        else:
+            pendientes.append(registro)
+    siguiente = 1
+    for registro in pendientes:
+        while siguiente in reservados:
+            siguiente += 1
+        numeros[registro.id] = siguiente
+        reservados.add(siguiente)
+        siguiente += 1
+    return numeros
+
+
+def _validar_codigo_unico(
+    session: Session,
+    *,
+    anio: int,
+    trimestre: str,
+    codigo: str | None,
+    excluir_id: int | None = None,
+) -> None:
+    """Rechaza un código manual repetido dentro del mismo periodo."""
+    if not codigo:
+        return
+    normalizado = codigo.strip().upper()
+    registros = session.scalars(
+        select(InformeGestionAnexo).where(
+            InformeGestionAnexo.anio == anio,
+            InformeGestionAnexo.trimestre == trimestre,
+        )
+    ).all()
+    for registro in registros:
+        if excluir_id is not None and registro.id == excluir_id:
+            continue
+        if (registro.codigo or "").strip().upper() == normalizado:
+            raise AnexoError(
+                f"El código «{codigo}» ya está usado en este periodo. "
+                "Usa otro código o déjalo vacío para numeración automática."
+            )
 
 
 def _descripcion(value: Any) -> str | None:
@@ -160,8 +278,10 @@ def ruta_absoluta(registro: InformeGestionAnexo) -> Path:
     return storage_dir() / registro.ruta_archivo
 
 
-def _serializar(registro: InformeGestionAnexo) -> dict[str, Any]:
-    return {
+def _serializar(
+    registro: InformeGestionAnexo, numero: int | None = None
+) -> dict[str, Any]:
+    data = {
         "id": registro.id,
         "anio": registro.anio,
         "trimestre": registro.trimestre,
@@ -180,6 +300,44 @@ def _serializar(registro: InformeGestionAnexo) -> dict[str, Any]:
         ),
         "download_url": f"/api/informes/anexos/{registro.id}/download",
     }
+    if numero is not None:
+        data["numero"] = numero
+        data["rotulo"] = _rotulo(numero, registro.codigo)
+    return data
+
+
+def _registros_periodo(
+    session: Session, anio: int, trimestre: str
+) -> list[InformeGestionAnexo]:
+    """Registros del periodo en el orden único de catálogo y DOCX."""
+    return session.scalars(
+        select(InformeGestionAnexo)
+        .where(
+            InformeGestionAnexo.anio == anio,
+            InformeGestionAnexo.trimestre == trimestre,
+        )
+        .order_by(InformeGestionAnexo.orden, InformeGestionAnexo.id)
+    ).all()
+
+
+def _items_numerados(
+    session: Session, anio: int, trimestre: str
+) -> list[tuple[InformeGestionAnexo, int]]:
+    registros = _registros_periodo(session, anio, trimestre)
+    numeros = _asignar_numeros(registros)
+    return [(registro, numeros[registro.id]) for registro in registros]
+
+
+def _serializar_uno(
+    session: Session, registro: InformeGestionAnexo
+) -> dict[str, Any]:
+    """Serializa un registro con el número que le corresponde en su periodo."""
+    for candidato, numero in _items_numerados(
+        session, registro.anio, registro.trimestre
+    ):
+        if candidato.id == registro.id:
+            return _serializar(registro, numero)
+    return _serializar(registro)
 
 
 def crear_anexo(
@@ -198,6 +356,13 @@ def crear_anexo(
     anio_normalizado = normalizar_anio(anio)
     trimestre_normalizado = normalizar_trimestre(trimestre)
     titulo_normalizado = _titulo(titulo)
+    codigo_normalizado = _codigo(codigo)
+    _validar_codigo_unico(
+        session,
+        anio=anio_normalizado,
+        trimestre=trimestre_normalizado,
+        codigo=codigo_normalizado,
+    )
     nombre_original, content_type, extension = _validar_archivo(
         nombre_archivo, contenido
     )
@@ -219,7 +384,7 @@ def crear_anexo(
     registro = InformeGestionAnexo(
         anio=anio_normalizado,
         trimestre=trimestre_normalizado,
-        codigo=_codigo(codigo),
+        codigo=codigo_normalizado,
         titulo=titulo_normalizado,
         descripcion=_descripcion(descripcion),
         nombre_archivo=nombre_original,
@@ -236,36 +401,28 @@ def crear_anexo(
         destino.unlink(missing_ok=True)
         raise
     session.refresh(registro)
-    return _serializar(registro)
+    return _serializar_uno(session, registro)
 
 
 def listar_anexos(
     session: Session, *, anio: Any = None, trimestre: Any = None
 ) -> dict[str, Any]:
-    """Catálogo del periodo, ordenado por ``orden`` y luego por antigüedad."""
+    """Catálogo del periodo en el orden único ``(orden, id)`` con su número."""
     anio_normalizado = normalizar_anio(anio)
     trimestre_normalizado = normalizar_trimestre(trimestre)
-    registros = session.scalars(
-        select(InformeGestionAnexo)
-        .where(
-            InformeGestionAnexo.anio == anio_normalizado,
-            InformeGestionAnexo.trimestre == trimestre_normalizado,
-        )
-        .order_by(InformeGestionAnexo.orden, InformeGestionAnexo.id)
-    ).all()
+    items = _items_numerados(session, anio_normalizado, trimestre_normalizado)
     return {
         "anio": anio_normalizado,
         "trimestre": trimestre_normalizado,
-        "total": len(registros),
+        "total": len(items),
         "items": [
-            {**_serializar(registro), "numero": posicion}
-            for posicion, registro in enumerate(registros, start=1)
+            _serializar(registro, numero) for registro, numero in items
         ],
     }
 
 
 def obtener_anexo(session: Session, anexo_id: int) -> dict[str, Any]:
-    return _serializar(_registro(session, anexo_id))
+    return _serializar_uno(session, _registro(session, anexo_id))
 
 
 def actualizar_anexo(
@@ -286,12 +443,23 @@ def actualizar_anexo(
     """
     registro = _registro(session, anexo_id)
 
+    codigo_normalizado = None
+    if codigo is not None:
+        codigo_normalizado = _codigo(codigo)
+        _validar_codigo_unico(
+            session,
+            anio=registro.anio,
+            trimestre=registro.trimestre,
+            codigo=codigo_normalizado,
+            excluir_id=registro.id,
+        )
+
     if titulo is not None:
         registro.titulo = _titulo(titulo)
     if descripcion is not None:
         registro.descripcion = _descripcion(descripcion)
     if codigo is not None:
-        registro.codigo = _codigo(codigo)
+        registro.codigo = codigo_normalizado
     if orden not in (None, ""):
         registro.orden = int(orden)
 
@@ -325,7 +493,7 @@ def actualizar_anexo(
     if destino_anterior is not None and destino_anterior != destino_nuevo:
         destino_anterior.unlink(missing_ok=True)
     session.refresh(registro)
-    return _serializar(registro)
+    return _serializar_uno(session, registro)
 
 
 def eliminar_anexo(session: Session, anexo_id: int) -> None:
@@ -340,19 +508,13 @@ def eliminar_anexo(session: Session, anexo_id: int) -> None:
 def anexos_para_docx(
     session: Session, *, anio: Any = None, trimestre: Any = None
 ) -> list[dict[str, Any]]:
-    """Lista mínima que consume ``report_word`` (incluye la ruta absoluta)."""
+    """Lista que consume ``report_word`` (número, rótulo y ruta absoluta)."""
     anio_normalizado = normalizar_anio(anio)
     trimestre_normalizado = normalizar_trimestre(trimestre)
-    registros = session.scalars(
-        select(InformeGestionAnexo)
-        .where(
-            InformeGestionAnexo.anio == anio_normalizado,
-            InformeGestionAnexo.trimestre == trimestre_normalizado,
-        )
-        .order_by(InformeGestionAnexo.orden, InformeGestionAnexo.id)
-    ).all()
     return [
         {
+            "numero": numero,
+            "rotulo": _rotulo(numero, registro.codigo),
             "codigo": registro.codigo,
             "titulo": registro.titulo,
             "descripcion": registro.descripcion,
@@ -360,7 +522,9 @@ def anexos_para_docx(
             "content_type": registro.content_type,
             "ruta": str(ruta_absoluta(registro)),
         }
-        for registro in registros
+        for registro, numero in _items_numerados(
+            session, anio_normalizado, trimestre_normalizado
+        )
     ]
 
 

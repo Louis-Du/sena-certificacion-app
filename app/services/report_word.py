@@ -860,11 +860,47 @@ def _insertar_parrafo_lista(anchor, texto: str, propiedades):
     return paragraph
 
 
+# Prefijo que el rotulador de §5 agrega por su cuenta: no debe repetirse en el
+# título (evita "ANEXO 1. ANEXO 1. Actas…").
+_PREFIJO_ANEXO_RE = re.compile(
+    r"^\s*anexo\s*(?:n[°º.]?\s*)?\d{1,3}\s*[.):\-–—]*\s*",
+    re.IGNORECASE,
+)
+_CODIGO_ANEXO_RE = re.compile(
+    r"^(?:anexo\s*(?:n[°º.]?\s*)?)?\d{1,3}\s*[.)]?$",
+    re.IGNORECASE,
+)
+
+
+def _titulo_anexo(value: Any) -> str:
+    """Título sin prefijo ``ANEXO N`` (defensa para filas antiguas)."""
+    titulo = re.sub(r"\s+", " ", str(value or "")).strip()
+    for _ in range(3):
+        limpio = _PREFIJO_ANEXO_RE.sub("", titulo).strip()
+        if limpio == titulo:
+            break
+        titulo = limpio
+    return titulo
+
+
+def _rotulo_anexo(anexo: dict[str, Any], numero: int) -> str:
+    """Rótulo único ``ANEXO {n}`` o el código manual no numérico."""
+    rotulo = str(anexo.get("rotulo") or "").strip()
+    if rotulo:
+        return rotulo.rstrip(".")
+    codigo = str(anexo.get("codigo") or "").strip()
+    if codigo and not _CODIGO_ANEXO_RE.match(codigo):
+        return codigo.rstrip(".")
+    return f"ANEXO {numero}"
+
+
 def _insertar_imagen(anchor, ruta: Any, ancho, alto=None) -> None:
     """Inserta la imagen del anexo; si el archivo no es válido, no rompe el DOCX.
 
     La limitación se documenta: un archivo corrupto o ilegible se omite y el
-    anexo queda solo como título/descripción en el listado.
+    anexo queda solo como título/descripción en el listado. Tampoco se fuerza
+    la conversión de formatos que python-docx no interpreta (p. ej. WEBP): en
+    ese caso se conserva la entrada de la lista sin imagen.
     """
     if not ruta:
         return
@@ -897,7 +933,9 @@ def _write_annex_section(
 ) -> None:
     """Sustituye el listado genérico de §5 por los anexos reales del periodo.
 
-    * Cada anexo se escribe como ``ANEXO {n}. {título}`` (o el código manual).
+    * Cada anexo se escribe como ``ANEXO {n}. {título}``. ``n`` lo calcula el
+      servicio (posición ordenada o código manual único) y el título llega sin
+      el prefijo ``ANEXO N``; así nunca se duplica el rótulo.
     * La descripción, si existe, va en un párrafo debajo.
     * Si el soporte es una imagen (PNG/JPEG/WEBP), se inserta escalada al ancho
       útil de la página; PDF y DOCX solo se listan en v1.
@@ -922,13 +960,12 @@ def _write_annex_section(
 
     ancho = _ancho_util(doc)
     for index, anexo in enumerate(anexos, start=1):
-        codigo = str(
-            anexo.get("codigo") or f"ANEXO {index}"
-        ).strip().rstrip(".")
-        titulo = str(anexo.get("titulo") or "").strip()
+        numero = anexo.get("numero") or index
+        rotulo = _rotulo_anexo(anexo, numero)
+        titulo = _titulo_anexo(anexo.get("titulo"))
         _insertar_parrafo_lista(
             anchor,
-            f"{codigo}. {titulo}" if titulo else codigo,
+            f"{rotulo}. {titulo}" if titulo else rotulo,
             propiedades,
         )
 
