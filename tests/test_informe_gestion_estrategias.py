@@ -740,6 +740,202 @@ def test_docx_mismo_periodo_es_idempotente_y_el_modo_no_duplica_textos(client):
 
 
 # ---------------------------------------------------------------------------
+# Cobertura de cierre antes de anexos
+# ---------------------------------------------------------------------------
+def test_api_estrategias_t3_y_t2_no_se_cruzan(client):
+    """PUT/GET por periodo: actualizar T3 no altera T2 y viceversa."""
+    t3 = {"3.1.1": "[[T3_SUPERIOR]]", "3.2": "[[T3_OTRAS]]"}
+    t2 = {"3.1.1": "[[T2_SUPERIOR]]", "3.1.2": "[[T2_TECNICA]]"}
+    for trimestre, secciones in (("T3", t3), ("T2", t2)):
+        saved = client.put(
+            "/api/informes/estrategias",
+            json={"anio": 2026, "trimestre": trimestre, "secciones": secciones},
+        )
+        assert saved.status_code == 200, saved.text
+
+    def _leer(trimestre):
+        response = client.get(
+            "/api/informes/estrategias",
+            params={"anio": 2026, "trimestre": trimestre},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    data_t3 = _leer("T3")
+    data_t2 = _leer("T2")
+    assert data_t3["existe"] is True
+    assert data_t2["existe"] is True
+    assert data_t3["secciones"]["3.1.1"] == "[[T3_SUPERIOR]]"
+    assert data_t3["secciones"]["3.1.2"] == ""
+    assert data_t3["secciones"]["3.2"] == "[[T3_OTRAS]]"
+    assert data_t2["secciones"]["3.1.1"] == "[[T2_SUPERIOR]]"
+    assert data_t2["secciones"]["3.1.2"] == "[[T2_TECNICA]]"
+    assert data_t2["secciones"]["3.2"] == ""
+
+    # El upsert de T3 no puede pisar el texto de T2.
+    actualizado = client.put(
+        "/api/informes/estrategias",
+        json={
+            "anio": 2026,
+            "trimestre": "T3",
+            "secciones": {
+                "3.1.1": "[[T3_SUPERIOR_V2]]",
+                "3.2": "[[T3_OTRAS_V2]]",
+            },
+        },
+    )
+    assert actualizado.status_code == 200, actualizado.text
+    assert _leer("T2")["secciones"]["3.1.1"] == "[[T2_SUPERIOR]]"
+
+    periodos = client.get(
+        "/api/informes/estrategias/periodos", params={"anio": 2026}
+    )
+    assert periodos.status_code == 200, periodos.text
+    assert [(p["trimestre"], p["anio"]) for p in periodos.json()] == [
+        ("T2", 2026),
+        ("T3", 2026),
+    ]
+
+
+def test_docx_t3_acumulado_incluye_marcadores_311_312_y_32(client):
+    """El DOCX T3 inserta los marcadores guardados en 3.1.1, 3.1.2 y 3.2."""
+    with client.session_factory() as session:
+        _seed_periodo(session)
+
+    secciones = {
+        "3.1.1": "[[UNICO_311_T3]]",
+        "3.1.2": "[[UNICO_312_T3]]",
+        "3.2": "[[UNICO_32_T3]]",
+    }
+    saved = client.put(
+        "/api/informes/estrategias",
+        json={"anio": 2026, "trimestre": "T3", "secciones": secciones},
+    )
+    assert saved.status_code == 200, saved.text
+
+    response = client.get("/api/informes/word?trimestre=T3&modo=acumulado")
+    assert response.status_code == 200, response.text
+    texto = _texto_docx(response.content)
+    for seccion, marcador in secciones.items():
+        assert texto.count(marcador) == 1, seccion
+        assert marcador in _parrafo_con_fragmento(response.content, marcador).text
+    # Las tres secciones sin texto conservan el placeholder.
+    assert texto.count(PLACEHOLDER_ESTRATEGIAS) == 3
+
+    # T2 no hereda ni mezcla los textos de T3.
+    t2 = client.get("/api/informes/word?trimestre=T2&modo=acumulado")
+    assert t2.status_code == 200, t2.text
+    texto_t2 = _texto_docx(t2.content)
+    for marcador in secciones.values():
+        assert marcador not in texto_t2
+    assert texto_t2.count(PLACEHOLDER_ESTRATEGIAS) == 6
+
+
+def test_export_report_docx_por_servicio_usa_periodo_persistido(session_factory):
+    """La generación directa por servicio lee (año, trimestre) de la BD."""
+    from app.services.informes import export_report_docx
+
+    with session_factory() as session:
+        _seed_periodo(session)
+        save_estrategias(
+            session,
+            anio=2026,
+            trimestre="T3",
+            secciones={"3.1.1": "[[SERVICIO_311_T3]]"},
+        )
+        contenido = export_report_docx(
+            session, anio=2026, trimestre="T3", modo="acumulado"
+        )
+
+    texto = _texto_docx(contenido)
+    assert texto.count("[[SERVICIO_311_T3]]") == 1
+    assert texto.count(PLACEHOLDER_ESTRATEGIAS) == 5
+
+
+def test_docx_items_de_lista_tienen_texto_continuo_mayor_a_uno(client):
+    """Cada ítem se inserta completo en su párrafo, no carácter por carácter."""
+    with client.session_factory() as session:
+        _seed_periodo(session)
+
+    secciones = {
+        "3.1.1": (
+            "<ul>"
+            "<li>[[VINETA_UNO]] texto continuo</li>"
+            "<li>[[VINETA_DOS]] otro texto</li>"
+            "</ul>"
+            "<ol>"
+            "<li>[[NUMERO_UNO]] primera acción</li>"
+            "<li>[[NUMERO_DOS]] segunda acción</li>"
+            "</ol>"
+        )
+    }
+    saved = client.put(
+        "/api/informes/estrategias",
+        json={"anio": 2026, "trimestre": "T3", "secciones": secciones},
+    )
+    assert saved.status_code == 200, saved.text
+
+    response = client.get("/api/informes/word?trimestre=T3&modo=acumulado")
+    assert response.status_code == 200, response.text
+    contenido = response.content
+
+    items = (
+        ("[[VINETA_UNO]]", "• "),
+        ("[[VINETA_DOS]]", "• "),
+        ("[[NUMERO_UNO]]", "1. "),
+        ("[[NUMERO_DOS]]", "2. "),
+    )
+    for marcador, prefijo in items:
+        parrafo = _parrafo_con_fragmento(contenido, marcador)
+        assert parrafo.text.startswith(prefijo), parrafo.text
+        texto_item = parrafo.text[len(prefijo):].strip()
+        assert marcador in texto_item
+        assert len(texto_item) > 1, (marcador, texto_item)
+
+    # Los párrafos de la estrategia nunca son una sola letra.
+    document = Document(BytesIO(contenido))
+    marcadores = tuple(m for m, _ in items)
+    parrafos_estrategia = [
+        p for p in document.paragraphs if any(m in p.text for m in marcadores)
+    ]
+    assert len(parrafos_estrategia) == len(items)
+    assert all(len(p.text.strip()) > 1 for p in parrafos_estrategia)
+
+
+def test_docx_t3_negrita_sin_asteriscos_en_marcadores(client):
+    """Los marcadores en negrita no conservan ``**`` en el texto del DOCX."""
+    with client.session_factory() as session:
+        _seed_periodo(session)
+
+    marcadores = {
+        "3.1.1": "[[NEGRITA_311]]",
+        "3.1.2": "[[NEGRITA_312]]",
+        "3.2": "[[NEGRITA_32]]",
+    }
+    secciones = {
+        seccion: f"<p>**{marcador}**</p>"
+        for seccion, marcador in marcadores.items()
+    }
+    saved = client.put(
+        "/api/informes/estrategias",
+        json={"anio": 2026, "trimestre": "T3", "secciones": secciones},
+    )
+    assert saved.status_code == 200, saved.text
+
+    response = client.get("/api/informes/word?trimestre=T3&modo=acumulado")
+    assert response.status_code == 200, response.text
+    contenido = response.content
+    texto = _texto_docx(contenido)
+
+    for marcador in marcadores.values():
+        assert marcador in texto
+        assert f"**{marcador}**" not in texto
+        _, run = _run_con_formato(contenido, marcador, bold=True)
+        assert run.text == marcador
+    assert "**" not in texto
+
+
+# ---------------------------------------------------------------------------
 # Regresión de indicadores y periodo adicional
 # ---------------------------------------------------------------------------
 def test_fixture_30_t3_acumulado_mantiene_titulada_y_complementaria(session_factory):
@@ -767,6 +963,9 @@ def test_fixture_30_t3_acumulado_mantiene_titulada_y_complementaria(session_fact
         "otro": 0,
     }
     assert data["certificados_complementaria"] == 1479
+    assert data["total_certificados"] == 1503
+    assert metricas["superior"]["meta"] == 943
+    assert metricas["complementaria"]["meta"] == 83726
     assert data["periodo_inicio"] == "2026-01-01"
     assert data["periodo_fin"] == "2026-09-30"
 
