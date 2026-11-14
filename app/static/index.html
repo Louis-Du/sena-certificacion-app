@@ -810,6 +810,7 @@
                 <p class="eyebrow">Bloque 5 · Soportes</p>
                 <h2>Anexos del informe</h2>
                 <p>Adjunta capturas o documentos del periodo. Se guardan por año y trimestre y se incluyen en la sección 5 del DOCX. El informe se puede generar sin anexos.</p>
+                <p class="informe-anexo-help informe-anexo-help--block">Las imágenes (PNG/JPEG) se incrustan en el DOCX; los PDF y DOCX solo se listan en la sección 5 y se descargan desde el catálogo.</p>
               </div>
               <div class="informe-section-actions">
                 <span class="result-badge" id="informe-anexos-badge">0 ANEXOS</span>
@@ -829,12 +830,12 @@
                 <div class="informe-anexo-row">
                   <label for="informe-anexo-codigo">Código (opcional)
                     <input id="informe-anexo-codigo" name="codigo" type="text" maxlength="40" placeholder="Automático">
-                    <small class="informe-anexo-help">Si se deja vacío, el informe numera ANEXO 1, 2, 3… según el orden. El título no debe repetir “ANEXO N”.</small>
                   </label>
                   <label for="informe-anexo-orden">Orden (opcional)
                     <input id="informe-anexo-orden" name="orden" type="number" min="1" step="1" placeholder="Automático">
                   </label>
                 </div>
+                <p class="informe-anexo-help informe-anexo-help--block">El código es una referencia manual: el informe siempre numera ANEXO 1, 2, 3… según el orden. El título no debe repetir “ANEXO N”.</p>
                 <div class="informe-anexo-field">
                   <span class="informe-anexo-field-label">Archivo <span aria-hidden="true">*</span></span>
                   <label id="informe-anexo-dropzone" class="informe-anexo-dropzone" for="informe-anexo-file">
@@ -842,6 +843,7 @@
                     <strong>Arrastra un archivo aquí</strong>
                     <span>o <span class="informe-anexo-browse">examinar</span></span>
                     <small>PNG, JPEG, WEBP, PDF o DOCX · máx. 10 MB</small>
+                    <small>Las imágenes se incrustan; PDF/DOCX solo se listan en §5.</small>
                     <input id="informe-anexo-file" name="file" class="informe-anexo-file-input" type="file" accept="image/png,image/jpeg,image/webp,application/pdf,.docx" required>
                   </label>
                   <p id="informe-anexo-file-name" class="informe-anexo-file-name" hidden></p>
@@ -853,7 +855,7 @@
               <div class="informe-anexos-catalogo">
                 <div class="informe-anexos-catalogo-head">
                   <h3>Anexos del periodo</h3>
-                  <p>Se listan en el orden indicado. Si no escribes un código, el informe los numera automáticamente.</p>
+                  <p>Se numeran ANEXO 1..N según el orden indicado. Los códigos manuales no alteran la secuencia. PDF/DOCX se listan en §5 sin incrustarse; las imágenes pueden incrustarse.</p>
                 </div>
                 <div class="informe-empty-state" id="informe-anexos-empty">
                   <span aria-hidden="true">📎</span>
@@ -1107,16 +1109,20 @@
         <div class="informe-anexo-row">
           <label for="informe-anexo-edit-codigo">Código (opcional)
             <input id="informe-anexo-edit-codigo" type="text" maxlength="40" placeholder="Automático">
-            <small class="informe-anexo-help">Si se deja vacío, el informe numera ANEXO 1, 2, 3… según el orden. El título no debe repetir “ANEXO N”.</small>
           </label>
           <label for="informe-anexo-edit-orden">Orden (opcional)
             <input id="informe-anexo-edit-orden" type="number" min="1" step="1" placeholder="Automático">
           </label>
         </div>
-        <div class="informe-anexo-current">
+        <p class="informe-anexo-help informe-anexo-help--block">El código es una referencia manual: el informe siempre numera ANEXO 1, 2, 3… según el orden. El título no debe repetir “ANEXO N”.</p>
+        <div id="informe-anexo-current" class="informe-anexo-current">
           <p class="informe-anexo-current-label">Archivo actual</p>
           <p id="informe-anexo-current-meta" class="informe-anexo-current-meta"></p>
-          <a id="informe-anexo-current-download" class="informe-anexo-action" href="#" download>Descargar actual</a>
+          <p id="informe-anexo-current-note" class="informe-anexo-current-note" hidden></p>
+          <div class="informe-anexo-current-actions">
+            <a id="informe-anexo-current-download" class="informe-anexo-action" href="#" download>Descargar actual</a>
+            <button id="informe-anexo-current-remove" class="informe-anexo-action" type="button" aria-pressed="false">Quitar archivo actual</button>
+          </div>
         </div>
         <div class="informe-anexo-field">
           <label class="informe-anexo-field-label" for="informe-anexo-edit-file">Reemplazar archivo (opcional)</label>
@@ -1124,9 +1130,14 @@
             <span class="informe-anexo-drop-icon" aria-hidden="true">⬆</span>
             <strong>Arrastra el nuevo archivo o examina</strong>
             <small>PNG, JPEG, WEBP, PDF o DOCX · máx. 10 MB</small>
+            <small>Las imágenes se incrustan en §5; PDF/DOCX solo se listan.</small>
             <input id="informe-anexo-edit-file" class="informe-anexo-file-input" type="file" accept="image/png,image/jpeg,image/webp,application/pdf,.docx">
           </label>
-          <p id="informe-anexo-edit-file-name" class="informe-anexo-file-name" hidden></p>
+          <div class="informe-anexo-file-selection">
+            <p id="informe-anexo-edit-file-name" class="informe-anexo-file-name" hidden></p>
+            <button id="informe-anexo-edit-file-clear" class="informe-anexo-file-clear" type="button" hidden>Quitar selección</button>
+          </div>
+          <p class="informe-anexo-help informe-anexo-help--block">Si quitas el archivo actual, debes seleccionar un reemplazo para poder guardar.</p>
         </div>
         <p id="informe-anexo-edit-status" class="detail-feedback" role="status"></p>
         <div class="report-modal-actions">

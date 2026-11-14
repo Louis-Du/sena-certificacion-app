@@ -23,18 +23,19 @@ Regla de numeración (única para catálogo y DOCX):
 * El listado se ordena por ``orden`` ascendente y, a igual orden, por ``id``
   (el alta asigna automáticamente ``max(orden) + 1``, así que el orden por
   defecto es el de creación).
-* El rótulo siempre es ``ANEXO {n}. {titulo}``. ``n`` es la posición 1..N o el
-  número de un código manual único y válido (``ANEXO 3``, ``3``, ``N° 3`` …).
-* Los códigos manuales numéricos reservan su número. Los anexos sin código
-  reciben el menor número libre, de modo que no haya dos ``ANEXO 3`` ni huecos
-  cuando todos los códigos están vacíos.
+* El rótulo siempre es ``ANEXO {n}. {titulo}`` y ``n`` es la **posición
+  estable 1..N** del listado. Los códigos manuales (``ANEXO 5``, ``3``,
+  ``N° 3``…) se conservan como referencia en metadatos, pero ya no alteran la
+  numeración: así nunca aparece una secuencia como ``1, 2, 5, 4, 3``.
 * El título se guarda sin el prefijo ``ANEXO N``: el sistema lo agrega al
   exportar, de modo que nunca se produce ``ANEXO 1. ANEXO 1. …``.
-* Un código repetido en el mismo ``(año, trimestre)`` se rechaza con 400.
+* Un código repetido en el mismo ``(año, trimestre)`` se rechaza con 400 para
+  que la referencia manual siga siendo útil.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from datetime import datetime, timezone
@@ -50,6 +51,8 @@ from app.services.informe_gestion_estrategias import (
     normalizar_anio,
     normalizar_trimestre,
 )
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 DEFAULT_STORAGE_DIR = BASE_DIR / "data" / "informe_gestion_anexos"
@@ -178,50 +181,28 @@ def _codigo(value: Any) -> str | None:
     return codigo[:MAX_CODIGO]
 
 
-def _numero_de_codigo(codigo: str | None) -> int | None:
-    """Número reservado por un código manual numérico, si lo hay."""
-    if not codigo:
-        return None
-    coincidencia = _CODIGO_NUMERICO_RE.match(codigo)
-    return int(coincidencia.group(1)) if coincidencia else None
+def _rotulo(numero: int, codigo: str | None = None) -> str:
+    """Rótulo del catálogo/DOCX: siempre ``ANEXO {n}`` en orden 1..N.
 
-
-def _rotulo(numero: int, codigo: str | None) -> str:
-    """Rótulo del DOCX: ``ANEXO {n}`` salvo códigos no numéricos propios."""
-    if codigo and _numero_de_codigo(codigo) is None:
-        return codigo
+    ``codigo`` se conserva en los metadatos como referencia manual, pero no
+    participa en la numeración: los códigos inconsistentes de datos antiguos
+    (``ANEXO 5``, ``3``, ``N° 3``…) ya no producen secuencias como 1, 2, 5, 4.
+    """
     return f"ANEXO {numero}"
 
 
 def _asignar_numeros(registros: list[InformeGestionAnexo]) -> dict[int, int]:
-    """Reserva los números manuales y reparte los libres en orden de listado.
+    """Asigna la posición estable 1..N en el orden ``(orden, id)``.
 
-    ``registros`` debe venir ordenado por ``(orden, id)``. Si todos los códigos
-    están vacíos la asignación es 1..N; si hay un código ``ANEXO 3``, ese
-    número queda reservado y los automáticos toman 1, 2, 4… evitando repetir.
-
-    Los datos creados antes de validar la unicidad pueden traer dos filas con
-    ``ANEXO 3``. La primera conserva el 3 y la segunda recibe el menor número
-    libre, de modo que el DOCX nunca repite un rótulo.
+    ``registros`` debe venir ordenado por ``(orden, id)``. El número depende
+    únicamente de esa posición, nunca del ``codigo`` manual. Así el catálogo y
+    la sección 5 del DOCX comparten exactamente la misma secuencia, incluso si
+    hay códigos manuales repetidos o inconsistentes heredados.
     """
-    reservados: set[int] = set()
-    numeros: dict[int, int] = {}
-    pendientes: list[InformeGestionAnexo] = []
-    for registro in registros:
-        manual = _numero_de_codigo(registro.codigo)
-        if manual is not None and manual not in reservados:
-            numeros[registro.id] = manual
-            reservados.add(manual)
-        else:
-            pendientes.append(registro)
-    siguiente = 1
-    for registro in pendientes:
-        while siguiente in reservados:
-            siguiente += 1
-        numeros[registro.id] = siguiente
-        reservados.add(siguiente)
-        siguiente += 1
-    return numeros
+    return {
+        registro.id: posicion
+        for posicion, registro in enumerate(registros, start=1)
+    }
 
 
 def _validar_codigo_unico(
@@ -278,6 +259,30 @@ def ruta_absoluta(registro: InformeGestionAnexo) -> Path:
     return storage_dir() / registro.ruta_archivo
 
 
+def _archivo_disponible(registro: InformeGestionAnexo) -> bool:
+    """Indica si el binario referenciado sigue presente en disco."""
+    try:
+        return ruta_absoluta(registro).is_file()
+    except OSError:
+        return False
+
+
+def _borrar_archivo(ruta: Path | None) -> None:
+    """Borra el binario sin tumbar la operación si está bloqueado.
+
+    En Windows es habitual que Word/antivirus mantengan el DOCX abierto justo
+    después de una descarga. El registro de la BD ya se eliminó (o actualizó),
+    así que un ``PermissionError`` al limpiar el archivo no debe convertir un
+    DELETE correcto en un 500 para la UI.
+    """
+    if ruta is None:
+        return
+    try:
+        ruta.unlink(missing_ok=True)
+    except OSError as error:
+        logger.warning("No se pudo borrar el archivo del anexo %s: %s", ruta, error)
+
+
 def _serializar(
     registro: InformeGestionAnexo, numero: int | None = None
 ) -> dict[str, Any]:
@@ -298,6 +303,7 @@ def _serializar(
         "updated_at": (
             registro.updated_at.isoformat() if registro.updated_at else None
         ),
+        "archivo_disponible": _archivo_disponible(registro),
         "download_url": f"/api/informes/anexos/{registro.id}/download",
     }
     if numero is not None:
@@ -398,7 +404,7 @@ def crear_anexo(
         session.commit()
     except Exception:
         session.rollback()
-        destino.unlink(missing_ok=True)
+        _borrar_archivo(destino)
         raise
     session.refresh(registro)
     return _serializar_uno(session, registro)
@@ -487,22 +493,27 @@ def actualizar_anexo(
         session.commit()
     except Exception:
         session.rollback()
-        if destino_nuevo is not None:
-            destino_nuevo.unlink(missing_ok=True)
+        _borrar_archivo(destino_nuevo)
         raise
     if destino_anterior is not None and destino_anterior != destino_nuevo:
-        destino_anterior.unlink(missing_ok=True)
+        _borrar_archivo(destino_anterior)
     session.refresh(registro)
     return _serializar_uno(session, registro)
 
 
 def eliminar_anexo(session: Session, anexo_id: int) -> None:
-    """Elimina el registro y su archivo en disco."""
+    """Elimina el registro; la limpieza del binario nunca revierte el DELETE.
+
+    El archivo se borra después del ``commit``. Si otro proceso lo tiene
+    abierto (caso típico en Windows con un DOCX/PDF recién descargado), se
+    registra una advertencia y la API sigue respondiendo 204: el anexo ya no
+    aparece en el catálogo ni en el DOCX.
+    """
     registro = _registro(session, anexo_id)
     ruta = ruta_absoluta(registro)
     session.delete(registro)
     session.commit()
-    ruta.unlink(missing_ok=True)
+    _borrar_archivo(ruta)
 
 
 def anexos_para_docx(

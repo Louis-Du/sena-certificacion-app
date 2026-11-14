@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from docx import Document
@@ -27,6 +28,17 @@ PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 )
 PDF_MINIMO = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer<<>>\n%%EOF\n"
+
+
+def _docx_minimo(texto: str = "Anexo DOCX") -> bytes:
+    document = Document()
+    document.add_paragraph(texto)
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+DOCX_MINIMO = _docx_minimo()
 
 
 @pytest.fixture(autouse=True)
@@ -110,12 +122,15 @@ def test_orden_automatico_y_codigo_manual(client):
     segundo = _crear_anexo(client, titulo="Segundo", codigo="A-2")
     assert primero.json()["orden"] == 1
     assert segundo.json()["orden"] == 2
+    # El código se conserva como referencia, pero no reemplaza el número.
     assert segundo.json()["codigo"] == "A-2"
-    assert segundo.json()["rotulo"] == "A-2"
+    assert segundo.json()["numero"] == 2
+    assert segundo.json()["rotulo"] == "ANEXO 2"
 
     items = client.get("/api/informes/anexos?anio=2026&trimestre=T3").json()["items"]
     assert [item["titulo"] for item in items] == ["Primero", "Segundo"]
     assert [item["numero"] for item in items] == [1, 2]
+    assert [item["rotulo"] for item in items] == ["ANEXO 1", "ANEXO 2"]
 
 
 def test_titulo_no_repite_el_prefijo_anexo(client):
@@ -132,23 +147,29 @@ def test_titulo_no_repite_el_prefijo_anexo(client):
     assert payload["rotulo"] == "ANEXO 1"
 
 
-def test_codigo_manual_reserva_numero_y_los_automaticos_no_lo_repiten(client):
-    primero = _crear_anexo(client, titulo="Primero")  # automático: 1
-    segundo = _crear_anexo(client, titulo="Segundo", codigo="N° 3")  # manual: 3
-    tercero = _crear_anexo(client, titulo="Tercero")  # automático: 2
+def test_codigo_manual_no_altera_la_numeracion_estable(client):
+    """Los códigos manuales no generan huecos ni saltos en el catálogo."""
+    primero = _crear_anexo(client, titulo="Primero")  # posición 1
+    segundo = _crear_anexo(client, titulo="Segundo", codigo="N° 5")  # posición 2
+    tercero = _crear_anexo(client, titulo="Tercero")  # posición 3
 
     assert segundo.status_code == 201, segundo.text
-    assert segundo.json()["codigo"] == "ANEXO 3"
+    assert segundo.json()["codigo"] == "ANEXO 5"
     numeros = [
         primero.json()["numero"],
         segundo.json()["numero"],
         tercero.json()["numero"],
     ]
-    assert numeros == [1, 3, 2]
+    assert numeros == [1, 2, 3]
 
     items = client.get("/api/informes/anexos?anio=2026&trimestre=T3").json()["items"]
-    assert [item["numero"] for item in items] == [1, 3, 2]
-    assert len({item["numero"] for item in items}) == 3
+    assert [item["numero"] for item in items] == [1, 2, 3]
+    assert [item["rotulo"] for item in items] == [
+        "ANEXO 1",
+        "ANEXO 2",
+        "ANEXO 3",
+    ]
+    assert items[1]["codigo"] == "ANEXO 5"
 
 
 def test_codigo_duplicado_se_rechaza_en_crear_y_actualizar(client):
@@ -234,9 +255,34 @@ def test_reemplazar_archivo_desde_patch(client):
     assert "nueva.png" in descarga.headers.get("content-disposition", "")
 
 
-def test_eliminar_anexo_borra_registro_y_archivo(client, session_factory):
-    creado = _crear_anexo(client, titulo="Se va a eliminar").json()
-    archivo = next(storage_dir().glob("2026-T3-*.png"))
+@pytest.mark.parametrize(
+    ("nombre_archivo", "contenido", "content_type", "patron"),
+    [
+        ("captura.png", PNG_1X1, "image/png", "2026-T3-*.png"),
+        ("soporte.pdf", PDF_MINIMO, "application/pdf", "2026-T3-*.pdf"),
+        (
+            "ANEXO 5.docx",
+            DOCX_MINIMO,
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "2026-T3-*.docx",
+        ),
+    ],
+    ids=["png", "pdf", "docx"],
+)
+def test_eliminar_anexo_borra_registro_y_archivo(
+    client,
+    session_factory,
+    nombre_archivo,
+    contenido,
+    content_type,
+    patron,
+):
+    creado = _crear_anexo(
+        client,
+        titulo=f"Se va a eliminar {nombre_archivo}",
+        archivo=(nombre_archivo, contenido, content_type),
+    ).json()
+    archivo = next(storage_dir().glob(patron))
     assert archivo.exists()
 
     response = client.delete(f"/api/informes/anexos/{creado['id']}")
@@ -249,6 +295,47 @@ def test_eliminar_anexo_borra_registro_y_archivo(client, session_factory):
         client.get("/api/informes/anexos?anio=2026&trimestre=T3").json()["total"] == 0
     )
     assert client.delete(f"/api/informes/anexos/{creado['id']}").status_code == 404
+
+
+def test_eliminar_anexo_no_falla_si_el_archivo_esta_bloqueado(
+    client, session_factory, monkeypatch
+):
+    """Un DOCX/PDF abierto en Windows no convierte el DELETE en un 500."""
+    creado = _crear_anexo(
+        client,
+        titulo="Archivo bloqueado",
+        archivo=("bloqueado.pdf", PDF_MINIMO, "application/pdf"),
+    ).json()
+    archivo = next(storage_dir().glob("2026-T3-*.pdf"))
+    original = Path.unlink
+
+    def bloqueado(self, *args, **kwargs):
+        if self == archivo:
+            raise PermissionError("El archivo está en uso por otro proceso.")
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", bloqueado)
+    response = client.delete(f"/api/informes/anexos/{creado['id']}")
+    monkeypatch.setattr(Path, "unlink", original)
+
+    assert response.status_code == 204, response.text
+    with session_factory() as session:
+        assert session.query(InformeGestionAnexo).count() == 0
+    assert (
+        client.get("/api/informes/anexos?anio=2026&trimestre=T3").json()["total"] == 0
+    )
+    # La limpieza manual evita dejar basura del test (el archivo quedó bloqueado).
+    archivo.unlink(missing_ok=True)
+
+
+def test_archivo_disponible_refleja_si_el_binario_sigue_en_disco(client):
+    creado = _crear_anexo(client, titulo="Binario perdido").json()
+    assert creado["archivo_disponible"] is True
+    archivo = next(storage_dir().glob("2026-T3-*.png"))
+    archivo.unlink()
+
+    items = client.get("/api/informes/anexos?anio=2026&trimestre=T3").json()["items"]
+    assert items[0]["archivo_disponible"] is False
 
 
 def test_validaciones_de_tipo_titulo_y_descarga(client):
@@ -393,8 +480,8 @@ def test_docx_numeracion_sin_doble_prefijo(client):
     assert texto.count("ANEXO 1.") == 1
 
 
-def test_docx_deduplica_codigos_heredados(client, session_factory):
-    """Filas antiguas con el mismo código no repiten el rótulo en el DOCX."""
+def test_docx_ignora_codigos_heredados_y_numera_por_orden(client, session_factory):
+    """Filas antiguas con códigos repetidos se numeran por posición 1..N."""
     with session_factory() as session:
         _seed_periodo(session)
         session.add_all(
@@ -433,9 +520,53 @@ def test_docx_deduplica_codigos_heredados(client, session_factory):
         )
 
     texto = _texto_docx(contenido)
-    assert texto.count("ANEXO 3.") == 1
-    assert "ANEXO 3. Primero heredado" in texto
-    assert "ANEXO 1. Segundo heredado" in texto
+    assert "ANEXO 1. Primero heredado" in texto
+    assert "ANEXO 2. Segundo heredado" in texto
+    assert "ANEXO 3." not in texto
+
+
+def test_docx_tres_anexos_en_orden_estable_1_2_3(client):
+    """§5 lista 1..N aunque los códigos manuales sean 5, 3, 4."""
+    with client.session_factory() as session:
+        _seed_periodo(session)
+    _crear_anexo(client, titulo="[[PRIMERO_ORDEN]]", codigo="5", orden=1)
+    _crear_anexo(client, titulo="[[SEGUNDO_ORDEN]]", codigo="3", orden=2)
+    _crear_anexo(client, titulo="[[TERCERO_ORDEN]]", codigo="4", orden=3)
+
+    from app.services.informes import export_report_docx
+
+    with client.session_factory() as session:
+        contenido = export_report_docx(
+            session, anio=2026, trimestre="T3", modo="acumulado"
+        )
+
+    texto = _texto_docx(contenido)
+    assert texto.index("ANEXO 1. [[PRIMERO_ORDEN]]") < texto.index(
+        "ANEXO 2. [[SEGUNDO_ORDEN]]"
+    ) < texto.index("ANEXO 3. [[TERCERO_ORDEN]]")
+    assert "ANEXO 5." not in texto
+    assert "ANEXO 4." not in texto
+
+
+def test_docx_orden_por_campo_orden_y_luego_id(client):
+    """El número sigue ``orden`` (no el id) y desempata por id."""
+    with client.session_factory() as session:
+        _seed_periodo(session)
+    _crear_anexo(client, titulo="[[ULTIMO_POR_ID]]", orden=30)
+    _crear_anexo(client, titulo="[[PRIMERO_POR_ORDEN]]", orden=10)
+    _crear_anexo(client, titulo="[[SEGUNDO_POR_ORDEN]]", orden=20)
+
+    from app.services.informes import export_report_docx
+
+    with client.session_factory() as session:
+        contenido = export_report_docx(
+            session, anio=2026, trimestre="T3", modo="acumulado"
+        )
+
+    texto = _texto_docx(contenido)
+    assert texto.index("ANEXO 1. [[PRIMERO_POR_ORDEN]]") < texto.index(
+        "ANEXO 2. [[SEGUNDO_POR_ORDEN]]"
+    ) < texto.index("ANEXO 3. [[ULTIMO_POR_ID]]")
 
 
 def test_docx_pdf_solo_lista_titulo_y_descripcion(client):

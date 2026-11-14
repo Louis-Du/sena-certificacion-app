@@ -841,7 +841,7 @@ async def informe_gestion_anexos_delete(
     anexo_id: int,
     session: Session = Depends(get_db),
 ) -> Response:
-    """Elimina el anexo y su archivo en disco."""
+    """Elimina el anexo; la limpieza del binario es best-effort."""
     from app.services.informe_gestion_anexos import eliminar_anexo
 
     try:

@@ -921,8 +921,18 @@
   const informeAnexoCurrentMeta = document.getElementById(
     "informe-anexo-current-meta",
   );
+  const informeAnexoCurrent = document.getElementById("informe-anexo-current");
   const informeAnexoCurrentDownload = document.getElementById(
     "informe-anexo-current-download",
+  );
+  const informeAnexoCurrentNote = document.getElementById(
+    "informe-anexo-current-note",
+  );
+  const informeAnexoCurrentRemove = document.getElementById(
+    "informe-anexo-current-remove",
+  );
+  const informeAnexoEditFileClear = document.getElementById(
+    "informe-anexo-edit-file-clear",
   );
 
   const ANEXO_MAX_BYTES = 10 * 1024 * 1024;
@@ -935,6 +945,9 @@
   ]);
   let informeAnexosToken = 0;
   let informeAnexosCache = [];
+  let informeAnexoEditActual = null;
+  let informeAnexoQuitarActual = false;
+  let informeAnexoGuardando = false;
 
   function formatoBytesAnexo(bytes) {
     const valor = Number(bytes) || 0;
@@ -981,6 +994,71 @@
 
   function anexoEsImagen(item) {
     return String(item?.content_type || "").startsWith("image/");
+  }
+
+  function anexoPuedeIncrustarse(item) {
+    const tipo = String(item?.content_type || "");
+    // python-docx no interpreta WEBP: se lista en §5, pero no se incrusta.
+    return tipo === "image/png" || tipo === "image/jpeg";
+  }
+
+  function anexoArchivoDisponible(item) {
+    return Boolean(item) && item.archivo_disponible !== false;
+  }
+
+  function anexoEditReemplazo() {
+    return informeAnexoEditFile?.files?.[0] || null;
+  }
+
+  function actualizarEstadoArchivoAnexo() {
+    const item = informeAnexoEditActual;
+    if (!item) return;
+    const disponible = anexoArchivoDisponible(item);
+    const reemplazo = anexoEditReemplazo();
+    const quitar = informeAnexoQuitarActual;
+    const requiereReemplazo = (quitar || !disponible) && !reemplazo;
+
+    if (informeAnexoCurrentMeta) {
+      const meta = `${etiquetaTipoAnexo(
+        item.content_type,
+        item.nombre_archivo,
+      )} · ${formatoBytesAnexo(item.tamano)} · ${item.nombre_archivo || ""}`;
+      informeAnexoCurrentMeta.textContent = disponible
+        ? meta
+        : `${meta} · No disponible en el servidor`;
+    }
+    if (informeAnexoCurrentDownload) {
+      informeAnexoCurrentDownload.hidden = !disponible || !item.download_url;
+    }
+    if (informeAnexoCurrentRemove) {
+      informeAnexoCurrentRemove.hidden = !disponible || Boolean(reemplazo);
+      informeAnexoCurrentRemove.textContent = quitar
+        ? "Restaurar archivo actual"
+        : "Quitar archivo actual";
+      informeAnexoCurrentRemove.setAttribute("aria-pressed", String(quitar));
+    }
+    if (informeAnexoCurrentNote) {
+      let nota = "";
+      if (!disponible) {
+        nota =
+          "El archivo actual no está disponible en el servidor. Selecciona un reemplazo para poder guardar.";
+      } else if (quitar && !reemplazo) {
+        nota =
+          "Marcaste quitar el archivo actual. Selecciona un reemplazo para poder guardar.";
+      } else if (reemplazo) {
+        nota = "El archivo actual se reemplazará al guardar los cambios.";
+      }
+      informeAnexoCurrentNote.textContent = nota;
+      informeAnexoCurrentNote.hidden = !nota;
+    }
+    if (informeAnexoCurrent) {
+      informeAnexoCurrent.classList.toggle("is-removing", quitar);
+      informeAnexoCurrent.classList.toggle("is-missing", !disponible);
+    }
+    if (informeAnexoEditSave) {
+      informeAnexoEditSave.disabled =
+        informeAnexoGuardando || requiereReemplazo;
+    }
   }
 
   function validarArchivoAnexo(archivo) {
@@ -1085,6 +1163,26 @@
     meta.textContent = item.nombre_archivo || "";
     card.appendChild(meta);
 
+    if (!anexoPuedeIncrustarse(item)) {
+      const nota = document.createElement("p");
+      nota.className = "informe-anexo-note";
+      nota.textContent = anexoEsImagen(item)
+        ? "WEBP: se lista en la sección 5, pero el DOCX no incrusta este formato. Usa PNG o JPEG si quieres verlo dentro del informe."
+        : "PDF/DOCX: se lista en la sección 5 del DOCX, pero el archivo no se incrusta. Descárgalo desde este catálogo.";
+      if (!anexoArchivoDisponible(item)) {
+        nota.textContent =
+          "El archivo no está disponible en el servidor. Vuelve a cargarlo o elimina el anexo.";
+        nota.classList.add("is-warning");
+      }
+      card.appendChild(nota);
+    } else if (!anexoArchivoDisponible(item)) {
+      const nota = document.createElement("p");
+      nota.className = "informe-anexo-note is-warning";
+      nota.textContent =
+        "El archivo no está disponible en el servidor. Vuelve a cargarlo o elimina el anexo.";
+      card.appendChild(nota);
+    }
+
     const actions = document.createElement("div");
     actions.className = "informe-anexo-actions";
     if (item.download_url) {
@@ -1127,7 +1225,7 @@
     const edit = botonAccionAnexo("Editar", "edit");
     edit.addEventListener("click", () => abrirModalAnexo(item));
     const remove = botonAccionAnexo("Eliminar", "delete");
-    remove.addEventListener("click", () => eliminarAnexo(item));
+    remove.addEventListener("click", () => eliminarAnexo(item, remove));
     actions.append(edit, remove);
     card.appendChild(actions);
 
@@ -1140,6 +1238,9 @@
     informeAnexoModal.classList.remove("is-open");
     informeAnexoModal.setAttribute("aria-hidden", "true");
     document.body.style.overflow = "";
+    informeAnexoEditActual = null;
+    informeAnexoQuitarActual = false;
+    informeAnexoGuardando = false;
   }
 
   function abrirModalAnexo(item) {
@@ -1160,17 +1261,15 @@
     }
     if (informeAnexoEditFile) informeAnexoEditFile.value = "";
     mostrarNombreArchivo(informeAnexoEditFileName, null);
+    if (informeAnexoEditFileClear) informeAnexoEditFileClear.hidden = true;
     setInformeStatus(informeAnexoEditStatus, "", "info");
-    if (informeAnexoCurrentMeta) {
-      informeAnexoCurrentMeta.textContent = `${etiquetaTipoAnexo(
-        item.content_type,
-        item.nombre_archivo,
-      )} · ${formatoBytesAnexo(item.tamano)} · ${item.nombre_archivo || ""}`;
-    }
+    informeAnexoEditActual = item;
+    informeAnexoQuitarActual = false;
+    informeAnexoGuardando = false;
     if (informeAnexoCurrentDownload) {
       informeAnexoCurrentDownload.href = item.download_url || "#";
-      informeAnexoCurrentDownload.hidden = !item.download_url;
     }
+    actualizarEstadoArchivoAnexo();
     informeAnexoModal.classList.add("is-open");
     informeAnexoModal.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
@@ -1190,13 +1289,22 @@
       );
       return;
     }
-    const archivo = informeAnexoEditFile?.files?.[0] || null;
+    const archivo = anexoEditReemplazo();
     if (archivo) {
       const errorArchivo = validarArchivoAnexo(archivo);
       if (errorArchivo) {
         setInformeStatus(informeAnexoEditStatus, errorArchivo, "error");
         return;
       }
+    }
+    const disponible = anexoArchivoDisponible(informeAnexoEditActual);
+    if ((informeAnexoQuitarActual || !disponible) && !archivo) {
+      const mensaje = disponible
+        ? "Marcaste quitar el archivo actual. Selecciona un reemplazo antes de guardar."
+        : "El archivo actual no está disponible. Selecciona un reemplazo antes de guardar.";
+      setInformeStatus(informeAnexoEditStatus, mensaje, "error");
+      actualizarEstadoArchivoAnexo();
+      return;
     }
 
     const body = new FormData();
@@ -1208,6 +1316,7 @@
     }
     if (archivo) body.append("file", archivo, archivo.name);
 
+    informeAnexoGuardando = true;
     if (informeAnexoEditSave) informeAnexoEditSave.disabled = true;
     setInformeStatus(informeAnexoEditStatus, "Guardando cambios…", "info");
     try {
@@ -1233,24 +1342,34 @@
         "error",
       );
     } finally {
-      if (informeAnexoEditSave) informeAnexoEditSave.disabled = false;
+      informeAnexoGuardando = false;
+      actualizarEstadoArchivoAnexo();
     }
   }
 
-  async function eliminarAnexo(item) {
+  async function eliminarAnexo(item, boton) {
     const confirmado = window.confirm(
       `¿Eliminar el anexo "${item.titulo}"? También se borrará el archivo.`,
     );
     if (!confirmado) return;
+    const textoBoton = boton?.textContent || "Eliminar";
+    if (boton) {
+      boton.disabled = true;
+      boton.textContent = "Eliminando…";
+    }
+    setInformeStatus(informeAnexoStatus, "Eliminando anexo…", "info");
     try {
       const response = await fetch(`/api/informes/anexos/${item.id}`, {
         method: "DELETE",
       });
+      // 404 también es éxito: el anexo ya no existe (por ejemplo, se borró
+      // desde otra pestaña) y el catálogo debe quedar sincronizado.
       if (!response.ok && response.status !== 404) {
         throw new Error(
           await mensajeErrorAnexo(response, "No se pudo eliminar el anexo."),
         );
       }
+      setInformeStatus(informeAnexoStatus, "Anexo eliminado.", "success");
       showToast("Anexo eliminado.", "success");
       await cargarAnexos();
     } catch (error) {
@@ -1260,6 +1379,11 @@
         "error",
       );
       showToast(error.message || "No se pudo eliminar el anexo.", "error");
+    } finally {
+      if (boton) {
+        boton.disabled = false;
+        boton.textContent = textoBoton;
+      }
     }
   }
 
@@ -1398,15 +1522,35 @@
     informeAnexoEditFile,
     informeAnexoEditFileName,
     (archivo) => {
-      if (!archivo) return;
-      const error = validarArchivoAnexo(archivo);
-      setInformeStatus(
-        informeAnexoEditStatus,
-        error || "",
-        error ? "error" : "info",
-      );
+      if (informeAnexoEditFileClear) {
+        informeAnexoEditFileClear.hidden = !archivo;
+      }
+      if (archivo) {
+        informeAnexoQuitarActual = false;
+        const error = validarArchivoAnexo(archivo);
+        setInformeStatus(
+          informeAnexoEditStatus,
+          error || "",
+          error ? "error" : "info",
+        );
+      }
+      actualizarEstadoArchivoAnexo();
     },
   );
+
+  informeAnexoEditFileClear?.addEventListener("click", () => {
+    if (informeAnexoEditFile) informeAnexoEditFile.value = "";
+    mostrarNombreArchivo(informeAnexoEditFileName, null);
+    if (informeAnexoEditFileClear) informeAnexoEditFileClear.hidden = true;
+    setInformeStatus(informeAnexoEditStatus, "", "info");
+    actualizarEstadoArchivoAnexo();
+  });
+
+  informeAnexoCurrentRemove?.addEventListener("click", () => {
+    informeAnexoQuitarActual = !informeAnexoQuitarActual;
+    setInformeStatus(informeAnexoEditStatus, "", "info");
+    actualizarEstadoArchivoAnexo();
+  });
 
   informeAnexoForm?.addEventListener("submit", subirAnexo);
   informeAnexoEditForm?.addEventListener("submit", guardarAnexo);
