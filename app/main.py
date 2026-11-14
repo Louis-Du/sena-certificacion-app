@@ -748,6 +748,133 @@ async def informe_gestion_estrategias_periodos(
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
+# ---------------------------------------------------------------------------
+# Anexos del informe de gestión (soportes de la sección 5 del DOCX)
+#
+# Se listan siempre por (año, trimestre); el modo solo_trimestre/acumulado no
+# duplica anexos. El binario vive en disco (ver app.services.informe_gestion_anexos)
+# y los metadatos en la base de datos.
+# ---------------------------------------------------------------------------
+def _anexo_http_error(error: Exception) -> HTTPException:
+    from app.services.informe_gestion_anexos import AnexoError
+
+    status_code = error.status_code if isinstance(error, AnexoError) else 400
+    return HTTPException(status_code=status_code, detail=str(error))
+
+
+@app.get("/api/informes/anexos")
+async def informe_gestion_anexos_list(
+    anio: int | None = Query(default=None, ge=2000, le=2100),
+    trimestre: str | None = Query(default=None, description="T1, T2, T3 o T4."),
+    session: Session = Depends(get_db),
+) -> dict:
+    """Catálogo de anexos del periodo."""
+    from app.services.informe_gestion_anexos import listar_anexos
+
+    try:
+        return listar_anexos(session, anio=anio, trimestre=trimestre)
+    except ValueError as error:
+        raise _anexo_http_error(error) from error
+
+
+@app.post("/api/informes/anexos", status_code=201)
+async def informe_gestion_anexos_create(
+    titulo: str = Form(...),
+    anio: int | None = Form(default=None),
+    trimestre: str | None = Form(default=None),
+    descripcion: str | None = Form(default=None),
+    codigo: str | None = Form(default=None),
+    orden: int | None = Form(default=None),
+    file: UploadFile = File(...),
+    session: Session = Depends(get_db),
+) -> dict:
+    """Sube un anexo (multipart) para el periodo indicado."""
+    from app.services.informe_gestion_anexos import crear_anexo
+
+    try:
+        return crear_anexo(
+            session,
+            anio=anio,
+            trimestre=trimestre,
+            titulo=titulo,
+            descripcion=descripcion,
+            codigo=codigo,
+            orden=orden,
+            nombre_archivo=file.filename or "anexo",
+            contenido=await file.read(),
+        )
+    except ValueError as error:
+        raise _anexo_http_error(error) from error
+
+
+@app.patch("/api/informes/anexos/{anexo_id}")
+async def informe_gestion_anexos_update(
+    anexo_id: int,
+    titulo: str | None = Form(default=None),
+    descripcion: str | None = Form(default=None),
+    codigo: str | None = Form(default=None),
+    orden: int | None = Form(default=None),
+    file: UploadFile | None = File(default=None),
+    session: Session = Depends(get_db),
+) -> dict:
+    """Actualiza metadatos y, opcionalmente, reemplaza el archivo."""
+    from app.services.informe_gestion_anexos import actualizar_anexo
+
+    contenido = await file.read() if file is not None else None
+    try:
+        return actualizar_anexo(
+            session,
+            anexo_id,
+            titulo=titulo,
+            descripcion=descripcion,
+            codigo=codigo,
+            orden=orden,
+            nombre_archivo=file.filename if file is not None else None,
+            contenido=contenido,
+        )
+    except ValueError as error:
+        raise _anexo_http_error(error) from error
+
+
+@app.delete("/api/informes/anexos/{anexo_id}", status_code=204)
+async def informe_gestion_anexos_delete(
+    anexo_id: int,
+    session: Session = Depends(get_db),
+) -> Response:
+    """Elimina el anexo y su archivo en disco."""
+    from app.services.informe_gestion_anexos import eliminar_anexo
+
+    try:
+        eliminar_anexo(session, anexo_id)
+    except ValueError as error:
+        raise _anexo_http_error(error) from error
+    return Response(status_code=204)
+
+
+@app.get("/api/informes/anexos/{anexo_id}/download")
+async def informe_gestion_anexos_download(
+    anexo_id: int,
+    session: Session = Depends(get_db),
+) -> FileResponse:
+    """Descarga el archivo original del anexo."""
+    from app.models import InformeGestionAnexo
+    from app.services.informe_gestion_anexos import ruta_absoluta
+
+    registro = session.get(InformeGestionAnexo, anexo_id)
+    if registro is None:
+        raise HTTPException(status_code=404, detail="Anexo no encontrado.")
+    ruta = ruta_absoluta(registro)
+    if not ruta.exists():
+        raise HTTPException(
+            status_code=404, detail="El archivo del anexo no está disponible."
+        )
+    return FileResponse(
+        path=ruta,
+        media_type=registro.content_type,
+        filename=registro.nombre_archivo,
+    )
+
+
 @app.get("/api/informes/word")
 async def informes_word_endpoint(
     year: int | None = Query(default=None, ge=2000, le=2100),

@@ -49,3 +49,6 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
+
+# Binarios cargados por la aplicación (anexos del informe de gestión)
+data/informe_gestion_anexos/
