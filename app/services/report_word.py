@@ -22,6 +22,7 @@ from typing import Any
 
 from docx import Document
 from docx.oxml.ns import qn
+from docx.shared import Inches
 from docx.text.paragraph import Paragraph
 
 from app.services.rich_text import html_to_docx_paragraphs
@@ -801,12 +802,154 @@ def _trim_trailing_empty_paragraphs(doc) -> None:
             body.remove(child)
 
 
+# Ancho máximo de las imágenes insertadas en la sección 5. Se reduce además al
+# ancho útil real de la página (ancho - márgenes) para no desbordar el DOCX.
+ANCHO_MAXIMO_IMAGEN = Inches(6.0)
+# Tope de alto: una captura muy vertical se escala manteniendo proporción para
+# no empujar la firma fuera de la página.
+ALTO_MAXIMO_IMAGEN = Inches(7.0)
+
+
+def _ancho_util(doc):
+    """Ancho disponible para una imagen dentro de los márgenes de la página."""
+    try:
+        section = doc.sections[0]
+        disponible = (
+            section.page_width - section.left_margin - section.right_margin
+        )
+    except (AttributeError, TypeError):
+        return ANCHO_MAXIMO_IMAGEN
+    if disponible and disponible > 0:
+        return min(disponible, ANCHO_MAXIMO_IMAGEN)
+    return ANCHO_MAXIMO_IMAGEN
+
+
+def _listado_anexos(doc):
+    """Devuelve ``(párrafos del listado, párrafo ancla)`` del primer ANEXOS.
+
+    La plantilla trae un ``Heading 1`` "ANEXOS" seguido del listado oficial
+    (ANEXO 1..15) y, más abajo, la firma. El ancla es el primer párrafo que ya
+    no es un ítem del listado; ahí se insertan los anexos reales para que el
+    bloque quede antes de la firma.
+    """
+    paragraphs = doc.paragraphs
+    heading = None
+    for index, paragraph in enumerate(paragraphs):
+        if paragraph.text.strip().upper() == "ANEXOS":
+            heading = index
+            break
+    if heading is None:
+        return [], None
+
+    listado = []
+    for paragraph in paragraphs[heading + 1 :]:
+        if paragraph.text.strip().upper().startswith("ANEXO"):
+            listado.append(paragraph)
+            continue
+        if listado:
+            return listado, paragraph
+    return listado, None
+
+
+def _insertar_parrafo_lista(anchor, texto: str, propiedades):
+    """Inserta un párrafo antes del ancla conservando el formato del listado."""
+    paragraph = anchor.insert_paragraph_before()
+    if propiedades is not None:
+        paragraph._p.insert(0, deepcopy(propiedades))
+    paragraph.add_run(texto)
+    return paragraph
+
+
+def _insertar_imagen(anchor, ruta: Any, ancho, alto=None) -> None:
+    """Inserta la imagen del anexo; si el archivo no es válido, no rompe el DOCX.
+
+    La limitación se documenta: un archivo corrupto o ilegible se omite y el
+    anexo queda solo como título/descripción en el listado.
+    """
+    if not ruta:
+        return
+    path = Path(str(ruta))
+    if not path.is_file():
+        return
+    paragraph = anchor.insert_paragraph_before()
+    try:
+        from docx.image.image import Image as DocxImage
+        from docx.shared import Emu
+
+        imagen = DocxImage.from_file(str(path))
+        ancho_final = int(ancho)
+        alto_final = int(ancho_final * imagen.height / imagen.width)
+        limite_alto = int(alto or ALTO_MAXIMO_IMAGEN)
+        if alto_final > limite_alto:
+            alto_final = limite_alto
+            ancho_final = int(alto_final * imagen.width / imagen.height)
+        paragraph.add_run().add_picture(
+            str(path), width=Emu(ancho_final), height=Emu(alto_final)
+        )
+    except Exception:
+        parent = paragraph._p.getparent()
+        if parent is not None:
+            parent.remove(paragraph._p)
+
+
+def _write_annex_section(
+    doc, anexos: list[dict[str, Any]] | None = None
+) -> None:
+    """Sustituye el listado genérico de §5 por los anexos reales del periodo.
+
+    * Cada anexo se escribe como ``ANEXO {n}. {título}`` (o el código manual).
+    * La descripción, si existe, va en un párrafo debajo.
+    * Si el soporte es una imagen (PNG/JPEG/WEBP), se inserta escalada al ancho
+      útil de la página; PDF y DOCX solo se listan en v1.
+    * Sin anexos cargados se conserva el listado institucional de la plantilla
+      (decisión v1: no se inventa un listado vacío ni se rompe la generación).
+    """
+    if not anexos:
+        return
+    listado, anchor = _listado_anexos(doc)
+    if anchor is None:
+        return
+
+    propiedades = (
+        deepcopy(listado[0]._p.pPr)
+        if listado and listado[0]._p.pPr is not None
+        else None
+    )
+    for paragraph in listado:
+        parent = paragraph._p.getparent()
+        if parent is not None:
+            parent.remove(paragraph._p)
+
+    ancho = _ancho_util(doc)
+    for index, anexo in enumerate(anexos, start=1):
+        codigo = str(
+            anexo.get("codigo") or f"ANEXO {index}"
+        ).strip().rstrip(".")
+        titulo = str(anexo.get("titulo") or "").strip()
+        _insertar_parrafo_lista(
+            anchor,
+            f"{codigo}. {titulo}" if titulo else codigo,
+            propiedades,
+        )
+
+        descripcion = str(anexo.get("descripcion") or "").strip()
+        if descripcion:
+            try:
+                anchor.insert_paragraph_before(descripcion, style="Body Text")
+            except KeyError:
+                anchor.insert_paragraph_before(descripcion)
+
+        if str(anexo.get("content_type") or "").startswith("image/"):
+            _insertar_imagen(anchor, anexo.get("ruta"), ancho)
+
+
 def generate_report_docx(
     dataset: dict[str, Any],
     year: int | None = None,
     quarter: int | None = None,
     cutoff: date | None = None,
     estrategias: dict[str, str] | None = None,
+    anexos: list[dict[str, Any]] | None = None,
 ) -> bytes:
     if not TEMPLATE_PATH.exists():
         raise FileNotFoundError(f"Plantilla no encontrada: {TEMPLATE_PATH}")
@@ -823,6 +966,8 @@ def generate_report_docx(
     _update_narrative(doc, dataset, contexto, estrategias)
     _remove_duplicate_annex_content(doc)
     _trim_trailing_empty_paragraphs(doc)
+    # §5. ANEXOS: reemplaza el listado genérico por los soportes del periodo.
+    _write_annex_section(doc, anexos)
 
     buffer = io.BytesIO()
     doc.save(buffer)
