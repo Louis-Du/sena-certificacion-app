@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SENA Certificación</title>
-  <link href="/static/styles.css?v=20261112-v23" rel="stylesheet">
+  <link href="/static/styles.css?v=20261114-v24" rel="stylesheet">
 </head>
 
 <body>
@@ -828,15 +828,24 @@
                 </label>
                 <div class="informe-anexo-row">
                   <label for="informe-anexo-codigo">Código (opcional)
-                    <input id="informe-anexo-codigo" name="codigo" type="text" maxlength="40" placeholder="ANEXO 1">
+                    <input id="informe-anexo-codigo" name="codigo" type="text" maxlength="40" placeholder="Automático">
+                    <small class="informe-anexo-help">Si se deja vacío, el informe numera ANEXO 1, 2, 3… según el orden. El título no debe repetir “ANEXO N”.</small>
                   </label>
                   <label for="informe-anexo-orden">Orden (opcional)
                     <input id="informe-anexo-orden" name="orden" type="number" min="1" step="1" placeholder="Automático">
                   </label>
                 </div>
-                <label for="informe-anexo-file">Archivo (PNG, JPEG, WEBP, PDF o DOCX · máx. 10 MB)
-                  <input id="informe-anexo-file" name="file" type="file" accept="image/png,image/jpeg,image/webp,application/pdf,.docx" required>
-                </label>
+                <div class="informe-anexo-field">
+                  <span class="informe-anexo-field-label">Archivo <span aria-hidden="true">*</span></span>
+                  <label id="informe-anexo-dropzone" class="informe-anexo-dropzone" for="informe-anexo-file">
+                    <span class="informe-anexo-drop-icon" aria-hidden="true">⬆</span>
+                    <strong>Arrastra un archivo aquí</strong>
+                    <span>o <span class="informe-anexo-browse">examinar</span></span>
+                    <small>PNG, JPEG, WEBP, PDF o DOCX · máx. 10 MB</small>
+                    <input id="informe-anexo-file" name="file" class="informe-anexo-file-input" type="file" accept="image/png,image/jpeg,image/webp,application/pdf,.docx" required>
+                  </label>
+                  <p id="informe-anexo-file-name" class="informe-anexo-file-name" hidden></p>
+                </div>
                 <button id="informe-anexo-submit" class="primary-button informe-save-button" type="submit">Subir anexo</button>
                 <p id="informe-anexo-status" class="detail-feedback" role="status"></p>
               </form>
@@ -1075,6 +1084,58 @@
       </div>
     </div>
   </div>
+  <div id="informe-anexo-modal" class="modal-root" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="informe-anexo-modal-title">
+    <div class="modal-backdrop" data-close-anexo-modal></div>
+    <div class="modal-dialog informe-anexo-modal-dialog" tabindex="-1">
+      <button id="informe-anexo-modal-close" class="modal-close" type="button" aria-label="Cerrar edición de anexo">×</button>
+      <div class="report-modal-header">
+        <span class="report-modal-icon" aria-hidden="true">📎</span>
+        <div>
+          <p class="eyebrow">Anexo del periodo</p>
+          <h2 id="informe-anexo-modal-title">Editar anexo</h2>
+          <p>Cambia los metadatos o reemplaza el archivo. El número del DOCX se calcula automáticamente.</p>
+        </div>
+      </div>
+      <form id="informe-anexo-edit-form" class="informe-anexo-edit">
+        <input id="informe-anexo-edit-id" type="hidden">
+        <label for="informe-anexo-edit-titulo">Título <span aria-hidden="true">*</span>
+          <input id="informe-anexo-edit-titulo" type="text" maxlength="255" required>
+        </label>
+        <label for="informe-anexo-edit-descripcion">Descripción
+          <textarea id="informe-anexo-edit-descripcion" rows="3" maxlength="4000"></textarea>
+        </label>
+        <div class="informe-anexo-row">
+          <label for="informe-anexo-edit-codigo">Código (opcional)
+            <input id="informe-anexo-edit-codigo" type="text" maxlength="40" placeholder="Automático">
+            <small class="informe-anexo-help">Si se deja vacío, el informe numera ANEXO 1, 2, 3… según el orden. El título no debe repetir “ANEXO N”.</small>
+          </label>
+          <label for="informe-anexo-edit-orden">Orden (opcional)
+            <input id="informe-anexo-edit-orden" type="number" min="1" step="1" placeholder="Automático">
+          </label>
+        </div>
+        <div class="informe-anexo-current">
+          <p class="informe-anexo-current-label">Archivo actual</p>
+          <p id="informe-anexo-current-meta" class="informe-anexo-current-meta"></p>
+          <a id="informe-anexo-current-download" class="informe-anexo-action" href="#" download>Descargar actual</a>
+        </div>
+        <div class="informe-anexo-field">
+          <label class="informe-anexo-field-label" for="informe-anexo-edit-file">Reemplazar archivo (opcional)</label>
+          <label id="informe-anexo-edit-dropzone" class="informe-anexo-dropzone informe-anexo-dropzone--compact" for="informe-anexo-edit-file">
+            <span class="informe-anexo-drop-icon" aria-hidden="true">⬆</span>
+            <strong>Arrastra el nuevo archivo o examina</strong>
+            <small>PNG, JPEG, WEBP, PDF o DOCX · máx. 10 MB</small>
+            <input id="informe-anexo-edit-file" class="informe-anexo-file-input" type="file" accept="image/png,image/jpeg,image/webp,application/pdf,.docx">
+          </label>
+          <p id="informe-anexo-edit-file-name" class="informe-anexo-file-name" hidden></p>
+        </div>
+        <p id="informe-anexo-edit-status" class="detail-feedback" role="status"></p>
+        <div class="report-modal-actions">
+          <button id="informe-anexo-edit-cancel" class="cancel-button" type="button">Cancelar</button>
+          <button id="informe-anexo-edit-save" class="primary-button" type="submit">Guardar cambios</button>
+        </div>
+      </form>
+    </div>
+  </div>
   <div id="sheets-review-modal" class="modal-root" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="sheets-review-title">
     <div class="modal-backdrop" data-close-sheets-review></div>
     <div class="modal-dialog" tabindex="-1">
@@ -1105,6 +1166,6 @@
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
   <script src="/static/vendor/chart.umd.min.js"></script>
   <script src="/static/app.js?v=20261114-v25"></script>
-  <script src="/static/ui-enhancements.js?v=20261114-v14"></script>
+  <script src="/static/ui-enhancements.js?v=20261114-v15"></script>
 </body>
 </html>

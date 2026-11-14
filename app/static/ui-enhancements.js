@@ -876,6 +876,54 @@
     "informe-anexos-periodo",
   );
   const informeExportAnexos = document.getElementById("informe-export-anexos");
+  const informeAnexoDropzone = document.getElementById("informe-anexo-dropzone");
+  const informeAnexoFileName = document.getElementById(
+    "informe-anexo-file-name",
+  );
+  const informeAnexoModal = document.getElementById("informe-anexo-modal");
+  const informeAnexoEditForm = document.getElementById(
+    "informe-anexo-edit-form",
+  );
+  const informeAnexoEditId = document.getElementById("informe-anexo-edit-id");
+  const informeAnexoEditTitulo = document.getElementById(
+    "informe-anexo-edit-titulo",
+  );
+  const informeAnexoEditDescripcion = document.getElementById(
+    "informe-anexo-edit-descripcion",
+  );
+  const informeAnexoEditCodigo = document.getElementById(
+    "informe-anexo-edit-codigo",
+  );
+  const informeAnexoEditOrden = document.getElementById(
+    "informe-anexo-edit-orden",
+  );
+  const informeAnexoEditFile = document.getElementById(
+    "informe-anexo-edit-file",
+  );
+  const informeAnexoEditDropzone = document.getElementById(
+    "informe-anexo-edit-dropzone",
+  );
+  const informeAnexoEditFileName = document.getElementById(
+    "informe-anexo-edit-file-name",
+  );
+  const informeAnexoEditStatus = document.getElementById(
+    "informe-anexo-edit-status",
+  );
+  const informeAnexoEditSave = document.getElementById(
+    "informe-anexo-edit-save",
+  );
+  const informeAnexoEditCancel = document.getElementById(
+    "informe-anexo-edit-cancel",
+  );
+  const informeAnexoModalClose = document.getElementById(
+    "informe-anexo-modal-close",
+  );
+  const informeAnexoCurrentMeta = document.getElementById(
+    "informe-anexo-current-meta",
+  );
+  const informeAnexoCurrentDownload = document.getElementById(
+    "informe-anexo-current-download",
+  );
 
   const ANEXO_MAX_BYTES = 10 * 1024 * 1024;
   const ANEXO_TIPOS = new Set([
@@ -931,11 +979,69 @@
     return fallback;
   }
 
-  function campoAnexo(etiqueta, control) {
-    const label = document.createElement("label");
-    label.textContent = etiqueta;
-    label.appendChild(control);
-    return label;
+  function anexoEsImagen(item) {
+    return String(item?.content_type || "").startsWith("image/");
+  }
+
+  function validarArchivoAnexo(archivo) {
+    if (!archivo) return "Selecciona un archivo para el anexo.";
+    if (archivo.size > ANEXO_MAX_BYTES) {
+      return "El archivo supera el máximo de 10 MB.";
+    }
+    if (archivo.type && !ANEXO_TIPOS.has(archivo.type)) {
+      return "Tipo de archivo no permitido. Usa PNG, JPEG, WEBP, PDF o DOCX.";
+    }
+    return "";
+  }
+
+  function mostrarNombreArchivo(elemento, archivo) {
+    if (!elemento) return;
+    if (!archivo) {
+      elemento.hidden = true;
+      elemento.textContent = "";
+      return;
+    }
+    elemento.hidden = false;
+    elemento.textContent = `Archivo seleccionado: ${archivo.name} · ${formatoBytesAnexo(archivo.size)}`;
+  }
+
+  function configurarDropzone(dropzone, input, nombreEl, alSeleccionar) {
+    if (!dropzone || !input) return;
+    const aplicar = (archivo) => {
+      mostrarNombreArchivo(nombreEl, archivo);
+      if (alSeleccionar) alSeleccionar(archivo);
+    };
+    input.addEventListener("change", () => {
+      aplicar(input.files?.[0] || null);
+    });
+    ["dragenter", "dragover"].forEach((evento) => {
+      dropzone.addEventListener(evento, (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        dropzone.classList.add("is-dragover");
+      });
+    });
+    dropzone.addEventListener("dragleave", (event) => {
+      if (!dropzone.contains(event.relatedTarget)) {
+        dropzone.classList.remove("is-dragover");
+      }
+    });
+    dropzone.addEventListener("drop", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      dropzone.classList.remove("is-dragover");
+      const archivo = event.dataTransfer?.files?.[0];
+      if (!archivo) return;
+      try {
+        const transferencia = new DataTransfer();
+        transferencia.items.add(archivo);
+        input.files = transferencia.files;
+      } catch (_) {
+        // Si el navegador no permite asignar files, el input conserva el
+        // archivo elegido manualmente.
+      }
+      aplicar(archivo);
+    });
   }
 
   function botonAccionAnexo(texto, accion) {
@@ -956,7 +1062,8 @@
     head.className = "informe-anexo-card-head";
     const code = document.createElement("span");
     code.className = "informe-anexo-code";
-    code.textContent = item.codigo || `ANEXO ${item.numero || item.id}`;
+    code.textContent =
+      item.rotulo || item.codigo || `ANEXO ${item.numero || item.id}`;
     const type = document.createElement("span");
     type.className = "informe-anexo-type";
     type.textContent = `${etiquetaTipoAnexo(item.content_type, item.nombre_archivo)} · ${formatoBytesAnexo(item.tamano)}`;
@@ -988,108 +1095,146 @@
       download.setAttribute("download", "");
       actions.appendChild(download);
     }
+
+    // Vista previa solo para imágenes: PDF/DOCX se quedan como ficha con
+    // acciones. El panel nace colapsado para no cargar miniaturas de golpe.
+    let previewPanel = null;
+    if (anexoEsImagen(item)) {
+      const previewButton = botonAccionAnexo("Vista previa", "preview");
+      const panelId = `informe-anexo-preview-${item.id}`;
+      previewButton.setAttribute("aria-expanded", "false");
+      previewButton.setAttribute("aria-controls", panelId);
+      previewPanel = document.createElement("div");
+      previewPanel.className = "informe-anexo-preview";
+      previewPanel.id = panelId;
+      previewPanel.hidden = true;
+      const imagen = document.createElement("img");
+      imagen.loading = "lazy";
+      imagen.decoding = "async";
+      imagen.src = item.download_url || "";
+      imagen.alt = `Vista previa de ${item.titulo || "anexo"}`;
+      previewPanel.appendChild(imagen);
+      previewButton.addEventListener("click", () => {
+        const abrir = previewPanel.hidden;
+        previewPanel.hidden = !abrir;
+        previewButton.setAttribute("aria-expanded", String(abrir));
+        previewButton.textContent = abrir ? "Ocultar vista" : "Vista previa";
+        card.classList.toggle("is-preview-open", abrir);
+      });
+      actions.appendChild(previewButton);
+    }
+
     const edit = botonAccionAnexo("Editar", "edit");
-    edit.addEventListener("click", () => editarAnexo(card, item));
+    edit.addEventListener("click", () => abrirModalAnexo(item));
     const remove = botonAccionAnexo("Eliminar", "delete");
     remove.addEventListener("click", () => eliminarAnexo(item));
     actions.append(edit, remove);
     card.appendChild(actions);
+
+    if (previewPanel) card.appendChild(previewPanel);
     return card;
   }
 
-  function editarAnexo(card, item) {
-    const form = document.createElement("form");
-    form.className = "informe-anexo-edit";
+  function cerrarModalAnexo() {
+    if (!informeAnexoModal) return;
+    informeAnexoModal.classList.remove("is-open");
+    informeAnexoModal.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+  }
 
-    const titulo = document.createElement("input");
-    titulo.type = "text";
-    titulo.maxLength = 255;
-    titulo.required = true;
-    titulo.value = item.titulo || "";
+  function abrirModalAnexo(item) {
+    if (!informeAnexoModal || !informeAnexoEditForm) return;
+    informeAnexoEditForm.reset();
+    if (informeAnexoEditId) informeAnexoEditId.value = String(item.id);
+    if (informeAnexoEditTitulo) {
+      informeAnexoEditTitulo.value = item.titulo || "";
+    }
+    if (informeAnexoEditDescripcion) {
+      informeAnexoEditDescripcion.value = item.descripcion || "";
+    }
+    if (informeAnexoEditCodigo) {
+      informeAnexoEditCodigo.value = item.codigo || "";
+    }
+    if (informeAnexoEditOrden) {
+      informeAnexoEditOrden.value = item.orden ?? "";
+    }
+    if (informeAnexoEditFile) informeAnexoEditFile.value = "";
+    mostrarNombreArchivo(informeAnexoEditFileName, null);
+    setInformeStatus(informeAnexoEditStatus, "", "info");
+    if (informeAnexoCurrentMeta) {
+      informeAnexoCurrentMeta.textContent = `${etiquetaTipoAnexo(
+        item.content_type,
+        item.nombre_archivo,
+      )} · ${formatoBytesAnexo(item.tamano)} · ${item.nombre_archivo || ""}`;
+    }
+    if (informeAnexoCurrentDownload) {
+      informeAnexoCurrentDownload.href = item.download_url || "#";
+      informeAnexoCurrentDownload.hidden = !item.download_url;
+    }
+    informeAnexoModal.classList.add("is-open");
+    informeAnexoModal.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+    window.setTimeout(() => informeAnexoEditTitulo?.focus(), 0);
+  }
 
-    const descripcion = document.createElement("textarea");
-    descripcion.rows = 3;
-    descripcion.maxLength = 4000;
-    descripcion.value = item.descripcion || "";
-
-    const codigo = document.createElement("input");
-    codigo.type = "text";
-    codigo.maxLength = 40;
-    codigo.value = item.codigo || "";
-    codigo.placeholder = "Automático";
-
-    const orden = document.createElement("input");
-    orden.type = "number";
-    orden.min = "1";
-    orden.step = "1";
-    orden.value = item.orden ?? "";
-
-    const fila = document.createElement("div");
-    fila.className = "informe-anexo-row";
-    fila.append(campoAnexo("Código", codigo), campoAnexo("Orden", orden));
-
-    const status = document.createElement("p");
-    status.className = "detail-feedback";
-    status.setAttribute("role", "status");
-
-    const acciones = document.createElement("div");
-    acciones.className = "informe-anexo-edit-actions";
-    const guardar = document.createElement("button");
-    guardar.type = "submit";
-    guardar.className = "primary-button informe-save-button";
-    guardar.textContent = "Guardar cambios";
-    const cancelar = botonAccionAnexo("Cancelar", "cancel-edit");
-    acciones.append(guardar, cancelar);
-
-    form.append(
-      campoAnexo("Título", titulo),
-      campoAnexo("Descripción", descripcion),
-      fila,
-      acciones,
-      status,
-    );
-
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const body = new FormData();
-      body.append("titulo", titulo.value.trim());
-      body.append("descripcion", descripcion.value);
-      body.append("codigo", codigo.value.trim());
-      if (orden.value) body.append("orden", orden.value);
-      guardar.disabled = true;
-      setInformeStatus(status, "Guardando cambios…", "info");
-      try {
-        const response = await fetch(`/api/informes/anexos/${item.id}`, {
-          method: "PATCH",
-          body,
-        });
-        if (!response.ok) {
-          throw new Error(
-            await mensajeErrorAnexo(
-              response,
-              "No se pudieron guardar los cambios del anexo.",
-            ),
-          );
-        }
-        showToast("Anexo actualizado correctamente.", "success");
-        await cargarAnexos();
-      } catch (error) {
-        setInformeStatus(
-          status,
-          error.message || "No se pudieron guardar los cambios.",
-          "error",
-        );
-      } finally {
-        guardar.disabled = false;
+  async function guardarAnexo(event) {
+    event.preventDefault();
+    const id = Number(informeAnexoEditId?.value || 0);
+    if (!id) return;
+    const titulo = (informeAnexoEditTitulo?.value || "").trim();
+    if (!titulo) {
+      setInformeStatus(
+        informeAnexoEditStatus,
+        "El título del anexo es obligatorio.",
+        "error",
+      );
+      return;
+    }
+    const archivo = informeAnexoEditFile?.files?.[0] || null;
+    if (archivo) {
+      const errorArchivo = validarArchivoAnexo(archivo);
+      if (errorArchivo) {
+        setInformeStatus(informeAnexoEditStatus, errorArchivo, "error");
+        return;
       }
-    });
+    }
 
-    cancelar.addEventListener("click", () => {
-      card.replaceWith(crearTarjetaAnexo(item));
-    });
+    const body = new FormData();
+    body.append("titulo", titulo);
+    body.append("descripcion", informeAnexoEditDescripcion?.value || "");
+    body.append("codigo", (informeAnexoEditCodigo?.value || "").trim());
+    if (informeAnexoEditOrden?.value) {
+      body.append("orden", informeAnexoEditOrden.value);
+    }
+    if (archivo) body.append("file", archivo, archivo.name);
 
-    card.classList.add("is-editing");
-    card.replaceChildren(form);
+    if (informeAnexoEditSave) informeAnexoEditSave.disabled = true;
+    setInformeStatus(informeAnexoEditStatus, "Guardando cambios…", "info");
+    try {
+      const response = await fetch(`/api/informes/anexos/${id}`, {
+        method: "PATCH",
+        body,
+      });
+      if (!response.ok) {
+        throw new Error(
+          await mensajeErrorAnexo(
+            response,
+            "No se pudieron guardar los cambios del anexo.",
+          ),
+        );
+      }
+      showToast("Anexo actualizado correctamente.", "success");
+      cerrarModalAnexo();
+      await cargarAnexos();
+    } catch (error) {
+      setInformeStatus(
+        informeAnexoEditStatus,
+        error.message || "No se pudieron guardar los cambios.",
+        "error",
+      );
+    } finally {
+      if (informeAnexoEditSave) informeAnexoEditSave.disabled = false;
+    }
   }
 
   async function eliminarAnexo(item) {
@@ -1131,28 +1276,9 @@
       );
       return;
     }
-    if (!archivo) {
-      setInformeStatus(
-        informeAnexoStatus,
-        "Selecciona un archivo para el anexo.",
-        "error",
-      );
-      return;
-    }
-    if (archivo.size > ANEXO_MAX_BYTES) {
-      setInformeStatus(
-        informeAnexoStatus,
-        "El archivo supera el máximo de 10 MB.",
-        "error",
-      );
-      return;
-    }
-    if (archivo.type && !ANEXO_TIPOS.has(archivo.type)) {
-      setInformeStatus(
-        informeAnexoStatus,
-        "Tipo de archivo no permitido. Usa PNG, JPEG, WEBP, PDF o DOCX.",
-        "error",
-      );
+    const errorArchivo = validarArchivoAnexo(archivo);
+    if (errorArchivo) {
+      setInformeStatus(informeAnexoStatus, errorArchivo, "error");
       return;
     }
     const body = new FormData();
@@ -1181,6 +1307,7 @@
         );
       }
       informeAnexoForm?.reset();
+      mostrarNombreArchivo(informeAnexoFileName, null);
       setInformeStatus(
         informeAnexoStatus,
         `Anexo cargado en ${etiquetaPeriodo(periodo)}.`,
@@ -1251,7 +1378,53 @@
     }
   }
 
+  configurarDropzone(
+    informeAnexoDropzone,
+    informeAnexoFile,
+    informeAnexoFileName,
+    (archivo) => {
+      if (!archivo) return;
+      const error = validarArchivoAnexo(archivo);
+      setInformeStatus(
+        informeAnexoStatus,
+        error || "",
+        error ? "error" : "info",
+      );
+    },
+  );
+
+  configurarDropzone(
+    informeAnexoEditDropzone,
+    informeAnexoEditFile,
+    informeAnexoEditFileName,
+    (archivo) => {
+      if (!archivo) return;
+      const error = validarArchivoAnexo(archivo);
+      setInformeStatus(
+        informeAnexoEditStatus,
+        error || "",
+        error ? "error" : "info",
+      );
+    },
+  );
+
   informeAnexoForm?.addEventListener("submit", subirAnexo);
+  informeAnexoEditForm?.addEventListener("submit", guardarAnexo);
+  informeAnexoEditCancel?.addEventListener("click", cerrarModalAnexo);
+  informeAnexoModalClose?.addEventListener("click", cerrarModalAnexo);
+  informeAnexoModal
+    ?.querySelectorAll("[data-close-anexo-modal]")
+    .forEach((elemento) => {
+      elemento.addEventListener("click", cerrarModalAnexo);
+    });
+  document.addEventListener("keydown", (event) => {
+    if (
+      event.key === "Escape" &&
+      informeAnexoModal?.classList.contains("is-open")
+    ) {
+      cerrarModalAnexo();
+    }
+  });
 
   function activarTabInforme(nombre) {
     informeTabButtons.forEach((button) => {
