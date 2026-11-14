@@ -317,10 +317,10 @@
   const quickInputPorCodigo = new Map(
     Array.from(informeQuickInputs).map((input) => [input.dataset.estrategiaQuick, input]),
   );
-  const textareaPorCodigo = new Map(
-    Array.from(informeTextareas).map((textarea) => [
-      textarea.dataset.estrategiaSeccion,
-      textarea,
+  const editorPorCodigo = new Map(
+    Array.from(informeTextareas).map((editor) => [
+      editor.dataset.estrategiaSeccion,
+      editor,
     ]),
   );
 
@@ -357,10 +357,156 @@
     return `Trimestre ${ROMANOS[trimestre] || trimestre} ${anio}`;
   }
 
+  const ETIQUETAS_ESTRATEGIA = new Set([
+    "p",
+    "br",
+    "strong",
+    "em",
+    "ul",
+    "ol",
+    "li",
+  ]);
+  const ETIQUETAS_PELIGROSAS = new Set([
+    "script",
+    "style",
+    "iframe",
+    "object",
+    "embed",
+    "svg",
+    "math",
+    "template",
+    "noscript",
+    "form",
+    "input",
+    "button",
+    "audio",
+    "video",
+    "canvas",
+  ]);
+
+  // Normaliza el HTML que produce ``contenteditable``/``execCommand`` al mismo
+  // subconjunto que valida el backend. Evita que un navegador guarde
+  // ``<span style="font-weight:bold">`` y que ese formato se pierda al
+  // convertirlo a runs de python-docx.
+  function normalizarNodoEstrategia(nodo, destino) {
+    nodo.childNodes.forEach((hijo) => {
+      if (hijo.nodeType === Node.TEXT_NODE) {
+        destino.appendChild(document.createTextNode(hijo.nodeValue || ""));
+        return;
+      }
+      if (hijo.nodeType !== Node.ELEMENT_NODE) return;
+      const tag = hijo.tagName.toLowerCase();
+      if (ETIQUETAS_PELIGROSAS.has(tag)) return;
+      if (tag === "span") {
+        const estilo = (hijo.getAttribute("style") || "").toLowerCase();
+        if (/font-weight\s*:\s*(bold|[6-9]00)/.test(estilo)) {
+          const strong = document.createElement("strong");
+          normalizarNodoEstrategia(hijo, strong);
+          destino.appendChild(strong);
+          return;
+        }
+        if (/font-style\s*:\s*italic/.test(estilo)) {
+          const em = document.createElement("em");
+          normalizarNodoEstrategia(hijo, em);
+          destino.appendChild(em);
+          return;
+        }
+        normalizarNodoEstrategia(hijo, destino);
+        return;
+      }
+      let etiqueta = tag;
+      if (tag === "b") etiqueta = "strong";
+      else if (tag === "i") etiqueta = "em";
+      else if (tag === "div") etiqueta = "p";
+      if (!ETIQUETAS_ESTRATEGIA.has(etiqueta)) {
+        normalizarNodoEstrategia(hijo, destino);
+        return;
+      }
+      const nuevo = document.createElement(etiqueta);
+      if (etiqueta !== "br") normalizarNodoEstrategia(hijo, nuevo);
+      destino.appendChild(nuevo);
+    });
+  }
+
+  function normalizarHtmlEstrategia(value) {
+    const html = String(value || "").trim();
+    if (!html) return "";
+    const contenedor = document.createElement("div");
+    contenedor.innerHTML = html;
+    const salida = document.createElement("div");
+    normalizarNodoEstrategia(contenedor, salida);
+    if (!salida.textContent.replace(/\u00a0/g, " ").trim()) return "";
+    return salida.innerHTML;
+  }
+
+  function textoPlanoEstrategia(value) {
+    const html = normalizarHtmlEstrategia(value);
+    if (!html) return "";
+    const contenedor = document.createElement("div");
+    contenedor.innerHTML = html;
+    const bloques = Array.from(
+      contenedor.querySelectorAll("p, li"),
+    ).filter((bloque) => !(bloque.tagName === "P" && bloque.closest("li")));
+    if (bloques.length) {
+      return bloques
+        .map((bloque) => bloque.textContent.replace(/\u00a0/g, " ").trim())
+        .filter(Boolean)
+        .join(" ");
+    }
+    return contenedor.textContent.replace(/\u00a0/g, " ").trim();
+  }
+
+  // Los textos históricos son plano: se muestran como párrafos simples.
+  function htmlParaEditor(value) {
+    const html = normalizarHtmlEstrategia(value);
+    if (!html) return "";
+    if (!/<[a-z][^>]*>/i.test(html)) {
+      return html
+        .split(/\r?\n/)
+        .map((linea) => linea.trim())
+        .filter(Boolean)
+        .map((linea) => `<p>${escapeHtml(linea)}</p>`)
+        .join("");
+    }
+    return html;
+  }
+
+  function actualizarPlaceholderEditor(editor) {
+    if (!editor) return;
+    const vacio = !textoPlanoEstrategia(editor.innerHTML);
+    editor.classList.toggle("is-empty", vacio);
+  }
+
+  function actualizarEstadoToolbar(editor) {
+    const contenedor = editor?.closest("[data-estrategia-editor]");
+    const toolbar = contenedor?.querySelector(".informe-editor-toolbar");
+    if (!toolbar) return;
+    toolbar.querySelectorAll("[data-editor-command]").forEach((button) => {
+      const comando = button.dataset.editorCommand;
+      if (
+        !["bold", "italic", "insertUnorderedList", "insertOrderedList"].includes(
+          comando,
+        )
+      ) {
+        return;
+      }
+      let activo = false;
+      try {
+        activo = document.queryCommandState(comando);
+      } catch (_) {
+        activo = false;
+      }
+      button.classList.toggle("is-active", activo);
+      button.setAttribute("aria-pressed", String(activo));
+    });
+  }
+
   function seccionesDelFormulario() {
     const secciones = {};
-    informeTextareas.forEach((textarea) => {
-      secciones[textarea.dataset.estrategiaSeccion] = textarea.value || "";
+    informeTextareas.forEach((editor) => {
+      secciones[editor.dataset.estrategiaSeccion] = normalizarHtmlEstrategia(
+        editor.innerHTML,
+      );
     });
     return secciones;
   }
@@ -375,7 +521,7 @@
   function sincronizarBorradoresRapidos(secciones) {
     informeQuickInputs.forEach((input) => {
       const codigo = input.dataset.estrategiaQuick;
-      input.value = secciones[codigo] || "";
+      input.value = textoPlanoEstrategia(secciones[codigo] || "");
     });
   }
 
@@ -541,7 +687,7 @@
 
   function renderResumenEstrategias(secciones, periodo = periodoInforme()) {
     const cargadas = SECCIONES_INFORME.filter(
-      ([key]) => String(secciones[key] || "").trim().length > 0,
+      ([key]) => Boolean(normalizarHtmlEstrategia(secciones[key] || "")),
     ).length;
     if (informeExportPeriodo) {
       informeExportPeriodo.textContent = etiquetaPeriodo(periodo);
@@ -549,7 +695,9 @@
     if (informeExportSummary) {
       informeExportSummary.replaceChildren();
       SECCIONES_INFORME.forEach(([key, label]) => {
-        const tieneTexto = String(secciones[key] || "").trim().length > 0;
+        const tieneTexto = Boolean(
+          normalizarHtmlEstrategia(secciones[key] || ""),
+        );
         const item = document.createElement("li");
         item.className = tieneTexto ? "is-filled" : "is-empty";
         const code = document.createElement("strong");
@@ -571,14 +719,17 @@
 
   function aplicarEstrategias(data, periodo = periodoInforme()) {
     const secciones = data?.secciones || {};
-    informeTextareas.forEach((textarea) => {
-      textarea.value = secciones[textarea.dataset.estrategiaSeccion] || "";
+    informeTextareas.forEach((editor) => {
+      editor.innerHTML = htmlParaEditor(
+        secciones[editor.dataset.estrategiaSeccion] || "",
+      );
+      actualizarPlaceholderEditor(editor);
     });
     sincronizarBorradoresRapidos(secciones);
     marcarInformeDirty(false);
     renderResumenEstrategias(secciones, periodo);
     const cargadas = SECCIONES_INFORME.filter(
-      ([key]) => String(secciones[key] || "").trim().length > 0,
+      ([key]) => Boolean(normalizarHtmlEstrategia(secciones[key] || "")),
     ).length;
     setInformeStatus(
       informeStatus,
@@ -704,21 +855,88 @@
   });
 
   informeForm?.addEventListener("submit", (event) => guardarEstrategias({ event }));
-  informeTextareas.forEach((textarea) => {
-    textarea.addEventListener("input", () => {
-      const quick = quickInputPorCodigo.get(textarea.dataset.estrategiaSeccion);
-      if (quick) quick.value = textarea.value;
+
+  document.querySelectorAll("[data-estrategia-editor]").forEach((contenedor) => {
+    const editor = contenedor.querySelector("[data-estrategia-seccion]");
+    const toolbar = contenedor.querySelector(".informe-editor-toolbar");
+    if (!editor || !toolbar) return;
+
+    // ``mousedown`` con preventDefault conserva la selección del editor al
+    // pulsar la barra de herramientas.
+    toolbar.addEventListener("mousedown", (event) => {
+      if (event.target.closest("[data-editor-command]")) event.preventDefault();
+    });
+    toolbar.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-editor-command]");
+      if (!button) return;
+      const comando = button.dataset.editorCommand;
+      if (
+        ![
+          "bold",
+          "italic",
+          "insertUnorderedList",
+          "insertOrderedList",
+          "undo",
+          "redo",
+        ].includes(comando)
+      ) {
+        return;
+      }
+      editor.focus();
+      // Fuerza etiquetas (<b>/<i>) en lugar de estilos inline.
+      try {
+        document.execCommand("styleWithCSS", false, false);
+        document.execCommand(comando, false, null);
+      } catch (_) {}
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+      actualizarEstadoToolbar(editor);
+    });
+  });
+
+  informeTextareas.forEach((editor) => {
+    editor.addEventListener("input", () => {
+      actualizarPlaceholderEditor(editor);
+      const quick = quickInputPorCodigo.get(editor.dataset.estrategiaSeccion);
+      if (quick) quick.value = textoPlanoEstrategia(editor.innerHTML);
       marcarInformeDirty(true);
       renderResumenEstrategias(seccionesDelFormulario());
       setInformeStatus(informeStatus, "Cambios sin guardar.", "warning");
     });
+    // Pegado como texto plano: evita arrastrar estilos/tablas de Word.
+    editor.addEventListener("paste", (event) => {
+      event.preventDefault();
+      const texto =
+        (event.clipboardData || window.clipboardData)?.getData("text/plain") ||
+        "";
+      editor.focus();
+      try {
+        document.execCommand("insertText", false, texto);
+      } catch (_) {
+        editor.textContent += texto;
+      }
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    editor.addEventListener("focus", () => actualizarEstadoToolbar(editor));
+    actualizarPlaceholderEditor(editor);
+  });
+
+  document.addEventListener("selectionchange", () => {
+    const activo = document.activeElement;
+    if (activo && activo.matches("[data-estrategia-seccion]")) {
+      actualizarEstadoToolbar(activo);
+    }
   });
 
   informeQuickInputs.forEach((input) => {
     const codigo = input.dataset.estrategiaQuick;
     input.addEventListener("input", () => {
-      const textarea = textareaPorCodigo.get(codigo);
-      if (textarea) textarea.value = input.value;
+      const editor = editorPorCodigo.get(codigo);
+      if (editor) {
+        editor.innerHTML = input.value
+          ? `<p>${escapeHtml(input.value)}</p>`
+          : "";
+        actualizarPlaceholderEditor(editor);
+      }
       marcarInformeDirty(true);
       renderResumenEstrategias(seccionesDelFormulario());
       setInformeStatus(informeStatus, "Cambios sin guardar.", "warning");
