@@ -69,6 +69,8 @@
   const reportScope = document.getElementById("report-scope");
   const reportDetail = document.getElementById("report-detail");
   const reportFormat = document.getElementById("report-format");
+  const reportQuarter = document.getElementById("report-quarter");
+  const reportMode = document.getElementById("report-mode");
   let selectedReportType = "consolidado";
   let reportCatalog = [];
   let isGenerating = false;
@@ -159,6 +161,15 @@
       if (formats.includes(previous)) reportFormat.value = previous;
       else reportFormat.value = formats[0] || "xlsx";
     }
+
+    // El informe de gestión oficial solo usa DOCX. Desde el modal se ofrece el
+    // acceso directo a la sección donde se redactan las estrategias del periodo.
+    if (reportOpenEstrategias) {
+      const esInformeGestion =
+        ["consolidado", "general"].includes(selectedReportType) &&
+        formats.includes("docx");
+      reportOpenEstrategias.hidden = !esInformeGestion;
+    }
   }
 
   function getLearnerFilters() {
@@ -184,6 +195,8 @@
         format,
         scope,
         detail,
+        trimestre: reportQuarter?.value || "T3",
+        modo: reportMode?.value || "acumulado",
       });
       if (scope === "filtrado") {
         const filters = getLearnerFilters();
@@ -258,6 +271,848 @@
   });
 
   loadCatalog();
+
+  /* ---------------- Informe de gestión: estrategias por periodo ---------------- */
+  const informeView = document.getElementById("informe-gestion-view");
+  const informeAnio = document.getElementById("informe-anio");
+  const informeTrimestre = document.getElementById("informe-trimestre");
+  const informeForm = document.getElementById("informe-estrategias-form");
+  const informeSave = document.getElementById("informe-estrategias-save");
+  const informeStatus = document.getElementById("informe-estrategias-status");
+  const informeBadge = document.getElementById("informe-estrategias-badge");
+  const informeExportMode = document.getElementById("informe-export-mode");
+  const informeExportGenerate = document.getElementById("informe-export-generate");
+  const informeExportStatus = document.getElementById("informe-export-status");
+  const informeExportSummary = document.getElementById("informe-export-summary");
+  const informeExportPeriodo = document.getElementById("informe-export-periodo");
+  const informeExportHint = document.getElementById("informe-export-hint");
+  const informeTabButtons = document.querySelectorAll("[data-informe-tab]");
+  const informePanels = document.querySelectorAll("[data-informe-panel]");
+  const informeTextareas = document.querySelectorAll("[data-estrategia-seccion]");
+  const informeAccordionToggles = document.querySelectorAll("[data-accordion-toggle]");
+  const informeContextCards = document.querySelectorAll("[data-context-section]");
+  const reportOpenEstrategias = document.getElementById("report-open-estrategias");
+  const SECCIONES_INFORME = [
+    ["3.1.1", "Educación Superior"],
+    ["3.1.2", "Técnico Laboral y Otros (sin incluir Media Técnica)"],
+    ["3.1.3", "Articulación con la Media"],
+    ["3.1.4", "Formación Complementaria"],
+    ["3.1.5", "Certificación Total / Centros de Formación"],
+    ["3.2", "Otras actividades del trimestre"],
+  ];
+  const ROMANOS = { T1: "I", T2: "II", T3: "III", T4: "IV" };
+  // Cada bloque del informe consume una categoría del consolidado ACTAS.
+  const CONTEXTO_POR_SECCION = {
+    "3.1.1": "superior",
+    "3.1.2": "tecnica",
+    "3.1.3": "articulacion",
+    "3.1.4": "complementaria",
+  };
+  const numeroInforme = new Intl.NumberFormat("es-CO");
+  const porcentajeInforme = new Intl.NumberFormat("es-CO", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+
+  let informePeriodoActual = { anio: 2026, trimestre: "T3" };
+  let informeCargado = false;
+  let informeDirty = false;
+  let informeLoadToken = 0;
+  let informeContextoToken = 0;
+
+  function setInformeStatus(element, message, kind) {
+    if (!element) return;
+    element.textContent = message || "";
+    element.className = "detail-feedback" + (kind ? " " + kind : "");
+  }
+
+  function periodoInforme() {
+    const anio = Number.parseInt(informeAnio?.value, 10) || 2026;
+    return {
+      anio,
+      trimestre: informeTrimestre?.value || "T3",
+    };
+  }
+
+  function mismoPeriodo(primero, segundo) {
+    return Boolean(
+      primero &&
+        segundo &&
+        primero.anio === segundo.anio &&
+        primero.trimestre === segundo.trimestre,
+    );
+  }
+
+  function etiquetaPeriodo({ anio, trimestre }) {
+    return `Trimestre ${ROMANOS[trimestre] || trimestre} ${anio}`;
+  }
+
+  const ETIQUETAS_ESTRATEGIA = new Set([
+    "p",
+    "br",
+    "strong",
+    "em",
+    "ul",
+    "ol",
+    "li",
+  ]);
+  const ETIQUETAS_PELIGROSAS = new Set([
+    "script",
+    "style",
+    "iframe",
+    "object",
+    "embed",
+    "svg",
+    "math",
+    "template",
+    "noscript",
+    "form",
+    "input",
+    "button",
+    "audio",
+    "video",
+    "canvas",
+  ]);
+
+  // Normaliza el HTML que produce ``contenteditable``/``execCommand`` al mismo
+  // subconjunto que valida el backend. Evita que un navegador guarde
+  // ``<span style="font-weight:bold">`` y que ese formato se pierda al
+  // convertirlo a runs de python-docx.
+  function normalizarNodoEstrategia(nodo, destino) {
+    nodo.childNodes.forEach((hijo) => {
+      if (hijo.nodeType === Node.TEXT_NODE) {
+        destino.appendChild(document.createTextNode(hijo.nodeValue || ""));
+        return;
+      }
+      if (hijo.nodeType !== Node.ELEMENT_NODE) return;
+      const tag = hijo.tagName.toLowerCase();
+      if (ETIQUETAS_PELIGROSAS.has(tag)) return;
+      if (tag === "span") {
+        const estilo = (hijo.getAttribute("style") || "").toLowerCase();
+        if (/font-weight\s*:\s*(bold|[6-9]00)/.test(estilo)) {
+          const strong = document.createElement("strong");
+          normalizarNodoEstrategia(hijo, strong);
+          destino.appendChild(strong);
+          return;
+        }
+        if (/font-style\s*:\s*italic/.test(estilo)) {
+          const em = document.createElement("em");
+          normalizarNodoEstrategia(hijo, em);
+          destino.appendChild(em);
+          return;
+        }
+        normalizarNodoEstrategia(hijo, destino);
+        return;
+      }
+      let etiqueta = tag;
+      if (tag === "b") etiqueta = "strong";
+      else if (tag === "i") etiqueta = "em";
+      else if (tag === "div") etiqueta = "p";
+      if (!ETIQUETAS_ESTRATEGIA.has(etiqueta)) {
+        normalizarNodoEstrategia(hijo, destino);
+        return;
+      }
+      const nuevo = document.createElement(etiqueta);
+      if (etiqueta !== "br") normalizarNodoEstrategia(hijo, nuevo);
+      destino.appendChild(nuevo);
+    });
+  }
+
+  function normalizarHtmlEstrategia(value) {
+    const html = String(value || "").trim();
+    if (!html) return "";
+    const contenedor = document.createElement("div");
+    contenedor.innerHTML = html;
+    const salida = document.createElement("div");
+    normalizarNodoEstrategia(contenedor, salida);
+    if (!salida.textContent.replace(/\u00a0/g, " ").trim()) return "";
+    return salida.innerHTML;
+  }
+
+  function textoPlanoAHtmlEstrategia(texto) {
+    return String(texto || "")
+      .replace(/\r\n?/g, "\n")
+      .split("\n")
+      .map((linea) => linea.trim())
+      .filter(Boolean)
+      .map((linea) => `<p>${escapeHtml(linea)}</p>`)
+      .join("");
+  }
+
+  // Convierte el HTML externo (Word, navegador, Excel) al subconjunto que
+  // entiende el editor. ``template`` no ejecuta scripts y el normalizador
+  // elimina las etiquetas peligrosas junto con su contenido.
+  function htmlParaPegadoEstrategia(value) {
+    const html = String(value || "").trim();
+    if (!html) return "";
+    if (!/<[a-z][^>]*>/i.test(html)) {
+      return textoPlanoAHtmlEstrategia(html);
+    }
+    const plantilla = document.createElement("template");
+    plantilla.innerHTML = html;
+    const contenedor = document.createElement("div");
+    contenedor.appendChild(plantilla.content);
+    const salida = document.createElement("div");
+    normalizarNodoEstrategia(contenedor, salida);
+    return salida.innerHTML;
+  }
+
+  function textoPlanoEstrategia(value) {
+    const html = normalizarHtmlEstrategia(value);
+    if (!html) return "";
+    const contenedor = document.createElement("div");
+    contenedor.innerHTML = html;
+    const bloques = Array.from(
+      contenedor.querySelectorAll("p, li"),
+    ).filter((bloque) => !(bloque.tagName === "P" && bloque.closest("li")));
+    if (bloques.length) {
+      return bloques
+        .map((bloque) => bloque.textContent.replace(/\u00a0/g, " ").trim())
+        .filter(Boolean)
+        .join(" ");
+    }
+    return contenedor.textContent.replace(/\u00a0/g, " ").trim();
+  }
+
+  // Los textos históricos son plano: se muestran como párrafos simples.
+  function htmlParaEditor(value) {
+    const html = normalizarHtmlEstrategia(value);
+    if (!html) return "";
+    if (!/<[a-z][^>]*>/i.test(html)) {
+      return html
+        .split(/\r?\n/)
+        .map((linea) => linea.trim())
+        .filter(Boolean)
+        .map((linea) => `<p>${escapeHtml(linea)}</p>`)
+        .join("");
+    }
+    return html;
+  }
+
+  function actualizarPlaceholderEditor(editor) {
+    if (!editor) return;
+    const vacio = !textoPlanoEstrategia(editor.innerHTML);
+    editor.classList.toggle("is-empty", vacio);
+  }
+
+  function actualizarEstadoToolbar(editor) {
+    const contenedor = editor?.closest("[data-estrategia-editor]");
+    const toolbar = contenedor?.querySelector(".informe-editor-toolbar");
+    if (!toolbar) return;
+    toolbar.querySelectorAll("[data-editor-command]").forEach((button) => {
+      const comando = button.dataset.editorCommand;
+      if (
+        !["bold", "italic", "insertUnorderedList", "insertOrderedList"].includes(
+          comando,
+        )
+      ) {
+        return;
+      }
+      let activo = false;
+      try {
+        activo = document.queryCommandState(comando);
+      } catch (_) {
+        activo = false;
+      }
+      button.classList.toggle("is-active", activo);
+      button.setAttribute("aria-pressed", String(activo));
+    });
+  }
+
+  function seccionesDelFormulario() {
+    const secciones = {};
+    informeTextareas.forEach((editor) => {
+      secciones[editor.dataset.estrategiaSeccion] = normalizarHtmlEstrategia(
+        editor.innerHTML,
+      );
+    });
+    return secciones;
+  }
+
+  function marcarInformeDirty(dirty) {
+    informeDirty = dirty;
+    if (!informeBadge) return;
+    informeBadge.textContent = dirty ? "SIN GUARDAR" : "GUARDADO";
+    informeBadge.className = "result-badge " + (dirty ? "pending" : "ready");
+  }
+
+  function resumenLineaEstrategia(value) {
+    const texto = textoPlanoEstrategia(value).replace(/\s+/g, " ").trim();
+    if (!texto) return "Vacío";
+    return texto.length > 80 ? `${texto.slice(0, 77)}…` : texto;
+  }
+
+  // El acordeón contraído solo muestra el estado del texto. La edición vive
+  // exclusivamente en el editor enriquecido que aparece al expandir.
+  function actualizarEstadoAcordeones(secciones) {
+    informeAccordionToggles.forEach((toggle) => {
+      const article = toggle.closest("[data-accordion-section]");
+      const codigo = article?.dataset.accordionSection;
+      const status = article?.querySelector("[data-accordion-status]");
+      if (!codigo || !status) return;
+      const resumen = resumenLineaEstrategia(secciones[codigo] || "");
+      status.textContent = resumen;
+      status.classList.toggle("is-filled", resumen !== "Vacío");
+    });
+  }
+
+  function alternarAcordeon(button) {
+    const article = button.closest("[data-accordion-section]");
+    const panel = document.getElementById(button.getAttribute("aria-controls") || "");
+    if (!article || !panel) return;
+    const abierto = button.getAttribute("aria-expanded") === "true";
+    button.setAttribute("aria-expanded", String(!abierto));
+    article.classList.toggle("is-open", !abierto);
+    panel.hidden = abierto;
+  }
+
+  function numeroInformeValido(value) {
+    return (
+      value !== null &&
+      value !== undefined &&
+      value !== "" &&
+      Number.isFinite(Number(value))
+    );
+  }
+
+  function formatearNumeroInforme(value) {
+    return numeroInformeValido(value) ? numeroInforme.format(Number(value)) : "—";
+  }
+
+  function formatearPorcentajeInforme(value) {
+    return numeroInformeValido(value)
+      ? `${porcentajeInforme.format(Number(value))}%`
+      : "—";
+  }
+
+  function severidadContexto(avance, esperado = null) {
+    if (!numeroInformeValido(avance)) {
+      return { clase: "is-neutral", texto: "Sin datos" };
+    }
+    const valor = Number(avance);
+    if (valor >= 100) return { clase: "is-good", texto: "Meta cumplida" };
+    if (numeroInformeValido(esperado)) {
+      // Misma regla de prorrateo del informe: 25 % por trimestre acumulado.
+      const referencia = Number(esperado);
+      if (referencia > 0 && valor >= referencia) {
+        return { clase: "is-good", texto: "En camino" };
+      }
+      if (referencia > 0 && valor >= referencia * 0.6) {
+        return { clase: "is-warning", texto: "En riesgo" };
+      }
+      return { clase: "is-critical", texto: "Crítico" };
+    }
+    if (valor >= 60) return { clase: "is-good", texto: "En camino" };
+    if (valor >= 30) return { clase: "is-warning", texto: "En riesgo" };
+    return { clase: "is-critical", texto: "Crítico" };
+  }
+
+  function prorrateoEsperado(trimestre, modo) {
+    if (modo === "solo_trimestre") return 25;
+    const ordinal = Number.parseInt(String(trimestre || "").replace(/\D/g, ""), 10);
+    return 25 * Math.min(4, Math.max(1, ordinal || 3));
+  }
+
+  function renderContextoSeccion(codigo, metrica, esperado = null) {
+    const card = Array.from(informeContextCards).find(
+      (element) => element.dataset.contextSection === codigo,
+    );
+    if (!card) return;
+
+    const meta = metrica?.meta ?? null;
+    const ejecucion = metrica?.certificados ?? metrica?.total_certificados ?? null;
+    let avance = metrica?.avance ?? null;
+    if (
+      !numeroInformeValido(avance) &&
+      numeroInformeValido(meta) &&
+      Number(meta) > 0 &&
+      numeroInformeValido(ejecucion)
+    ) {
+      avance = (Number(ejecucion) / Number(meta)) * 100;
+    }
+
+    const severidad = severidadContexto(avance, esperado);
+    const porcentaje = formatearPorcentajeInforme(avance);
+    const ancho = numeroInformeValido(avance)
+      ? Math.min(100, Math.max(0, Number(avance)))
+      : 0;
+
+    const metaEl = card.querySelector("[data-context-meta]");
+    const ejecucionEl = card.querySelector("[data-context-ejecucion]");
+    const ejecucionPctEl = card.querySelector("[data-context-ejecucion-pct]");
+    const pctEl = card.querySelector("[data-context-pct]");
+    const barEl = card.querySelector("[data-context-bar]");
+    const badgeEl = card.querySelector("[data-context-badge]");
+
+    if (metaEl) metaEl.textContent = formatearNumeroInforme(meta);
+    if (ejecucionEl) ejecucionEl.textContent = formatearNumeroInforme(ejecucion);
+    if (ejecucionPctEl) {
+      ejecucionPctEl.textContent = numeroInformeValido(avance)
+        ? `${porcentaje} del avance`
+        : "Sin porcentaje";
+    }
+    if (pctEl) pctEl.textContent = porcentaje;
+    if (barEl) barEl.style.width = `${ancho.toFixed(1)}%`;
+
+    card.classList.remove("is-neutral", "is-critical", "is-warning", "is-good");
+    card.classList.add(severidad.clase);
+    if (badgeEl) {
+      badgeEl.classList.remove("is-neutral", "is-critical", "is-warning", "is-good");
+      badgeEl.classList.add(severidad.clase);
+      const em = badgeEl.querySelector("em");
+      if (em) em.textContent = severidad.texto;
+    }
+  }
+
+  function renderContextoInforme(data, periodo) {
+    const etiqueta = etiquetaPeriodo(periodo);
+    document.querySelectorAll("[data-context-periodo]").forEach((element) => {
+      element.textContent = etiqueta;
+    });
+
+    const modo = informeExportMode?.value || "acumulado";
+    const esperado = prorrateoEsperado(periodo.trimestre, modo);
+    const metricas = data?.metricas || data?.desglose_por_categoria || [];
+    const porCategoria = new Map(
+      metricas.map((metrica) => [metrica.category, metrica]),
+    );
+    Object.entries(CONTEXTO_POR_SECCION).forEach(([codigo, categoria]) => {
+      renderContextoSeccion(codigo, porCategoria.get(categoria), esperado);
+    });
+
+    const resumen = data?.resumen_ejecutivo || {};
+    renderContextoSeccion("3.1.5", {
+      meta: resumen.meta_total ?? resumen.total_meta ?? null,
+      certificados:
+        resumen.total_certificados ?? resumen.certificados_personas ?? null,
+      avance: resumen.avance_global ?? null,
+    }, esperado);
+  }
+
+  async function cargarContextoInforme() {
+    if (!informeView || !informeContextCards.length) return;
+    const periodo = periodoInforme();
+    const modo = informeExportMode?.value || "acumulado";
+    const token = ++informeContextoToken;
+    try {
+      const params = new URLSearchParams({
+        year: String(periodo.anio),
+        trimestre: periodo.trimestre,
+        modo,
+      });
+      const response = await fetch(
+        `/api/informes/consolidado?${params.toString()}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) {
+        throw new Error("No se pudo cargar el contexto estadístico.");
+      }
+      const data = await response.json();
+      if (token !== informeContextoToken) return;
+      renderContextoInforme(data, periodo);
+    } catch (_) {
+      if (token !== informeContextoToken) return;
+      renderContextoInforme(null, periodo);
+    }
+  }
+
+  function renderResumenEstrategias(secciones, periodo = periodoInforme()) {
+    actualizarEstadoAcordeones(secciones);
+    const cargadas = SECCIONES_INFORME.filter(
+      ([key]) => Boolean(normalizarHtmlEstrategia(secciones[key] || "")),
+    ).length;
+    if (informeExportPeriodo) {
+      informeExportPeriodo.textContent = etiquetaPeriodo(periodo);
+    }
+    if (informeExportSummary) {
+      informeExportSummary.replaceChildren();
+      SECCIONES_INFORME.forEach(([key, label]) => {
+        const tieneTexto = Boolean(
+          normalizarHtmlEstrategia(secciones[key] || ""),
+        );
+        const item = document.createElement("li");
+        item.className = tieneTexto ? "is-filled" : "is-empty";
+        const code = document.createElement("strong");
+        code.textContent = key;
+        const text = document.createElement("span");
+        text.textContent = label;
+        const state = document.createElement("em");
+        state.textContent = tieneTexto ? "Cargada" : "Pendiente";
+        item.append(code, text, state);
+        informeExportSummary.appendChild(item);
+      });
+    }
+    if (informeExportHint) {
+      informeExportHint.textContent = cargadas
+        ? `${cargadas} de ${SECCIONES_INFORME.length} secciones tienen texto. Las vacías se generarán con el placeholder institucional.`
+        : "Aún no hay estrategias guardadas para este periodo. Las secciones vacías se generarán con el placeholder institucional.";
+    }
+  }
+
+  function aplicarEstrategias(data, periodo = periodoInforme()) {
+    const secciones = data?.secciones || {};
+    informeTextareas.forEach((editor) => {
+      editor.innerHTML = htmlParaEditor(
+        secciones[editor.dataset.estrategiaSeccion] || "",
+      );
+      actualizarPlaceholderEditor(editor);
+    });
+    marcarInformeDirty(false);
+    renderResumenEstrategias(secciones, periodo);
+    const cargadas = SECCIONES_INFORME.filter(
+      ([key]) => Boolean(normalizarHtmlEstrategia(secciones[key] || "")),
+    ).length;
+    setInformeStatus(
+      informeStatus,
+      cargadas
+        ? `Textos de ${etiquetaPeriodo(periodo)} cargados.`
+        : `No hay textos guardados para ${etiquetaPeriodo(periodo)} todavía.`,
+      "",
+    );
+  }
+
+  async function cargarEstrategias() {
+    if (!informeView) return;
+    const periodo = periodoInforme();
+    informePeriodoActual = periodo;
+    const token = ++informeLoadToken;
+    cargarContextoInforme();
+    setInformeStatus(informeStatus, "Cargando estrategias del periodo…", "info");
+    try {
+      const params = new URLSearchParams({
+        anio: String(periodo.anio),
+        trimestre: periodo.trimestre,
+      });
+      const response = await fetch(`/api/informes/estrategias?${params.toString()}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        let message = "No se pudieron cargar las estrategias del periodo.";
+        try {
+          const data = await response.json();
+          if (data?.detail) message = data.detail;
+        } catch (_) {}
+        throw new Error(message);
+      }
+      const data = await response.json();
+      if (token !== informeLoadToken) return;
+      informeCargado = true;
+      aplicarEstrategias(data, periodo);
+    } catch (error) {
+      if (token !== informeLoadToken) return;
+      informeCargado = false;
+      setInformeStatus(informeStatus, error.message, "error");
+      renderResumenEstrategias(seccionesDelFormulario(), periodo);
+    }
+  }
+
+  async function guardarEstrategias({ event, periodo, silent = false } = {}) {
+    if (event) event.preventDefault();
+    if (!informeForm) return false;
+    const objetivo = periodo || periodoInforme();
+    const secciones = seccionesDelFormulario();
+    if (informeSave) informeSave.disabled = true;
+    if (!silent) setInformeStatus(informeStatus, "Guardando estrategias…", "info");
+    try {
+      const response = await fetch("/api/informes/estrategias", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          anio: objetivo.anio,
+          trimestre: objetivo.trimestre,
+          secciones,
+        }),
+      });
+      if (!response.ok) {
+        let message = "No se pudieron guardar las estrategias.";
+        try {
+          const data = await response.json();
+          if (data?.detail) message = data.detail;
+        } catch (_) {}
+        throw new Error(message);
+      }
+      const data = await response.json();
+      informePeriodoActual = objetivo;
+      if (!silent) {
+        aplicarEstrategias(data, objetivo);
+        setInformeStatus(
+          informeStatus,
+          `Estrategias de ${etiquetaPeriodo(objetivo)} guardadas.`,
+          "success",
+        );
+        showToast("Estrategias guardadas correctamente.", "success");
+      } else {
+        marcarInformeDirty(false);
+      }
+      return true;
+    } catch (error) {
+      setInformeStatus(
+        informeStatus,
+        error.message || "No se pudieron guardar las estrategias.",
+        "error",
+      );
+      if (!silent) showToast(error.message, "error");
+      return false;
+    } finally {
+      if (informeSave) informeSave.disabled = false;
+    }
+  }
+
+  function activarTabInforme(nombre) {
+    informeTabButtons.forEach((button) => {
+      const activo = button.dataset.informeTab === nombre;
+      button.classList.toggle("is-active", activo);
+      button.setAttribute("aria-selected", String(activo));
+    });
+    informePanels.forEach((panel) => {
+      const activo = panel.dataset.informePanel === nombre;
+      panel.classList.toggle("is-active", activo);
+      panel.hidden = !activo;
+    });
+    // El periodo es único para las tres pestañas. Al entrar en Exportar se
+    // refresca el resumen desde la BD para no depender de haber visitado
+    // Estrategias en esta sesión (nunca se pisa un borrador sin guardar).
+    if (nombre === "exportar" && !informeDirty) {
+      cargarEstrategias();
+    }
+  }
+
+  informeTabButtons.forEach((button) => {
+    button.addEventListener("click", () => activarTabInforme(button.dataset.informeTab));
+  });
+
+  informeAccordionToggles.forEach((button) => {
+    button.addEventListener("click", () => alternarAcordeon(button));
+    // Toda la fila contraída abre la sección; el editor solo existe al
+    // expandirla (no hay campos editables fuera de él).
+    const head = button.closest(".informe-accordion-head");
+    head?.addEventListener("click", (event) => {
+      if (event.target.closest("[data-accordion-toggle]")) return;
+      if (event.target.closest("input, textarea, button, a, [contenteditable]")) {
+        return;
+      }
+      button.click();
+    });
+  });
+
+  informeForm?.addEventListener("submit", (event) => guardarEstrategias({ event }));
+
+  document.querySelectorAll("[data-estrategia-editor]").forEach((contenedor) => {
+    const editor = contenedor.querySelector("[data-estrategia-seccion]");
+    const toolbar = contenedor.querySelector(".informe-editor-toolbar");
+    if (!editor || !toolbar) return;
+
+    // ``mousedown`` con preventDefault conserva la selección del editor al
+    // pulsar la barra de herramientas.
+    toolbar.addEventListener("mousedown", (event) => {
+      if (event.target.closest("[data-editor-command]")) event.preventDefault();
+    });
+    toolbar.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-editor-command]");
+      if (!button) return;
+      const comando = button.dataset.editorCommand;
+      if (
+        ![
+          "bold",
+          "italic",
+          "insertUnorderedList",
+          "insertOrderedList",
+          "undo",
+          "redo",
+        ].includes(comando)
+      ) {
+        return;
+      }
+      editor.focus();
+      // Fuerza etiquetas (<b>/<i>) en lugar de estilos inline.
+      try {
+        document.execCommand("styleWithCSS", false, false);
+        document.execCommand(comando, false, null);
+      } catch (_) {}
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+      actualizarEstadoToolbar(editor);
+    });
+  });
+
+  informeTextareas.forEach((editor) => {
+    editor.addEventListener("input", () => {
+      actualizarPlaceholderEditor(editor);
+      marcarInformeDirty(true);
+      renderResumenEstrategias(seccionesDelFormulario());
+      setInformeStatus(informeStatus, "Cambios sin guardar.", "warning");
+    });
+    // Pegado con formato: Word y los navegadores entregan ``text/html``. Se
+    // sanea con la misma allowlist del backend y se inserta conservando
+    // negrita, cursiva y listas. Sin HTML se insertan párrafos de texto plano.
+    editor.addEventListener("paste", (event) => {
+      event.preventDefault();
+      const portapapeles = event.clipboardData || window.clipboardData;
+      const html = portapapeles?.getData("text/html") || "";
+      const texto = portapapeles?.getData("text/plain") || "";
+      const htmlSeguro = htmlParaPegadoEstrategia(html);
+      editor.focus();
+      try {
+        if (htmlSeguro) {
+          document.execCommand("insertHTML", false, htmlSeguro);
+        } else if (texto) {
+          document.execCommand(
+            "insertHTML",
+            false,
+            textoPlanoAHtmlEstrategia(texto),
+          );
+        }
+      } catch (_) {
+        if (texto) editor.textContent += texto;
+      }
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    editor.addEventListener("focus", () => actualizarEstadoToolbar(editor));
+    actualizarPlaceholderEditor(editor);
+  });
+
+  document.addEventListener("selectionchange", () => {
+    const activo = document.activeElement;
+    if (activo && activo.matches("[data-estrategia-seccion]")) {
+      actualizarEstadoToolbar(activo);
+    }
+  });
+
+  informeExportMode?.addEventListener("change", () => {
+    cargarContextoInforme();
+  });
+
+  function restaurarPeriodoInforme(periodo) {
+    if (informeAnio) informeAnio.value = String(periodo.anio);
+    if (informeTrimestre) informeTrimestre.value = periodo.trimestre;
+  }
+
+  async function cambiarPeriodoInforme() {
+    const anterior = { ...informePeriodoActual };
+    const nuevo = periodoInforme();
+    if (mismoPeriodo(nuevo, anterior)) {
+      return;
+    }
+    if (informeDirty) {
+      // Cambiar de periodo recarga los textos de (año, trimestre). Si hay
+      // cambios sin guardar hay que confirmarlo antes de abandonar el periodo.
+      const continuar = window.confirm(
+        `Hay cambios sin guardar en ${etiquetaPeriodo(anterior)}. ` +
+          "Se guardarán antes de cambiar de periodo. ¿Deseas continuar?",
+      );
+      if (!continuar) {
+        restaurarPeriodoInforme(anterior);
+        setInformeStatus(informeStatus, "Cambio de periodo cancelado.", "warning");
+        return;
+      }
+      const guardado = await guardarEstrategias({ periodo: anterior, silent: true });
+      if (!guardado) {
+        // No se abandona el periodo si el guardado automático falla.
+        restaurarPeriodoInforme(anterior);
+        return;
+      }
+    }
+    informePeriodoActual = nuevo;
+    await cargarEstrategias();
+  }
+
+  informeAnio?.addEventListener("change", cambiarPeriodoInforme);
+  informeTrimestre?.addEventListener("change", cambiarPeriodoInforme);
+
+  async function generarInformeGestion() {
+    if (!informeExportGenerate) return;
+    const periodo = periodoInforme();
+    // El DOCX se genera en el servidor leyendo las estrategias de la BD para
+    // (año, trimestre). No depende de haber visitado la pestaña Estrategias.
+    if (
+      !informeDirty &&
+      !mismoPeriodo(periodo, informePeriodoActual)
+    ) {
+      await cargarEstrategias();
+    }
+    if (informeDirty) {
+      const guardado = await guardarEstrategias({ silent: true });
+      if (!guardado) {
+        setInformeStatus(
+          informeExportStatus,
+          "Guarda las estrategias antes de generar el informe.",
+          "error",
+        );
+        return;
+      }
+    }
+    const modo = informeExportMode?.value || "acumulado";
+    informeExportGenerate.disabled = true;
+    setInformeStatus(informeExportStatus, "Generando el informe de gestión…", "info");
+    try {
+      const params = new URLSearchParams({
+        year: String(periodo.anio),
+        trimestre: periodo.trimestre,
+        modo,
+      });
+      const response = await fetch(`/api/informes/word?${params.toString()}`, {
+        method: "GET",
+      });
+      if (!response.ok) {
+        let message = "No se pudo generar el informe de gestión.";
+        try {
+          const data = await response.json();
+          if (data?.detail) message = data.detail;
+        } catch (_) {}
+        throw new Error(message);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const match = disposition.match(/filename="?([^"]+)"?/i);
+      link.download =
+        match?.[1] ||
+        `informe_gestion_${periodo.anio}_${periodo.trimestre}_${modo}.docx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setInformeStatus(
+        informeExportStatus,
+        `Informe de ${etiquetaPeriodo(periodo)} generado y descargado.`,
+        "success",
+      );
+      showToast("Informe de gestión generado correctamente.", "success");
+    } catch (error) {
+      setInformeStatus(
+        informeExportStatus,
+        error.message || "No se pudo generar el informe de gestión.",
+        "error",
+      );
+      showToast(error.message || "No se pudo generar el informe.", "error");
+    } finally {
+      informeExportGenerate.disabled = false;
+    }
+  }
+
+  informeExportGenerate?.addEventListener("click", generarInformeGestion);
+
+  window.setInformeGestionPeriodo = function setInformeGestionPeriodo(trimestre) {
+    if (informeTrimestre && trimestre) informeTrimestre.value = trimestre;
+  };
+
+  reportOpenEstrategias?.addEventListener("click", () => {
+    window.setInformeGestionPeriodo?.(reportQuarter?.value || "T3");
+    closeReportModal();
+    if (typeof window.showView === "function") window.showView("informe-gestion");
+    else window.location.hash = "#informe-gestion";
+  });
+
+  window.addEventListener("sena:view-changed", (event) => {
+    if (event.detail?.view !== "informe-gestion") return;
+    activarTabInforme("estrategias");
+    if (!informeCargado || informeDirty === false) cargarEstrategias();
+  });
+
+  if (informeView && !informeView.hidden) {
+    cargarEstrategias();
+  }
 
   function observeFeedback() {
     const feedbackEl = document.getElementById("feedback");
@@ -1366,7 +2221,12 @@
         loadIndicadoresExtras();
         return;
       }
-      const target = ["aprendices", "actas", "indicadores", "anexos"].includes(viewName)
+      const target = [
+        "aprendices",
+        "actas",
+        "indicadores",
+        "informe-gestion",
+      ].includes(viewName)
         ? viewName
         : "carga";
       originalShowView(target, updateHash);
@@ -1385,7 +2245,11 @@
     const hash = (location.hash || "").replace("#", "");
     if (hash === "dashboard") {
       window.showView?.("indicadores", false);
-    } else if (["aprendices", "actas", "indicadores", "anexos", "historial"].includes(hash)) {
+    } else if (
+      ["aprendices", "actas", "indicadores", "historial", "informe-gestion"].includes(
+        hash,
+      )
+    ) {
       window.showView?.(hash, false);
     } else {
       activateSidebar("carga");

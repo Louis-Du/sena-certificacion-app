@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 # Importamos varias funciones y clases de nuestro propio módulo app para manejar la base de datos, modelos, servicios y validaciones.
 from app.database import SessionLocal, get_db, init_db
-from app.models import Act, Anexo
+from app.models import Act
 from app.services.imports import (
     confirm_import,
     get_staged,
@@ -112,11 +112,30 @@ class ActLearnerRequest(BaseModel):
 class ConflictResolutionRequest(BaseModel):
     identification: str
     status: str
+    source: str | None = None
+
+class RequirementConflictResolutionRequest(BaseModel):
+    identification: str
+    requirement_type: str
+    # ``status`` es el nombre historico. ``chosen_status`` es el nombre del
+    # contrato nuevo; se acepta cualquiera de los dos.
+    status: str | None = None
+    chosen_status: str | None = None
+    source: str | None = None
+    conflict_fingerprint: str | None = None
 
 class ConfirmImportRequest(BaseModel):
     conflict_resolutions: list[ConflictResolutionRequest] = []
+    requirement_conflict_resolutions: list[RequirementConflictResolutionRequest] = []
     accept_missing_complementaria: bool = False
     sheets_manual_cleanup_acknowledged: bool = False
+
+class InformeGestionEstrategiaRequest(BaseModel):
+    anio: int = 2026
+    trimestre: str = "T3"
+    # Claves públicas 3.1.1 .. 3.2. Los textos son libres y se guardan por
+    # (año, trimestre); el modo solo_trimestre/acumulado no los duplica.
+    secciones: dict[str, str] = {}
 
 class SheetSyncCreateRequest(BaseModel):
     url: str
@@ -135,11 +154,13 @@ class SheetSyncPreviewRequest(BaseModel):
 class SheetSyncConfirmRequest(BaseModel):
     validation_id: str
     conflict_resolutions: list[ConflictResolutionRequest] = []
+    requirement_conflict_resolutions: list[RequirementConflictResolutionRequest] = []
     accept_missing_complementaria: bool = False
     sheets_manual_cleanup_acknowledged: bool = False
 
 class SheetSyncResolveRequest(BaseModel):
     conflict_resolutions: list[ConflictResolutionRequest] = []
+    requirement_conflict_resolutions: list[RequirementConflictResolutionRequest] = []
     accept_missing_complementaria: bool = False
     sheets_manual_cleanup_acknowledged: bool = False
 
@@ -236,6 +257,14 @@ async def confirm_import_endpoint(
             if request is not None
             else None
         )
+        requirement_resolutions = (
+            [
+                item.model_dump()
+                for item in request.requirement_conflict_resolutions
+            ]
+            if request is not None
+            else None
+        )
         accept_missing_complementaria = (
             request.accept_missing_complementaria if request is not None else False
         )
@@ -248,6 +277,7 @@ async def confirm_import_endpoint(
             resolutions,
             accept_missing_complementaria=accept_missing_complementaria,
             sheets_manual_cleanup_acknowledged=sheets_manual_cleanup_acknowledged,
+            requirement_conflict_resolutions=requirement_resolutions,
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -452,103 +482,51 @@ async def unlink_act_learner(
         raise HTTPException(status_code=404, detail=str(error)) from error
 
 
-# ---------------------------------------------------------------------------
-# Anexos (imagenes de cualquier resolucion)
-# ---------------------------------------------------------------------------
-@app.post("/api/anexos", status_code=201)
-async def create_anexo_endpoint(
-    title: str = Form(...),
-    description: str | None = Form(default=None),
-    attachment_date: date | None = Form(default=None),
-    file: UploadFile = File(...),
+@app.get("/api/indicadores")
+async def indicadores_endpoint(
+    trimestre: str | None = Query(default=None, description="T1, T2, T3 o T4. Default T3."),
+    modo: str | None = Query(
+        default=None,
+        description="acumulado (default) o solo_trimestre.",
+    ),
+    year: int | None = Query(default=None, ge=2000, le=2100),
     session: Session = Depends(get_db),
 ) -> dict:
-    if not title.strip():
-        raise HTTPException(status_code=422, detail="El titulo es obligatorio.")
-    content = await file.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="El archivo esta vacio.")
-    resolved_date = attachment_date or date.today()
-    anexo = Anexo(
-        title=title.strip(),
-        description=description.strip() if description else None,
-        attachment_date=resolved_date,
-        file_name=file.filename or "anexo",
-        mime_type=file.content_type,
-        content=content,
-    )
-    session.add(anexo)
-    session.commit()
-    session.refresh(anexo)
-    return {
-        "id": anexo.id,
-        "title": anexo.title,
-        "description": anexo.description,
-        "attachment_date": anexo.attachment_date.isoformat(),
-        "file_name": anexo.file_name,
-        "mime_type": anexo.mime_type,
-        "image_url": f"/api/anexos/{anexo.id}/image",
-        "created_at": anexo.created_at.isoformat() if anexo.created_at else None,
-    }
-
-
-@app.get("/api/anexos")
-async def list_anexos_endpoint(session: Session = Depends(get_db)) -> dict:
-    items = session.query(Anexo).order_by(Anexo.created_at.desc(), Anexo.id.desc()).all()
-    return {
-        "items": [
-            {
-                "id": item.id,
-                "title": item.title,
-                "description": item.description,
-                "attachment_date": item.attachment_date.isoformat() if item.attachment_date else None,
-                "file_name": item.file_name,
-                "mime_type": item.mime_type,
-                "image_url": f"/api/anexos/{item.id}/image",
-                "created_at": item.created_at.isoformat() if item.created_at else None,
-            }
-            for item in items
-        ]
-    }
-
-
-@app.get("/api/anexos/{anexo_id}/image")
-async def anexo_image_endpoint(anexo_id: int, session: Session = Depends(get_db)):
-    anexo = session.get(Anexo, anexo_id)
-    if anexo is None:
-        raise HTTPException(status_code=404, detail="Anexo no encontrado.")
-    return Response(content=anexo.content, media_type=anexo.mime_type or "application/octet-stream")
-
-
-@app.delete("/api/anexos/{anexo_id}", status_code=204)
-async def delete_anexo_endpoint(anexo_id: int, session: Session = Depends(get_db)) -> None:
-    anexo = session.get(Anexo, anexo_id)
-    if anexo is None:
-        raise HTTPException(status_code=404, detail="Anexo no encontrado.")
-    session.delete(anexo)
-    session.commit()
-
-
-@app.get("/api/indicadores")
-async def indicadores_endpoint(session: Session = Depends(get_db)) -> dict:
     from app.services.indicadores import compute_indicadores_2026
-    return compute_indicadores_2026(session)
+    try:
+        return compute_indicadores_2026(
+            session, trimestre=trimestre, modo=modo, anio=year
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get("/api/indicadores/certificados-por-mes")
-async def certificados_por_mes_endpoint(session: Session = Depends(get_db)) -> dict:
+async def certificados_por_mes_endpoint(
+    trimestre: str | None = Query(default=None, description="T1, T2, T3 o T4. Default T3."),
+    modo: str | None = Query(default=None, description="acumulado o solo_trimestre."),
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    session: Session = Depends(get_db),
+) -> dict:
     """Certificados por MES DE CERTIFICACION del consolidado vigente.
 
     No usa ``Learner.certification_month`` (padron local) ni la fecha de
     importacion. La UI debe etiquetarlo como consolidado ACTAS 2026.
     """
     from app.services.indicadores import compute_certificados_por_mes
-    return compute_certificados_por_mes(session)
+    try:
+        return compute_certificados_por_mes(
+            session, trimestre=trimestre, modo=modo, anio=year
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get("/api/informes/consolidado")
 async def informes_consolidado_endpoint(
     year: int | None = Query(default=None, ge=2000, le=2100),
+    trimestre: str | None = Query(default=None, description="T1, T2, T3 o T4. Default T3."),
+    modo: str | None = Query(default=None, description="acumulado o solo_trimestre."),
     session: Session = Depends(get_db),
 ) -> dict:
     """Dataset consolidado de informe v1 desde el lote vigente de ACTAS 2026.
@@ -557,22 +535,39 @@ async def informes_consolidado_endpoint(
     lote vigente responde de forma segura con totales vacios/null.
     """
     from app.services.informes import consolidate_report_dataset
-    return consolidate_report_dataset(session, year=year)
+    try:
+        return consolidate_report_dataset(
+            session, year=year, trimestre=trimestre, modo=modo
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.get("/api/informes/consolidado/resumen")
 async def informes_consolidado_resumen_endpoint(
     year: int | None = Query(default=None, ge=2000, le=2100),
+    trimestre: str | None = Query(default=None, description="T1, T2, T3 o T4. Default T3."),
+    modo: str | None = Query(default=None, description="acumulado o solo_trimestre."),
     session: Session = Depends(get_db),
 ) -> dict:
     """Metadatos + KPIs del dataset consolidado (version liviana)."""
     from app.services.informes import consolidate_report_dataset
-    data = consolidate_report_dataset(session, year=year)
+    try:
+        data = consolidate_report_dataset(
+            session, year=year, trimestre=trimestre, modo=modo
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     return {
         "generated_at": data["generated_at"],
         "periodo": data["periodo"],
         "periodo_inicio": data["periodo_inicio"],
         "periodo_fin": data["periodo_fin"],
+        "trimestre": data.get("trimestre"),
+        "trimestre_codigo": data.get("trimestre_codigo"),
+        "trimestre_etiqueta": data.get("trimestre_etiqueta"),
+        "modo": data.get("modo"),
+        "fecha_corte_texto": data.get("fecha_corte_texto"),
         "source": data["source"],
         "import_id": data["import_id"],
         "file_name": data["file_name"],
@@ -585,26 +580,46 @@ async def informes_consolidado_resumen_endpoint(
 @app.get("/api/informes/export")
 async def informes_export_endpoint(
     report_type: str = Query(default="consolidado", alias="type"),
-    format: str = Query(default="xlsx", pattern="^(pdf|xlsx|csv)$"),
+    format: str = Query(default="xlsx", pattern="^(pdf|xlsx|csv|docx)$"),
     year: int | None = Query(default=None, ge=2000, le=2100),
+    anio: int | None = Query(
+        default=None,
+        ge=2000,
+        le=2100,
+        description="Alias de year. Periodo (año) del informe.",
+    ),
     scope: str = Query(default="consolidado", pattern="^(consolidado|filtrado)$"),
     detail: str = Query(default="completo", pattern="^(completo|ejecutivo)$"),
     search: str = Query(default=""),
     status: str = Query(default=""),
+    trimestre: str | None = Query(default=None, description="T1, T2, T3 o T4. Default T3."),
+    modo: str | None = Query(default=None, description="acumulado o solo_trimestre."),
     session: Session = Depends(get_db),
 ) -> Response:
-    """Exporta un informe estructurado en PDF, XLSX o CSV."""
-    from app.services.informes import export_report_csv, export_report_pdf, export_report_xlsx
+    """Exporta un informe estructurado en PDF, XLSX, CSV o DOCX.
+
+    Para el informe consolidado, ``trimestre`` y ``modo`` filtran el periodo.
+    Sin parámetros se mantiene el corte histórico T3 acumulado (Ene-Sep).
+    """
+    from app.services.informes import (
+        export_report_csv,
+        export_report_docx,
+        export_report_pdf,
+        export_report_xlsx,
+    )
+    year_efectivo = year if year is not None else anio
     try:
         if format == "csv":
             content = export_report_csv(
                 session,
                 report_type=report_type,
-                year=year,
+                year=year_efectivo,
                 scope=scope,
                 detail=detail,
                 search=search,
                 status=status,
+                trimestre=trimestre,
+                modo=modo,
             )
             media_type = "text/csv; charset=utf-8"
             filename = f"informe_{report_type}.csv"
@@ -612,23 +627,41 @@ async def informes_export_endpoint(
             content = export_report_pdf(
                 session,
                 report_type=report_type,
-                year=year,
+                year=year_efectivo,
                 scope=scope,
                 detail=detail,
                 search=search,
                 status=status,
+                trimestre=trimestre,
+                modo=modo,
             )
             media_type = "application/pdf"
             filename = f"informe_{report_type}.pdf"
+        elif format == "docx":
+            content = export_report_docx(
+                session,
+                report_type=report_type,
+                year=year_efectivo,
+                trimestre=trimestre,
+                modo=modo,
+            )
+            media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            codigo = (trimestre or "T3").upper()
+            filename = (
+                f"informe_gestion_{year_efectivo or 2026}_{codigo}_"
+                f"{modo or 'acumulado'}.docx"
+            )
         else:
             content = export_report_xlsx(
                 session,
                 report_type=report_type,
-                year=year,
+                year=year_efectivo,
                 scope=scope,
                 detail=detail,
                 search=search,
                 status=status,
+                trimestre=trimestre,
+                modo=modo,
             )
             media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             filename = (
@@ -666,6 +699,107 @@ async def informes_catalog_endpoint() -> list[dict]:
     from app.services.informes import report_catalog
     return report_catalog()
 
+
+@app.get("/api/informes/estrategias")
+async def informe_gestion_estrategias_get(
+    anio: int | None = Query(default=None, ge=2000, le=2100),
+    trimestre: str | None = Query(default=None, description="T1, T2, T3 o T4."),
+    session: Session = Depends(get_db),
+) -> dict:
+    """Textos de estrategias del informe de gestión para un periodo."""
+    from app.services.informe_gestion_estrategias import get_estrategias
+
+    try:
+        return get_estrategias(session, anio=anio, trimestre=trimestre)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.put("/api/informes/estrategias")
+async def informe_gestion_estrategias_put(
+    request: InformeGestionEstrategiaRequest,
+    session: Session = Depends(get_db),
+) -> dict:
+    """Guarda (upsert) los textos de estrategias de (año, trimestre)."""
+    from app.services.informe_gestion_estrategias import save_estrategias
+
+    try:
+        return save_estrategias(
+            session,
+            anio=request.anio,
+            trimestre=request.trimestre,
+            secciones=request.secciones,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/informes/estrategias/periodos")
+async def informe_gestion_estrategias_periodos(
+    anio: int | None = Query(default=None, ge=2000, le=2100),
+    session: Session = Depends(get_db),
+) -> list[dict]:
+    """Lista los periodos que ya tienen estrategias guardadas."""
+    from app.services.informe_gestion_estrategias import list_periodos
+
+    try:
+        return list_periodos(session, anio=anio)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/api/informes/word")
+async def informes_word_endpoint(
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    anio: int | None = Query(
+        default=None,
+        ge=2000,
+        le=2100,
+        description="Alias de year. Periodo (año) del informe.",
+    ),
+    trimestre: str | None = Query(
+        default=None,
+        description="T1, T2, T3 o T4. Si se omite, se usa T3 (compatibilidad).",
+    ),
+    modo: str | None = Query(
+        default=None,
+        description="acumulado (default): ene → fin del trimestre; solo_trimestre: solo esos 3 meses.",
+    ),
+    quarter: int | None = Query(
+        default=None,
+        ge=1,
+        le=4,
+        description="Compatibilidad: equivale a trimestre=T{quarter}.",
+    ),
+    cutoff: date | None = Query(default=None),
+    session: Session = Depends(get_db),
+) -> Response:
+    year_efectivo = year if year is not None else anio
+    try:
+        from app.services.informes import export_report_docx
+        content = export_report_docx(
+            session,
+            year=year_efectivo,
+            quarter=quarter,
+            trimestre=trimestre,
+            modo=modo,
+            cutoff=cutoff,
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    codigo = (trimestre or (f"T{quarter}" if quarter else "T3")).upper()
+    filename = (
+        f"informe_gestion_{year_efectivo or date.today().year}_{codigo}_"
+        f"{modo or 'acumulado'}.docx"
+    )
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
 # ---------------------------------------------------------------------------
 # Sincronizacion automatica desde Google Sheets
 # ---------------------------------------------------------------------------
@@ -695,12 +829,16 @@ async def sheets_sync_resolve_endpoint(
     from app.services.sheets_sync import resolve_pending
 
     resolutions = [item.model_dump() for item in request.conflict_resolutions]
+    requirement_resolutions = [
+        item.model_dump() for item in request.requirement_conflict_resolutions
+    ]
     try:
         return resolve_pending(
             session,
             resolutions,
             accept_missing_complementaria=request.accept_missing_complementaria,
             sheets_manual_cleanup_acknowledged=request.sheets_manual_cleanup_acknowledged,
+            requirement_conflict_resolutions=requirement_resolutions,
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
@@ -806,6 +944,9 @@ async def sheets_sync_confirm_endpoint(
     from app.services.sheets_sync import confirm_sync
 
     resolutions = [item.model_dump() for item in request.conflict_resolutions]
+    requirement_resolutions = [
+        item.model_dump() for item in request.requirement_conflict_resolutions
+    ]
     try:
         return confirm_sync(
             session,
@@ -813,6 +954,7 @@ async def sheets_sync_confirm_endpoint(
             resolutions,
             accept_missing_complementaria=request.accept_missing_complementaria,
             sheets_manual_cleanup_acknowledged=request.sheets_manual_cleanup_acknowledged,
+            requirement_conflict_resolutions=requirement_resolutions,
         )
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error

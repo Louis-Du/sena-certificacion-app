@@ -256,6 +256,10 @@ def learner_result(
     learner: Learner, summary: dict[str, Any] | None = None
 ) -> dict[str, Any]:
     summary = summary or {"pending": [], "fulfilled_count": 0, "na_count": 0}
+    requirements = summary.get("requirements", [])
+    public_summary = {
+        key: value for key, value in summary.items() if key != "requirements"
+    }
     pending_count = len(summary.get("pending", []))
     # Total real de requisitos registrados. Permite distinguir "sin matriz
     # cargada" (0) de "matriz completa sin pendientes" (> 0 y pending 0).
@@ -289,13 +293,15 @@ def learner_result(
         "pending_count": pending_count,
         # Total de requisitos registrados (pendientes + cumplidos + no aplica).
         "requirements_total": requirements_total,
-        "requirements_summary": summary,
+        "requirements": requirements,
+        "requirements_summary": public_summary,
     }
 
 
 def _empty_summary() -> dict[str, Any]:
     return {
         "pending": [],
+        "requirements": [],
         "fulfilled_count": 0,
         "na_count": 0,
         "info_count": 0,
@@ -320,6 +326,7 @@ def _requirements_summary(
         return {}
     rows = session.execute(
         select(
+            Requirement.id,
             Requirement.learner_id,
             Requirement.requirement_type,
             Requirement.status,
@@ -329,10 +336,21 @@ def _requirements_summary(
         )
     ).all()
     summaries: dict[int, dict[str, Any]] = {}
-    for learner_id, requirement_type, status_value in rows:
+    for requirement_id, learner_id, requirement_type, status_value in rows:
         bucket = summaries.setdefault(learner_id, _empty_summary())
+        normalized_status = str(status_value or "").strip()
+        bucket["requirements"].append(
+            {
+                "requirement_type": requirement_type,
+                "id": requirement_id,
+                "label": REQUIREMENT_TYPES.get(
+                    requirement_type or "", requirement_type
+                ),
+                "status": normalized_status,
+            }
+        )
         bucket["total"] += 1
-        normalized = str(status_value or "").strip().lower()
+        normalized = normalized_status.lower()
         if normalized == "pendiente":
             bucket["pending"].append(
                 REQUIREMENT_TYPES.get(requirement_type or "", requirement_type)

@@ -696,9 +696,11 @@ def _build_traceability(
             "inicio": ind.get("periodo_inicio"),
             "fin": ind.get("periodo_fin"),
             "criterio": (
-                "CERTIFICADOS se filtra por MES DE CERTIFICACIÓN entre enero y "
-                "septiembre de 2026. PENDIENTES es un censo de personas que siguen "
-                "sin certificar y no se filtra por mes."
+                f"CERTIFICADOS se filtra por MES DE CERTIFICACIÓN dentro de "
+                f"{ind.get('periodo')}. COMPLEMENTARIA se filtra por fecha ISO "
+                f"entre {ind.get('periodo_inicio')} y {ind.get('periodo_fin')}. "
+                "PENDIENTES es un censo de personas que siguen sin certificar y "
+                "no se filtra por mes. La META es anual."
             ),
         },
         "deduplicacion": [
@@ -758,12 +760,25 @@ def consolidate_report_dataset(
     year: int | None = None,
     local_search: str = "",
     local_status: str = "",
+    trimestre: Any = None,
+    modo: Any = None,
 ) -> dict[str, Any]:
-    """Arma el payload completo del informe administrativo 2026."""
+    """Arma el payload completo del informe administrativo 2026.
+
+    ``trimestre`` (T1..T4) y ``modo`` (``acumulado``/``solo_trimestre``)
+    determinan el periodo de los certificados y de la complementaria. La META
+    siempre es anual. Sin argumentos se conserva el corte T3 acumulado
+    (Ene-Sep), compatible con los clientes anteriores.
+    """
     if year is None:
         year = 2026
 
-    ind = indicadores.compute_indicadores_2026(session)
+    ind = indicadores.compute_indicadores_2026(
+        session,
+        trimestre=trimestre,
+        modo=modo,
+        anio=year,
+    )
     lote_id = ind.get("lote_vigente_id")
     file_name = None
     if lote_id is not None:
@@ -777,8 +792,8 @@ def consolidate_report_dataset(
     if year != 2026:
         advertencias.insert(
             0,
-            "El dataset de informe v1 cubre unicamente el periodo Ene-Sep 2026; "
-            "el año solicitado no modifica el cálculo.",
+            f"El periodo se calculó para el año {year}; ACTAS 2026 puede no "
+            "contener registros de esa vigencia.",
         )
 
     local = build_local_universe(
@@ -850,10 +865,21 @@ def consolidate_report_dataset(
         "periodo": ind.get("periodo"),
         "periodo_inicio": ind.get("periodo_inicio"),
         "periodo_fin": ind.get("periodo_fin"),
+        "periodo_modo": ind.get("periodo_modo"),
+        "trimestre": ind.get("trimestre"),
+        "trimestre_codigo": ind.get("trimestre_codigo"),
+        "trimestre_romano": ind.get("trimestre_romano"),
+        "trimestre_ordinal": ind.get("trimestre_ordinal"),
+        "trimestre_etiqueta": ind.get("trimestre_etiqueta"),
+        "modo": ind.get("modo"),
+        "fecha_corte": ind.get("fecha_corte"),
+        "fecha_corte_texto": ind.get("fecha_corte_texto"),
         "period": {
             "label": ind.get("periodo"),
             "start": ind.get("periodo_inicio"),
             "end": ind.get("periodo_fin"),
+            "mode": ind.get("modo"),
+            "quarter": ind.get("trimestre"),
         },
         "year": year,
         "source": "consolidado_lote_vigente",
@@ -864,6 +890,9 @@ def consolidate_report_dataset(
         "fuente_metas": ind.get("fuente_metas"),
         "fecha_corte_referencia": ind.get("fecha_corte_referencia"),
         "datos_suficientes": ind.get("datos_suficientes"),
+        "certificados_disponible": ind.get("certificados_disponible"),
+        "complementaria_disponible": ind.get("complementaria_disponible"),
+        "pendientes_disponible": ind.get("pendientes_disponible"),
         "advertencias": advertencias,
         "warning": " | ".join(advertencias) if advertencias else None,
         "resumen_ejecutivo": summary,
@@ -877,6 +906,7 @@ def consolidate_report_dataset(
             "actas": actas,
             "sin_clasificar": ind.get("sin_clasificar"),
             "complementaria_canales": ind.get("complementaria_canales"),
+            "metas_canales": ind.get("metas_canales"),
             "referencia_institucional": ind.get("referencia_institucional"),
             "conflictos": ind.get("conflictos"),
         },
@@ -893,6 +923,7 @@ def consolidate_report_dataset(
         "trazabilidad": traceability,
         "sin_clasificar": ind.get("sin_clasificar"),
         "complementaria_canales": ind.get("complementaria_canales"),
+        "metas_canales": ind.get("metas_canales"),
         "referencia_institucional": ind.get("referencia_institucional"),
         "conflictos": ind.get("conflictos"),
         "resoluciones_conflicto": ind.get("resoluciones_conflicto") or {},

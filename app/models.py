@@ -207,6 +207,14 @@ class RequirementStatusHistory(Base):
     )
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Origen de una decision de conflicto: user | bulk | rule. Las decisiones
+    # manuales/historicas no lo usan (quedan en NULL).
+    decision_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Huella del contraste columna/motivo que origino la decision. Permite
+    # reaplicarla en una reimportacion solo si el hecho sigue siendo el mismo.
+    conflict_fingerprint: Mapped[str | None] = mapped_column(
+        String(40), nullable=True
+    )
 
     learner: Mapped["Learner"] = relationship(back_populates="requirement_status_history")
 
@@ -244,19 +252,41 @@ class ActLearner(Base):
     learner: Mapped[Learner] = relationship(back_populates="acts")
 
 
-# Esta clase representa un anexo (imagen) cargado en la aplicacion. Permite
-# almacenar imagenes de cualquier resolucion junto con un titulo, descripcion
-# y la fecha de adjuncion (por defecto la fecha actual).
-class Anexo(Base):
-    __tablename__ = "anexos"
+# Textos institucionales del bloque 3 del Informe de Gestión Administrativa.
+# La dependencia los redacta por periodo; el generador DOCX solo los inserta.
+# El modo de exportación (solo trimestre / acumulado) NO crea otro juego de
+# textos: la clave de persistencia es únicamente (año, trimestre).
+class InformeGestionEstrategia(Base):
+    __tablename__ = "informe_gestion_estrategias"
+    __table_args__ = (
+        UniqueConstraint(
+            "anio",
+            "trimestre",
+            name="uq_informe_gestion_estrategias_periodo",
+        ),
+        Index("ix_informe_gestion_estrategias_periodo", "anio", "trimestre"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    title: Mapped[str] = mapped_column(String(255))
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    attachment_date: Mapped[date] = mapped_column(Date)
-    file_name: Mapped[str] = mapped_column(String(255))
-    mime_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    content: Mapped[bytes] = mapped_column(LargeBinary)
+    anio: Mapped[int] = mapped_column(Integer)
+    trimestre: Mapped[str] = mapped_column(String(2))
+    # 3.1.1 Educación Superior
+    educacion_superior: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 3.1.2 Técnico Laboral y Otros (sin incluir Media Técnica)
+    tecnico_laboral: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 3.1.3 Articulación con la Media
+    articulacion_media: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 3.1.4 Formación Complementaria
+    formacion_complementaria: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 3.1.5 Certificación Total / Centros de Formación
+    certificacion_total: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 3.2 Otras actividades del trimestre
+    otras_actividades: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
