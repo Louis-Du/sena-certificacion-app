@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SENA Certificación</title>
-  <link href="/static/styles.css?v=20261114-v24" rel="stylesheet">
+  <link href="/static/styles.css?v=20261114-v25" rel="stylesheet">
 </head>
 
 <body>
@@ -818,7 +818,7 @@
             </div>
 
             <div class="informe-anexos-grid">
-              <form id="informe-anexo-form" class="informe-anexo-form">
+              <form id="informe-anexo-form" class="informe-anexo-form" novalidate>
                 <h3>Cargar anexo</h3>
                 <p class="informe-anexo-periodo">Periodo actual: <strong id="informe-anexos-periodo">Trimestre III 2026</strong></p>
                 <label for="informe-anexo-titulo">Título <span aria-hidden="true">*</span>
@@ -835,13 +835,14 @@
                     <strong>Arrastra una o varias imágenes aquí</strong>
                     <span>o <span class="informe-anexo-browse">examinar</span></span>
                     <small>PNG, JPEG o WEBP · máx. 10 MB por imagen</small>
-                    <small>Puedes seleccionar varias imágenes para un mismo anexo.</small>
-                    <input id="informe-anexo-file" name="files" class="informe-anexo-file-input" type="file" accept="image/png,image/jpeg,image/webp" multiple required>
+                    <small>Puedes añadirlas una por una: la selección se acumula antes de subir.</small>
+                    <input id="informe-anexo-file" name="files" class="informe-anexo-file-input" type="file" accept="image/png,image/jpeg,image/webp" multiple>
                   </label>
                   <div class="informe-anexo-file-selection">
                     <p id="informe-anexo-file-name" class="informe-anexo-file-name" hidden></p>
                     <button id="informe-anexo-file-clear" class="informe-anexo-file-clear" type="button" hidden>Quitar selección</button>
                   </div>
+                  <ul id="informe-anexo-file-list" class="informe-anexo-file-list" hidden></ul>
                 </div>
                 <button id="informe-anexo-submit" class="primary-button informe-save-button" type="submit">Subir anexo</button>
                 <p id="informe-anexo-status" class="detail-feedback" role="status"></p>
@@ -1093,7 +1094,7 @@
           <p>Cambia los metadatos, añade imágenes o elimina las que ya no necesites. El número del DOCX se calcula automáticamente.</p>
         </div>
       </div>
-      <form id="informe-anexo-edit-form" class="informe-anexo-edit">
+      <form id="informe-anexo-edit-form" class="informe-anexo-edit" novalidate>
         <input id="informe-anexo-edit-id" type="hidden">
         <label for="informe-anexo-edit-titulo">Título <span aria-hidden="true">*</span>
           <input id="informe-anexo-edit-titulo" type="text" maxlength="255" required>
@@ -1120,10 +1121,12 @@
             <p id="informe-anexo-edit-file-name" class="informe-anexo-file-name" hidden></p>
             <button id="informe-anexo-edit-file-clear" class="informe-anexo-file-clear" type="button" hidden>Quitar selección</button>
           </div>
-          <p class="informe-anexo-help informe-anexo-help--block">Debe quedar al menos una imagen en el anexo.</p>
+          <ul id="informe-anexo-edit-file-list" class="informe-anexo-file-list" hidden></ul>
+          <p class="informe-anexo-help informe-anexo-help--block">Puedes añadirlas una por una: se acumulan al guardar. Debe quedar al menos una imagen en el anexo.</p>
         </div>
         <p id="informe-anexo-edit-status" class="detail-feedback" role="status"></p>
         <div class="report-modal-actions">
+          <button id="informe-anexo-edit-delete" class="cancel-button informe-anexo-delete-annex" type="button">Eliminar anexo</button>
           <button id="informe-anexo-edit-cancel" class="cancel-button" type="button">Cancelar</button>
           <button id="informe-anexo-edit-save" class="primary-button" type="submit">Guardar cambios</button>
         </div>
@@ -1160,6 +1163,6 @@
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
   <script src="/static/vendor/chart.umd.min.js"></script>
   <script src="/static/app.js?v=20261114-v25"></script>
-  <script src="/static/ui-enhancements.js?v=20261114-v15"></script>
+  <script src="/static/ui-enhancements.js?v=20261114-v16"></script>
 </body>
 </html>

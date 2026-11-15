@@ -5963,6 +5963,68 @@ label.informe-anexo-dropzone--compact {
   word-break: break-word;
 }
 
+.informe-anexo-file-list {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.informe-anexo-file-list[hidden] {
+  display: none;
+}
+
+.informe-anexo-file-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.informe-anexo-file-item-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.informe-anexo-file-remove {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #b91c1c;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.informe-anexo-file-remove:hover,
+.informe-anexo-file-remove:focus-visible {
+  color: #7f1d1d;
+  text-decoration: underline;
+  outline: none;
+}
+
+.informe-anexo-delete-annex {
+  margin-right: auto;
+  border-color: #f5c2c0;
+  color: #b91c1c;
+}
+
+.informe-anexo-delete-annex:hover,
+.informe-anexo-delete-annex:focus-visible {
+  background: #fff7f6;
+  border-color: #e11d48;
+  color: #9f1239;
+}
+
 .informe-anexo-file-clear {
   min-height: 28px;
   padding: 0 10px;
@@ -6021,6 +6083,10 @@ label.informe-anexo-dropzone--compact {
   font-size: 0.76rem;
   font-weight: 600;
   line-height: 1.4;
+}
+
+.informe-anexo-current-note.is-hint {
+  color: var(--muted);
 }
 
 .informe-anexo-gallery {
@@ -6275,8 +6341,8 @@ label.informe-anexo-dropzone--compact {
     background var(--transition);
 }
 
-.informe-anexo-action:hover,
-.informe-anexo-action:focus-visible {
+.informe-anexo-action:hover:not(:disabled),
+.informe-anexo-action:focus-visible:not(:disabled) {
   border-color: var(--accent);
   color: var(--green-dark);
   background: var(--accent-soft);
@@ -6293,8 +6359,8 @@ label.informe-anexo-dropzone--compact {
   color: #9a3412;
 }
 
-.informe-anexo-action.is-danger:hover,
-.informe-anexo-action.is-danger:focus-visible {
+.informe-anexo-action.is-danger:hover:not(:disabled),
+.informe-anexo-action.is-danger:focus-visible:not(:disabled) {
   border-color: #ef4444;
   color: #991b1b;
   background: #fef2f2;

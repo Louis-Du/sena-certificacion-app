@@ -926,6 +926,15 @@
   const informeAnexoEditFileClear = document.getElementById(
     "informe-anexo-edit-file-clear",
   );
+  const informeAnexoFileList = document.getElementById(
+    "informe-anexo-file-list",
+  );
+  const informeAnexoEditFileList = document.getElementById(
+    "informe-anexo-edit-file-list",
+  );
+  const informeAnexoEditDelete = document.getElementById(
+    "informe-anexo-edit-delete",
+  );
 
   const ANEXO_MAX_BYTES = 10 * 1024 * 1024;
   const ANEXO_TIPOS = new Set(["image/png", "image/jpeg", "image/webp"]);
@@ -934,6 +943,7 @@
   let informeAnexoGuardando = false;
   let informeAnexoDragId = null;
   let informeAnexoReordenando = false;
+  let informeAnexoActual = null;
 
   function formatoBytesAnexo(bytes) {
     const valor = Number(bytes) || 0;
@@ -1001,9 +1011,18 @@
     return "";
   }
 
-  function mostrarArchivosSeleccionados(elemento, archivos) {
+  function mostrarArchivosSeleccionados(
+    elemento,
+    archivos,
+    listaEl = null,
+    alQuitar = null,
+  ) {
     if (!elemento) return;
     const lista = Array.from(archivos || []);
+    if (listaEl) {
+      listaEl.replaceChildren();
+      listaEl.hidden = !lista.length;
+    }
     if (!lista.length) {
       elemento.hidden = true;
       elemento.textContent = "";
@@ -1016,46 +1035,106 @@
       lista.length === 1
         ? `Imagen seleccionada: ${nombres} · ${formatoBytesAnexo(total)}`
         : `${lista.length} imágenes seleccionadas: ${nombres} · ${formatoBytesAnexo(total)}`;
+    if (!listaEl) return;
+    lista.forEach((archivo, indice) => {
+      const item = document.createElement("li");
+      const nombre = document.createElement("span");
+      nombre.className = "informe-anexo-file-item-name";
+      nombre.textContent = `${archivo.name} · ${formatoBytesAnexo(archivo.size)}`;
+      item.appendChild(nombre);
+      if (alQuitar) {
+        const quitar = document.createElement("button");
+        quitar.type = "button";
+        quitar.className = "informe-anexo-file-remove";
+        quitar.textContent = "Quitar";
+        quitar.setAttribute("aria-label", `Quitar ${archivo.name}`);
+        quitar.addEventListener("click", () => alQuitar(indice));
+        item.appendChild(quitar);
+      }
+      listaEl.appendChild(item);
+    });
   }
 
-  function configurarDropzone(dropzone, input, nombreEl, alSeleccionar) {
-    if (!dropzone || !input) return;
-    const aplicar = (archivos) => {
-      const lista = Array.from(archivos || []);
-      mostrarArchivosSeleccionados(nombreEl, lista);
-      if (alSeleccionar) alSeleccionar(lista);
+  /**
+   * Selector de imágenes que acumula archivos entre aperturas del diálogo y
+   * entre arrastres. El estado vive en memoria (no en ``input.files``), de modo
+   * que elegir una imagen no reemplaza las que ya estaban seleccionadas.
+   */
+  function configurarSelectorAnexo({
+    dropzone,
+    input,
+    nombreEl,
+    listaEl,
+    clearBtn,
+    alCambiar,
+  }) {
+    let archivos = [];
+    const clave = (archivo) =>
+      `${archivo.name}|${archivo.size}|${archivo.lastModified}`;
+    const notificar = () => {
+      mostrarArchivosSeleccionados(nombreEl, archivos, listaEl, quitar);
+      if (clearBtn) clearBtn.hidden = !archivos.length;
+      if (alCambiar) alCambiar(archivos.slice());
     };
-    input.addEventListener("change", () => {
-      aplicar(input.files || []);
-    });
-    ["dragenter", "dragover"].forEach((evento) => {
-      dropzone.addEventListener(evento, (event) => {
+    const quitar = (indice) => {
+      archivos = archivos.filter((_, posicion) => posicion !== indice);
+      notificar();
+    };
+    const agregar = (nuevos) => {
+      const mapa = new Map(archivos.map((archivo) => [clave(archivo), archivo]));
+      Array.from(nuevos || []).forEach((archivo) =>
+        mapa.set(clave(archivo), archivo),
+      );
+      archivos = Array.from(mapa.values());
+      // Limpiar el input permite volver a elegir el mismo archivo; la lista
+      // real de la carga es este acumulador.
+      if (input) {
+        try {
+          input.value = "";
+        } catch (_) {}
+      }
+      notificar();
+    };
+    const limpiar = () => {
+      archivos = [];
+      if (input) {
+        try {
+          input.value = "";
+        } catch (_) {}
+      }
+      notificar();
+    };
+
+    input?.addEventListener("change", () => agregar(input.files));
+    if (dropzone) {
+      ["dragenter", "dragover"].forEach((evento) => {
+        dropzone.addEventListener(evento, (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          dropzone.classList.add("is-dragover");
+        });
+      });
+      dropzone.addEventListener("dragleave", (event) => {
+        if (!dropzone.contains(event.relatedTarget)) {
+          dropzone.classList.remove("is-dragover");
+        }
+      });
+      dropzone.addEventListener("drop", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        dropzone.classList.add("is-dragover");
-      });
-    });
-    dropzone.addEventListener("dragleave", (event) => {
-      if (!dropzone.contains(event.relatedTarget)) {
         dropzone.classList.remove("is-dragover");
-      }
-    });
-    dropzone.addEventListener("drop", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      dropzone.classList.remove("is-dragover");
-      const archivos = Array.from(event.dataTransfer?.files || []);
-      if (!archivos.length) return;
-      try {
-        const transferencia = new DataTransfer();
-        archivos.forEach((archivo) => transferencia.items.add(archivo));
-        input.files = transferencia.files;
-      } catch (_) {
-        // Si el navegador no permite asignar files, el input conserva las
-        // imágenes elegidas manualmente.
-      }
-      aplicar(archivos);
-    });
+        agregar(event.dataTransfer?.files || []);
+      });
+    }
+    clearBtn?.addEventListener("click", limpiar);
+
+    return {
+      get archivos() {
+        return archivos.slice();
+      },
+      agregar,
+      limpiar,
+    };
   }
 
   function botonAccionAnexo(texto, accion) {
@@ -1225,6 +1304,10 @@
     informeAnexoModal.setAttribute("aria-hidden", "true");
     document.body.style.overflow = "";
     informeAnexoGuardando = false;
+    informeAnexoActual = null;
+    // El cierre puede ocurrir dentro de un guardado: el botón debe quedar
+    // habilitado para la próxima edición.
+    if (informeAnexoEditSave) informeAnexoEditSave.disabled = false;
   }
 
   function renderGaleriaModal(item) {
@@ -1294,12 +1377,27 @@
       const faltantes = archivos.filter(
         (archivo) => archivo.archivo_disponible === false,
       ).length;
-      const nota = faltantes
-        ? "Hay imágenes que no están disponibles en el servidor. Puedes eliminarlas o añadirlas de nuevo."
-        : "";
+      const notas = [];
+      if (faltantes) {
+        notas.push(
+          faltantes === 1
+            ? "Una imagen no está disponible en el servidor. Elimínala o vuelve a cargarla."
+            : `${faltantes} imágenes no están disponibles en el servidor. Elimínalas o vuelve a cargarlas.`,
+        );
+      }
+      if (archivos.length === 1) {
+        notas.push(
+          "Con una sola imagen usa «Eliminar anexo» o añade otra antes de borrar la última.",
+        );
+      }
+      const nota = notas.join(" ");
       informeAnexoCurrentNote.textContent = nota;
       informeAnexoCurrentNote.hidden = !nota;
       informeAnexoCurrentNote.classList.toggle("is-warning", Boolean(faltantes));
+      informeAnexoCurrentNote.classList.toggle(
+        "is-hint",
+        !faltantes && archivos.length === 1,
+      );
     }
     if (informeAnexoCurrent) {
       informeAnexoCurrent.classList.toggle("is-missing", !archivos.length);
@@ -1330,6 +1428,7 @@
     }
 
     informeAnexoEditForm.reset();
+    informeAnexoActual = fresco;
     if (informeAnexoEditId) informeAnexoEditId.value = String(fresco.id);
     if (informeAnexoEditTitulo) {
       informeAnexoEditTitulo.value = fresco.titulo || "";
@@ -1337,11 +1436,13 @@
     if (informeAnexoEditDescripcion) {
       informeAnexoEditDescripcion.value = fresco.descripcion || "";
     }
-    if (informeAnexoEditFile) informeAnexoEditFile.value = "";
-    mostrarArchivosSeleccionados(informeAnexoEditFileName, []);
-    if (informeAnexoEditFileClear) informeAnexoEditFileClear.hidden = true;
+    informeAnexoEditSelector.limpiar();
     setInformeStatus(informeAnexoEditStatus, "", "info");
     informeAnexoGuardando = false;
+    // Siempre se abre con el botón operativo, aunque una edición anterior
+    // haya terminado deshabilitándolo.
+    if (informeAnexoEditSave) informeAnexoEditSave.disabled = false;
+    if (informeAnexoEditDelete) informeAnexoEditDelete.disabled = false;
     renderGaleriaModal(fresco);
     informeAnexoModal.classList.add("is-open");
     informeAnexoModal.setAttribute("aria-hidden", "false");
@@ -1374,8 +1475,14 @@
         );
       }
       const actualizado = await response.json();
+      if (
+        informeAnexoActual &&
+        String(informeAnexoActual.id) === String(actualizado.id)
+      ) {
+        informeAnexoActual = { ...informeAnexoActual, ...actualizado };
+      }
       if (String(informeAnexoEditId?.value) === String(actualizado.id)) {
-        renderGaleriaModal(actualizado);
+        renderGaleriaModal(informeAnexoActual || actualizado);
       }
       setInformeStatus(
         informeAnexoEditStatus,
@@ -1411,7 +1518,7 @@
       );
       return;
     }
-    const archivos = Array.from(informeAnexoEditFile?.files || []);
+    const archivos = informeAnexoEditSelector.archivos;
     if (archivos.length) {
       const errorArchivo = validarArchivosAnexo(archivos);
       if (errorArchivo) {
@@ -1458,6 +1565,7 @@
           );
         }
       }
+      informeAnexoEditSelector.limpiar();
       showToast("Anexo actualizado correctamente.", "success");
       cerrarModalAnexo();
       await cargarAnexos();
@@ -1469,9 +1577,9 @@
       );
     } finally {
       informeAnexoGuardando = false;
-      if (informeAnexoModal?.classList.contains("is-open")) {
-        if (informeAnexoEditSave) informeAnexoEditSave.disabled = false;
-      }
+      // Se reactiva siempre: si el guardado tuvo éxito el modal se cerró y la
+      // próxima apertura debe encontrar el botón habilitado.
+      if (informeAnexoEditSave) informeAnexoEditSave.disabled = false;
     }
   }
 
@@ -1515,10 +1623,48 @@
     }
   }
 
+  async function eliminarAnexoDesdeModal() {
+    if (!informeAnexoActual) return;
+    const item = informeAnexoActual;
+    const confirmado = window.confirm(
+      `¿Eliminar el anexo "${item.titulo || ""}"? También se borrarán sus imágenes.`,
+    );
+    if (!confirmado) return;
+    if (informeAnexoEditDelete) {
+      informeAnexoEditDelete.disabled = true;
+      informeAnexoEditDelete.textContent = "Eliminando…";
+    }
+    setInformeStatus(informeAnexoEditStatus, "Eliminando anexo…", "info");
+    try {
+      const response = await fetch(`/api/informes/anexos/${item.id}`, {
+        method: "DELETE",
+      });
+      if (!response.ok && response.status !== 404) {
+        throw new Error(
+          await mensajeErrorAnexo(response, "No se pudo eliminar el anexo."),
+        );
+      }
+      cerrarModalAnexo();
+      showToast("Anexo eliminado.", "success");
+      await cargarAnexos();
+    } catch (error) {
+      setInformeStatus(
+        informeAnexoEditStatus,
+        error.message || "No se pudo eliminar el anexo.",
+        "error",
+      );
+    } finally {
+      if (informeAnexoEditDelete) {
+        informeAnexoEditDelete.disabled = false;
+        informeAnexoEditDelete.textContent = "Eliminar anexo";
+      }
+    }
+  }
+
   async function subirAnexo(event) {
     event.preventDefault();
     const periodo = periodoInforme();
-    const archivos = Array.from(informeAnexoFile?.files || []);
+    const archivos = informeAnexoSelector.archivos;
     const titulo = (informeAnexoTitulo?.value || "").trim();
     if (!titulo) {
       setInformeStatus(
@@ -1555,8 +1701,7 @@
         );
       }
       informeAnexoForm?.reset();
-      mostrarArchivosSeleccionados(informeAnexoFileName, []);
-      if (informeAnexoFileClear) informeAnexoFileClear.hidden = true;
+      informeAnexoSelector.limpiar();
       setInformeStatus(
         informeAnexoStatus,
         `Anexo cargado en ${etiquetaPeriodo(periodo)}.`,
@@ -1687,14 +1832,13 @@
     }
   }
 
-  configurarDropzone(
-    informeAnexoDropzone,
-    informeAnexoFile,
-    informeAnexoFileName,
-    (archivos) => {
-      if (informeAnexoFileClear) {
-        informeAnexoFileClear.hidden = !archivos.length;
-      }
+  const informeAnexoSelector = configurarSelectorAnexo({
+    dropzone: informeAnexoDropzone,
+    input: informeAnexoFile,
+    nombreEl: informeAnexoFileName,
+    listaEl: informeAnexoFileList,
+    clearBtn: informeAnexoFileClear,
+    alCambiar: (archivos) => {
       if (!archivos.length) {
         setInformeStatus(informeAnexoStatus, "", "info");
         return;
@@ -1706,16 +1850,15 @@
         error ? "error" : "info",
       );
     },
-  );
+  });
 
-  configurarDropzone(
-    informeAnexoEditDropzone,
-    informeAnexoEditFile,
-    informeAnexoEditFileName,
-    (archivos) => {
-      if (informeAnexoEditFileClear) {
-        informeAnexoEditFileClear.hidden = !archivos.length;
-      }
+  const informeAnexoEditSelector = configurarSelectorAnexo({
+    dropzone: informeAnexoEditDropzone,
+    input: informeAnexoEditFile,
+    nombreEl: informeAnexoEditFileName,
+    listaEl: informeAnexoEditFileList,
+    clearBtn: informeAnexoEditFileClear,
+    alCambiar: (archivos) => {
       const error = archivos.length ? validarArchivosAnexo(archivos) : "";
       setInformeStatus(
         informeAnexoEditStatus,
@@ -1723,24 +1866,14 @@
         error ? "error" : "info",
       );
     },
-  );
-
-  informeAnexoFileClear?.addEventListener("click", () => {
-    if (informeAnexoFile) informeAnexoFile.value = "";
-    mostrarArchivosSeleccionados(informeAnexoFileName, []);
-    if (informeAnexoFileClear) informeAnexoFileClear.hidden = true;
-    setInformeStatus(informeAnexoStatus, "", "info");
-  });
-
-  informeAnexoEditFileClear?.addEventListener("click", () => {
-    if (informeAnexoEditFile) informeAnexoEditFile.value = "";
-    mostrarArchivosSeleccionados(informeAnexoEditFileName, []);
-    if (informeAnexoEditFileClear) informeAnexoEditFileClear.hidden = true;
-    setInformeStatus(informeAnexoEditStatus, "", "info");
   });
 
   informeAnexoForm?.addEventListener("submit", subirAnexo);
   informeAnexoEditForm?.addEventListener("submit", guardarAnexo);
+  informeAnexoEditDelete?.addEventListener(
+    "click",
+    eliminarAnexoDesdeModal,
+  );
   informeAnexoEditCancel?.addEventListener("click", cerrarModalAnexo);
   informeAnexoModalClose?.addEventListener("click", cerrarModalAnexo);
   informeAnexoModal
