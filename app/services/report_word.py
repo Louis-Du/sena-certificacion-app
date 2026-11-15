@@ -682,6 +682,29 @@ def _enlazar_referencias_anexo(paragraphs, anclas: dict[int, str]) -> None:
                 insercion += 1
 
 
+# Centinela para los párrafos de ejemplo de la plantilla que la estrategia del
+# periodo reemplaza por completo: se eliminan en lugar de quedar como viñetas o
+# líneas vacías.
+_SUPRIMIR = object()
+
+
+def _remove_paragraph(paragraph) -> bool:
+    """Elimina el párrafo del cuerpo conservando saltos de sección e imágenes."""
+    p = paragraph._p
+    if p.findall(".//" + qn("w:sectPr")):
+        return False
+    if any(
+        p.findall(".//" + qn(tag))
+        for tag in ("w:drawing", "w:pict", "w:object")
+    ):
+        return False
+    parent = p.getparent()
+    if parent is None:
+        return False
+    parent.remove(p)
+    return True
+
+
 ROTULO_ESTRATEGIA = "Estrategia o Actividades llevadas a cabo: "
 
 # Prefijo del párrafo de la plantilla -> (sección, rótulo a anteponer).
@@ -758,7 +781,7 @@ def _update_narrative(
             _enlazar_referencias_anexo(creados, anclas_anexos or {})
             continue
 
-        updated: str | None = None
+        updated: str | object | None = None
         if text.startswith("La Meta Anual asignada"):
             updated = _sentence_superior(dataset, contexto)
         elif re.match(r"En el (primer|segundo|tercer|cuarto) trimestre", text):
@@ -774,11 +797,11 @@ def _update_narrative(
         elif text.startswith("¿Cómo fue la gestión del periodo para el Indicador"):
             updated = _sentence_tecnica(dataset, contexto)
         elif text.startswith("Certificación Técnico Laboral y Otros:"):
-            updated = ""
+            updated = _SUPRIMIR
         elif text.startswith("Se remiten semanalmente actas"):
-            updated = ""
+            updated = _SUPRIMIR
         elif text.startswith("Con el fin de apoyar en aumentar"):
-            updated = ""
+            updated = _SUPRIMIR
         elif text.startswith("El componente de Certificación alcanzó"):
             updated = _sentence_articulacion(dataset, contexto)
         elif (
@@ -789,7 +812,7 @@ def _update_narrative(
         elif text.startswith("Con una meta anual de"):
             updated = _sentence_complementaria(dataset, contexto)
         elif text.startswith("Con el fin de optimizar el proceso de inscripción"):
-            updated = ""
+            updated = _SUPRIMIR
         elif (
             text.startswith("¿Cómo fue la gestión en el periodo")
             and "Certificación TOTAL" in text
@@ -801,13 +824,13 @@ def _update_narrative(
         elif text.startswith("Realizar llamadas") or text.startswith(
             "Trabajar de la mano con el Líder"
         ):
-            updated = ""
+            updated = _SUPRIMIR
         elif text.startswith("Coordinación realización") or text.startswith(
             "Matrículas I Convocatoria"
         ) or text.startswith("Inducción nuevos aprendices"):
-            updated = ""
+            updated = _SUPRIMIR
         elif text.startswith("A continuación, se relacionan soportes"):
-            updated = ""
+            updated = _SUPRIMIR
         elif text.startswith("De igual manera, se verificó"):
             updated = _sentence_conclusion(dataset, contexto)
         elif text.startswith("Fuente:"):
@@ -820,6 +843,11 @@ def _update_narrative(
                 text,
             )
 
+        if updated is _SUPRIMIR:
+            # Ejemplo de la plantilla sustituido por la estrategia del periodo:
+            # se retira para no dejar viñetas ni líneas vacías en el DOCX.
+            _remove_paragraph(paragraph)
+            continue
         if updated is None:
             updated = _strip_annex_references(text)
         elif updated and updated != text:
@@ -893,6 +921,23 @@ def _prepare_annex_detail(doc, *, incluir: bool):
         previous = before
 
     return Paragraph(heading_element, doc._body)
+
+
+def _remove_empty_list_paragraphs(doc) -> None:
+    """Retira viñetas o numeraciones sin texto de todo el cuerpo.
+
+    Word dibuja un ``•`` suelto cuando un párrafo conserva ``w:numPr`` pero no
+    tiene contenido. Las estrategias y la sección 3.2 reemplazan ejemplos
+    numerados de la plantilla, así que cualquier resto vacío se elimina antes
+    de guardar: el DOCX nunca debe mostrar puntos que el usuario no escribió.
+    """
+    for paragraph in list(doc.paragraphs):
+        p = paragraph._p
+        if p.find(".//" + qn("w:numPr")) is None:
+            continue
+        if paragraph.text.strip():
+            continue
+        _remove_paragraph(paragraph)
 
 
 def _trim_trailing_empty_paragraphs(doc) -> None:
@@ -1209,6 +1254,8 @@ def generate_report_docx(
     # Post-firma: detalle con descripción, imágenes y marcadores anexo-N.
     detalle = _prepare_annex_detail(doc, incluir=bool(anexos))
     _write_annex_detail(doc, anexos, detalle)
+    # Ninguna viñeta de plantilla debe quedar sin texto en el documento final.
+    _remove_empty_list_paragraphs(doc)
     _trim_trailing_empty_paragraphs(doc)
 
     buffer = io.BytesIO()
