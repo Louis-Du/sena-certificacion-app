@@ -666,6 +666,65 @@ def test_docx_indice_pre_firma_y_detalle_post_firma_con_bookmark(client):
     }
 
 
+def test_docx_separacion_entre_imagen_de_anexo_y_siguiente_titulo(client):
+    """La última captura de un anexo no queda pegada al ANEXO siguiente."""
+    with client.session_factory() as session:
+        _seed_periodo(session)
+    _crear_anexo(
+        client,
+        titulo="[[ANEXO_SEP_1]] Primer soporte",
+        archivos=[
+            ("uno.png", PNG_1X1, "image/png"),
+            ("dos.png", PNG_1X1, "image/png"),
+        ],
+    )
+    _crear_anexo(client, titulo="[[ANEXO_SEP_2]] Segundo soporte")
+
+    document = Document(BytesIO(_exportar(client)))
+    parrafos = document.paragraphs
+    textos = [paragraph.text.strip() for paragraph in parrafos]
+
+    # Encabezados del detalle post-firma: la última aparición de cada título.
+    titulo_2 = max(
+        index
+        for index, texto in enumerate(textos)
+        if texto.startswith("ANEXO 2.") and "[[ANEXO_SEP_2]]" in texto
+    )
+    titulo_1 = max(
+        index
+        for index, texto in enumerate(textos)
+        if index < titulo_2
+        and texto.startswith("ANEXO 1.")
+        and "[[ANEXO_SEP_1]]" in texto
+    )
+
+    imagenes_1 = [
+        index
+        for index in _parrafos_con_imagen(document)
+        if titulo_1 < index < titulo_2
+    ]
+    assert len(imagenes_1) == 2
+
+    # Entre fotos del mismo anexo basta un espacio pequeño.
+    for index in imagenes_1:
+        espacio = parrafos[index].paragraph_format.space_after
+        assert espacio is not None and espacio > 0
+
+    # Entre el grupo de imágenes y el título siguiente hay una línea en blanco.
+    ultima_imagen = max(imagenes_1)
+    assert titulo_2 - ultima_imagen >= 2
+    separador = parrafos[titulo_2 - 1]
+    assert not separador.text.strip()
+    assert not separador._p.findall(".//" + qn("w:drawing"))
+    assert not separador._p.findall(".//" + qn("w:numPr"))
+
+    # El orden y los bookmarks no cambian por agregar la separación.
+    assert _marcadores_anexo(document) == {
+        "anexo-1": "ANEXO 1. [[ANEXO_SEP_1]] Primer soporte",
+        "anexo-2": "ANEXO 2. [[ANEXO_SEP_2]] Segundo soporte",
+    }
+
+
 def test_docx_estrategia_con_anexo_genera_hipervinculo_interno(client):
     with client.session_factory() as session:
         _seed_periodo(session)

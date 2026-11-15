@@ -23,7 +23,7 @@ from typing import Any
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Inches
+from docx.shared import Inches, Pt
 from docx.text.paragraph import Paragraph
 
 from app.services.rich_text import html_to_docx_paragraphs
@@ -1065,6 +1065,10 @@ def _insertar_imagen(anchor, ruta: Any, ancho, alto=None) -> None:
     python-docx no interpreta WEBP, así que, si falla la lectura directa, se
     convierte a PNG en memoria con Pillow (cuando está disponible). Un archivo
     corrupto se omite: el anexo conserva al menos su título y descripción.
+
+    Cada imagen deja un espacio pequeño después para que dos capturas del mismo
+    anexo no queden pegadas; la separación amplia entre anexos la agrega
+    ``_write_annex_detail`` al cerrar el grupo.
     """
     if not ruta:
         return
@@ -1072,6 +1076,8 @@ def _insertar_imagen(anchor, ruta: Any, ancho, alto=None) -> None:
     if not path.is_file():
         return
     paragraph = anchor.insert_paragraph_before()
+    paragraph.paragraph_format.space_before = Pt(0)
+    paragraph.paragraph_format.space_after = Pt(6)
     try:
         from docx.image.image import Image as DocxImage
         from docx.shared import Emu
@@ -1221,6 +1227,15 @@ def _write_annex_detail(
         for archivo in archivos or []:
             if str(archivo.get("content_type") or "").startswith("image/"):
                 _insertar_imagen(anchor, archivo.get("ruta"), ancho)
+
+        # Separación entre anexos: después del grupo completo (descripción e
+        # imágenes) se deja una línea en blanco para que la última captura no
+        # quede pegada al título del anexo siguiente. El último anexo no la
+        # necesita.
+        if index < len(anexos):
+            separador = anchor.insert_paragraph_before()
+            separador.paragraph_format.space_before = Pt(0)
+            separador.paragraph_format.space_after = Pt(0)
 
     parent = sentinel.getparent()
     if parent is not None:
