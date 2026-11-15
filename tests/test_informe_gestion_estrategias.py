@@ -1116,6 +1116,28 @@ def test_ui_editor_restringido_con_negrita_cursiva_y_listas():
         assert selector in css
 
 
+def test_ui_editor_permite_insertar_referencia_anexo():
+    """El toolbar ofrece un selector con los anexos del periodo actual."""
+    root = Path(__file__).resolve().parents[1]
+    index = (root / "app" / "static" / "index.html").read_text(encoding="utf-8")
+    css = (root / "app" / "static" / "styles.css").read_text(encoding="utf-8")
+    ui_js = (root / "app" / "static" / "ui-enhancements.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert index.count("data-editor-anexo") == 6
+    assert index.count('title="Insertar referencia a anexo"') == 6
+    assert "function abrirMenuReferenciaAnexo(editor, boton)" in ui_js
+    assert "function insertarReferenciaAnexo(numeroValue, textoValue)" in ui_js
+    assert "No hay anexos en este trimestre" in ui_js
+    assert "`ANEXO ${numero}.`" in ui_js
+    # El selector consulta el catálogo del (año, trimestre) del header.
+    assert "/api/informes/anexos?" in ui_js
+    assert "el texto ya insertado no se renumera solo" in ui_js
+    assert ".informe-editor-anexos-menu" in css
+    assert ".informe-editor-button--anexo" in css
+
+
 def test_ui_contexto_estadistico_usa_el_consolidado_por_seccion():
     root = Path(__file__).resolve().parents[1]
     index = (root / "app" / "static" / "index.html").read_text(encoding="utf-8")

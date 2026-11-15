@@ -1832,6 +1832,286 @@
     }
   }
 
+  /* Referencias ANEXO N desde el editor de estrategias. El texto se inserta
+     en el cursor y el DOCX lo convierte en hipervínculo al detalle post-firma. */
+  let informeAnexoReferenciaMenu = null;
+  let informeAnexoReferenciaBoton = null;
+  let informeAnexoReferenciaEditor = null;
+  let informeAnexoReferenciaRango = null;
+  let informeAnexoReferenciaToken = 0;
+
+  function cerrarMenuReferenciaAnexo() {
+    // Invalida cualquier carga en curso para que no pinte sobre un menú ya
+    // cerrado.
+    informeAnexoReferenciaToken += 1;
+    if (informeAnexoReferenciaMenu) {
+      informeAnexoReferenciaMenu.hidden = true;
+      informeAnexoReferenciaMenu.replaceChildren();
+    }
+    if (informeAnexoReferenciaBoton) {
+      informeAnexoReferenciaBoton.setAttribute("aria-expanded", "false");
+    }
+    informeAnexoReferenciaBoton = null;
+    informeAnexoReferenciaRango = null;
+    informeAnexoReferenciaEditor = null;
+  }
+
+  function posicionarMenuReferenciaAnexo(menu, boton) {
+    const rectBoton = boton.getBoundingClientRect();
+    menu.hidden = false;
+    const rectMenu = menu.getBoundingClientRect();
+    const margen = 8;
+    let left = Math.min(
+      Math.max(margen, rectBoton.left),
+      window.innerWidth - rectMenu.width - margen,
+    );
+    let top = rectBoton.bottom + 6;
+    if (top + rectMenu.height > window.innerHeight - margen) {
+      top = Math.max(margen, rectBoton.top - rectMenu.height - 6);
+    }
+    menu.style.left = `${Math.max(margen, left)}px`;
+    menu.style.top = `${top}px`;
+  }
+
+  function renderMenuReferenciaAnexo(items, error) {
+    const menu = informeAnexoReferenciaMenu;
+    if (!menu) return;
+    menu.replaceChildren();
+    const titulo = document.createElement("p");
+    titulo.className = "informe-editor-anexos-title";
+    titulo.textContent = "Referenciar un anexo del trimestre";
+    menu.appendChild(titulo);
+
+    if (error) {
+      const aviso = document.createElement("p");
+      aviso.className = "informe-editor-anexos-empty is-error";
+      aviso.textContent = error;
+      menu.appendChild(aviso);
+    }
+
+    const anexos = Array.isArray(items) ? items : [];
+    if (!anexos.length) {
+      if (!error) {
+        const vacio = document.createElement("p");
+        vacio.className = "informe-editor-anexos-empty";
+        vacio.textContent = "No hay anexos en este trimestre";
+        menu.appendChild(vacio);
+      }
+    } else {
+      const lista = document.createElement("div");
+      lista.className = "informe-editor-anexos-list";
+      anexos.forEach((anexo, index) => {
+        const numero = index + 1;
+        const opcion = document.createElement("button");
+        opcion.type = "button";
+        opcion.className = "informe-editor-anexos-option";
+        opcion.dataset.anexoReferencia = String(numero);
+        opcion.dataset.anexoTexto = `ANEXO ${numero}.`;
+        opcion.setAttribute("role", "menuitem");
+        const badge = document.createElement("span");
+        badge.className = "informe-editor-anexos-badge";
+        badge.textContent = `ANEXO ${numero}`;
+        const texto = document.createElement("span");
+        texto.className = "informe-editor-anexos-label";
+        texto.textContent = anexo?.titulo || "Sin título";
+        opcion.append(badge, texto);
+        lista.appendChild(opcion);
+      });
+      menu.appendChild(lista);
+    }
+
+    const ayuda = document.createElement("p");
+    ayuda.className = "informe-editor-anexos-hint";
+    ayuda.textContent =
+      "Si reordenas los anexos, el texto ya insertado no se renumera solo.";
+    menu.appendChild(ayuda);
+  }
+
+  async function cargarMenuReferenciaAnexo(token) {
+    const periodo = periodoInforme();
+    const params = new URLSearchParams({
+      anio: String(periodo.anio),
+      trimestre: periodo.trimestre,
+    });
+    try {
+      const response = await fetch(
+        `/api/informes/anexos?${params.toString()}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) {
+        throw new Error(
+          await mensajeErrorAnexo(
+            response,
+            "No se pudieron cargar los anexos del periodo.",
+          ),
+        );
+      }
+      const data = await response.json();
+      if (token !== informeAnexoReferenciaToken) return;
+      renderMenuReferenciaAnexo(data?.items || []);
+    } catch (error) {
+      if (token !== informeAnexoReferenciaToken) return;
+      // Sin red/API se ofrece el último catálogo cargado para no bloquear la
+      // redacción de la estrategia.
+      renderMenuReferenciaAnexo(
+        informeAnexosCache,
+        error.message || "No se pudieron cargar los anexos del periodo.",
+      );
+    }
+    if (token === informeAnexoReferenciaToken && informeAnexoReferenciaBoton) {
+      posicionarMenuReferenciaAnexo(
+        informeAnexoReferenciaMenu,
+        informeAnexoReferenciaBoton,
+      );
+    }
+  }
+
+  function abrirMenuReferenciaAnexo(editor, boton) {
+    if (
+      informeAnexoReferenciaMenu &&
+      !informeAnexoReferenciaMenu.hidden &&
+      informeAnexoReferenciaBoton === boton
+    ) {
+      cerrarMenuReferenciaAnexo();
+      return;
+    }
+    cerrarMenuReferenciaAnexo();
+    if (!informeAnexoReferenciaMenu) {
+      const menu = document.createElement("div");
+      menu.className = "informe-editor-anexos-menu";
+      menu.setAttribute("role", "menu");
+      menu.hidden = true;
+      menu.addEventListener("mousedown", (event) => event.preventDefault());
+      menu.addEventListener("click", (event) => {
+        const opcion = event.target.closest("[data-anexo-referencia]");
+        if (!opcion) return;
+        event.preventDefault();
+        insertarReferenciaAnexo(
+          opcion.dataset.anexoReferencia,
+          opcion.dataset.anexoTexto,
+        );
+        cerrarMenuReferenciaAnexo();
+      });
+      document.body.appendChild(menu);
+      informeAnexoReferenciaMenu = menu;
+    }
+
+    const seleccion = window.getSelection();
+    if (seleccion?.rangeCount) {
+      const rango = seleccion.getRangeAt(0);
+      if (editor.contains(rango.commonAncestorContainer)) {
+        informeAnexoReferenciaRango = rango.cloneRange();
+      }
+    }
+    informeAnexoReferenciaEditor = editor;
+    informeAnexoReferenciaBoton = boton;
+    boton.setAttribute("aria-expanded", "true");
+    const menu = informeAnexoReferenciaMenu;
+    menu.replaceChildren();
+    const cargando = document.createElement("p");
+    cargando.className = "informe-editor-anexos-empty";
+    cargando.textContent = "Cargando anexos del trimestre…";
+    menu.appendChild(cargando);
+    posicionarMenuReferenciaAnexo(menu, boton);
+    const token = ++informeAnexoReferenciaToken;
+    cargarMenuReferenciaAnexo(token);
+  }
+
+  function insertarReferenciaAnexo(numeroValue, textoValue) {
+    const editor = informeAnexoReferenciaEditor;
+    const numero = Number.parseInt(numeroValue, 10);
+    if (!editor || !Number.isFinite(numero)) return;
+    const texto = textoValue || `ANEXO ${numero}.`;
+    editor.focus();
+    const seleccion = window.getSelection();
+    if (!seleccion) return;
+    const rangoGuardado = informeAnexoReferenciaRango;
+    if (
+      rangoGuardado &&
+      editor.contains(rangoGuardado.commonAncestorContainer)
+    ) {
+      seleccion.removeAllRanges();
+      seleccion.addRange(rangoGuardado);
+    } else if (
+      !seleccion.rangeCount ||
+      !seleccion.anchorNode ||
+      !editor.contains(seleccion.anchorNode)
+    ) {
+      const rango = document.createRange();
+      rango.selectNodeContents(editor);
+      rango.collapse(false);
+      seleccion.removeAllRanges();
+      seleccion.addRange(rango);
+    }
+    let insertado = false;
+    try {
+      document.execCommand("styleWithCSS", false, false);
+      insertado = document.execCommand("insertText", false, texto);
+    } catch (_) {
+      insertado = false;
+    }
+    if (!insertado) {
+      const rango = seleccion.rangeCount
+        ? seleccion.getRangeAt(0)
+        : null;
+      if (!rango) return;
+      rango.deleteContents();
+      const nodo = document.createTextNode(texto);
+      rango.insertNode(nodo);
+      rango.setStartAfter(nodo);
+      rango.collapse(true);
+      seleccion.removeAllRanges();
+      seleccion.addRange(rango);
+    }
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  document.addEventListener("mousedown", (event) => {
+    if (
+      !informeAnexoReferenciaMenu ||
+      informeAnexoReferenciaMenu.hidden
+    ) {
+      return;
+    }
+    if (
+      event.target.closest(".informe-editor-anexos-menu") ||
+      event.target.closest("[data-editor-anexo]")
+    ) {
+      return;
+    }
+    cerrarMenuReferenciaAnexo();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && informeAnexoReferenciaMenu?.hidden === false) {
+      cerrarMenuReferenciaAnexo();
+    }
+  });
+  window.addEventListener("resize", cerrarMenuReferenciaAnexo);
+  document.addEventListener(
+    "scroll",
+    (event) => {
+      if (
+        !informeAnexoReferenciaMenu ||
+        informeAnexoReferenciaMenu.hidden
+      ) {
+        return;
+      }
+      if (
+        event.target instanceof Element &&
+        event.target.closest(".informe-editor-anexos-menu")
+      ) {
+        return;
+      }
+      if (informeAnexoReferenciaBoton) {
+        posicionarMenuReferenciaAnexo(
+          informeAnexoReferenciaMenu,
+          informeAnexoReferenciaBoton,
+        );
+      }
+    },
+    true,
+  );
+
   const informeAnexoSelector = configurarSelectorAnexo({
     dropzone: informeAnexoDropzone,
     input: informeAnexoFile,
@@ -1942,9 +2222,20 @@
     // ``mousedown`` con preventDefault conserva la selección del editor al
     // pulsar la barra de herramientas.
     toolbar.addEventListener("mousedown", (event) => {
-      if (event.target.closest("[data-editor-command]")) event.preventDefault();
+      if (
+        event.target.closest("[data-editor-command]") ||
+        event.target.closest("[data-editor-anexo]")
+      ) {
+        event.preventDefault();
+      }
     });
     toolbar.addEventListener("click", (event) => {
+      const anexoBoton = event.target.closest("[data-editor-anexo]");
+      if (anexoBoton) {
+        event.preventDefault();
+        abrirMenuReferenciaAnexo(editor, anexoBoton);
+        return;
+      }
       const button = event.target.closest("[data-editor-command]");
       if (!button) return;
       const comando = button.dataset.editorCommand;

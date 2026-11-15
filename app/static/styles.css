@@ -5689,6 +5689,106 @@ body.has-conflict-banner .sidebar {
   background: var(--line);
 }
 
+.informe-editor-button--anexo {
+  padding: 0 9px;
+  border-color: rgba(15, 118, 110, 0.25);
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--accent);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.informe-editor-button--anexo:hover,
+.informe-editor-button--anexo[aria-expanded="true"] {
+  border-color: rgba(15, 118, 110, 0.45);
+  background: rgba(15, 118, 110, 0.16);
+}
+
+.informe-editor-anexos-menu {
+  position: fixed;
+  z-index: 1200;
+  width: min(350px, calc(100vw - 16px));
+  max-height: min(60vh, 430px);
+  overflow-y: auto;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+}
+
+.informe-editor-anexos-title {
+  margin: 0 0 8px;
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.informe-editor-anexos-list {
+  display: grid;
+  gap: 4px;
+}
+
+.informe-editor-anexos-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.informe-editor-anexos-option:hover,
+.informe-editor-anexos-option:focus-visible {
+  border-color: rgba(15, 118, 110, 0.3);
+  background: rgba(15, 118, 110, 0.08);
+  outline: none;
+}
+
+.informe-editor-anexos-badge {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.informe-editor-anexos-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.informe-editor-anexos-empty {
+  margin: 4px 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.informe-editor-anexos-empty.is-error {
+  color: #b91c1c;
+}
+
+.informe-editor-anexos-hint {
+  margin: 9px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
 .informe-editor-area {
   min-height: 130px;
   max-height: 420px;

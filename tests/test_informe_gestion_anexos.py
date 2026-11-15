@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 from docx import Document
+from docx.oxml.ns import qn
 
 from app.models import InformeGestionAnexo, InformeGestionAnexoArchivo
 from app.services.informe_gestion_anexos import storage_dir
@@ -144,7 +145,11 @@ def test_crear_anexo_con_varias_imagenes_y_listar_solo_en_su_trimestre(client):
     t3 = client.get("/api/informes/anexos?anio=2026&trimestre=T3")
     assert t3.status_code == 200, t3.text
     assert t3.json()["total"] == 1
-    assert t3.json()["items"][0]["id"] == creado["id"]
+    item = t3.json()["items"][0]
+    assert item["id"] == creado["id"]
+    assert item["numero"] == 1
+    assert item["rotulo"] == "ANEXO 1"
+    assert item["titulo"] == "[[ANEXO_MULTI]]"
 
     t2 = client.get("/api/informes/anexos?anio=2026&trimestre=T2")
     assert t2.json() == {"anio": 2026, "trimestre": "T2", "total": 0, "items": []}
@@ -430,6 +435,12 @@ def test_reordenar_actualiza_numeros_y_el_docx(client):
         "ANEXO 2. [[ANEXO_A]]"
     )
 
+    document = Document(BytesIO(_exportar(client)))
+    marcadores = _marcadores_anexo(document)
+    # El marcador sigue el orden 1..N y apunta al encabezado correcto.
+    assert marcadores["anexo-1"] == "ANEXO 1. [[ANEXO_B]]"
+    assert marcadores["anexo-2"] == "ANEXO 2. [[ANEXO_A]]"
+
 
 def test_reordenar_acepta_lista_directa_y_rechaza_listas_invalidas(client):
     a = _crear_anexo(client, titulo="A").json()
@@ -569,7 +580,148 @@ def test_docx_numeracion_sin_doble_prefijo(client):
     assert "ANEXO 1. Actas por certificar" in texto
     assert "ANEXO 1. ANEXO 1." not in texto
     assert "ANEXO 2. Soportes de articulación" in texto
-    assert texto.count("ANEXO 1.") == 1
+    # Aparece dos veces: una en el índice de §5 y otra como encabezado del
+    # detalle posterior a la firma.
+    assert texto.count("ANEXO 1. Actas por certificar") == 2
+
+
+def _marcadores_anexo(document) -> dict[str, str]:
+    """Mapea ``anexo-N`` al texto del párrafo que lo contiene."""
+    marcadores: dict[str, str] = {}
+    for paragraph in document.paragraphs:
+        for start in paragraph._p.findall(qn("w:bookmarkStart")):
+            nombre = start.get(qn("w:name")) or ""
+            if nombre.startswith("anexo-"):
+                marcadores[nombre] = paragraph.text.strip()
+    return marcadores
+
+
+def _parrafos_con_imagen(document) -> list[int]:
+    return [
+        index
+        for index, paragraph in enumerate(document.paragraphs)
+        if paragraph._p.findall(".//" + qn("w:drawing"))
+        or paragraph._p.findall(".//" + qn("w:pict"))
+    ]
+
+
+def test_docx_indice_pre_firma_y_detalle_post_firma_con_bookmark(client):
+    with client.session_factory() as session:
+        _seed_periodo(session)
+    _crear_anexo(
+        client,
+        titulo="[[ANEXO_INDICE]] Actas del trimestre",
+        descripcion="[[DESCRIPCION_DETALLE]]",
+    )
+
+    document = Document(BytesIO(_exportar(client)))
+    parrafos = [paragraph.text.strip() for paragraph in document.paragraphs]
+    primer_anexos = parrafos.index("ANEXOS")
+    firma = next(
+        index
+        for index, texto in enumerate(parrafos)
+        if texto.startswith("Presentó:")
+    )
+    segundo_anexos = next(
+        index
+        for index, texto in enumerate(parrafos)
+        if index > firma and texto == "ANEXOS"
+    )
+    indice = next(
+        index
+        for index, texto in enumerate(parrafos)
+        if "[[ANEXO_INDICE]]" in texto
+    )
+    detalle = next(
+        index
+        for index, texto in enumerate(parrafos)
+        if index > segundo_anexos and "[[ANEXO_INDICE]]" in texto
+    )
+
+    # §5 antes de la firma: solo rótulo + título, sin descripción ni imágenes.
+    assert primer_anexos < indice < firma
+    assert parrafos[indice] == "ANEXO 1. [[ANEXO_INDICE]] Actas del trimestre"
+    assert not any(
+        "[[DESCRIPCION_DETALLE]]" in texto
+        for texto in parrafos[primer_anexos:firma]
+    )
+    assert not [
+        index
+        for index in _parrafos_con_imagen(document)
+        if primer_anexos < index < firma
+    ]
+
+    # Después de la firma: encabezado, descripción e imagen.
+    assert firma < segundo_anexos < detalle
+    assert parrafos[detalle] == "ANEXO 1. [[ANEXO_INDICE]] Actas del trimestre"
+    assert any(
+        "[[DESCRIPCION_DETALLE]]" in texto
+        for texto in parrafos[segundo_anexos:]
+    )
+    assert any(
+        index > segundo_anexos for index in _parrafos_con_imagen(document)
+    )
+    assert _marcadores_anexo(document) == {
+        "anexo-1": "ANEXO 1. [[ANEXO_INDICE]] Actas del trimestre"
+    }
+
+
+def test_docx_estrategia_con_anexo_genera_hipervinculo_interno(client):
+    with client.session_factory() as session:
+        _seed_periodo(session)
+        save_estrategias(
+            session,
+            anio=2026,
+            trimestre="T3",
+            secciones={
+                "3.1.1": (
+                    "[[ESTRATEGIA_REF]] Se sustenta en ANEXO 1. "
+                    "y también en ANEXO 9."
+                )
+            },
+        )
+    _crear_anexo(client, titulo="[[ANEXO_REF]] Soporte del indicador")
+
+    document = Document(BytesIO(_exportar(client)))
+    objetivo = next(
+        paragraph
+        for paragraph in document.paragraphs
+        if "[[ESTRATEGIA_REF]]" in paragraph.text
+    )
+    assert "ANEXO 1." in objetivo.text
+    assert "ANEXO 9." in objetivo.text
+
+    enlaces = objetivo._p.findall(qn("w:hyperlink"))
+    assert [enlace.get(qn("w:anchor")) for enlace in enlaces] == ["anexo-1"]
+    assert enlaces[0].text == "ANEXO 1."
+    # N inexistente: texto plano, sin hipervínculo ni error de generación.
+    assert all(enlace.get(qn("w:anchor")) != "anexo-9" for enlace in enlaces)
+    assert _marcadores_anexo(document) == {
+        "anexo-1": "ANEXO 1. [[ANEXO_REF]] Soporte del indicador"
+    }
+
+
+def test_docx_referencia_anexo_sin_anexos_queda_como_texto(client):
+    with client.session_factory() as session:
+        _seed_periodo(session)
+        save_estrategias(
+            session,
+            anio=2026,
+            trimestre="T3",
+            secciones={"3.1.2": "[[ESTRATEGIA_SIN_ANEXO]] Ver ANEXO 1."},
+        )
+
+    document = Document(BytesIO(_exportar(client)))
+    objetivo = next(
+        paragraph
+        for paragraph in document.paragraphs
+        if "[[ESTRATEGIA_SIN_ANEXO]]" in paragraph.text
+    )
+    assert "ANEXO 1." in objetivo.text
+    assert objetivo._p.findall(qn("w:hyperlink")) == []
+    assert _marcadores_anexo(document) == {}
+    # Sin anexos se conserva el listado institucional de la plantilla.
+    assert "ANEXO 15." in _texto_docx(_exportar(client))
 
 
 def test_anexos_no_dependen_del_modo_de_exportacion(client):
