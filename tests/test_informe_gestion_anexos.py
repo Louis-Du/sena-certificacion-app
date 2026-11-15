@@ -513,6 +513,53 @@ def test_docx_incluye_titulos_descripciones_y_todas_las_imagenes(client):
     )
 
 
+def test_descripcion_anexo_admite_negrita_cursiva_y_listas(client):
+    """La descripción del anexo usa el mismo HTML restringido que estrategias."""
+    with client.session_factory() as session:
+        _seed_periodo(session)
+
+    descripcion = (
+        "<p>Texto <strong>negrita</strong> y <em>cursiva</em></p>"
+        "<ul><li>Primer punto</li><li>Segundo punto</li></ul>"
+        "<script>alert('x')</script>"
+    )
+    response = _crear_anexo(
+        client,
+        titulo="[[ANEXO_DESCRIPCION_RICA]]",
+        descripcion=descripcion,
+    )
+    assert response.status_code == 201, response.text
+    creado = response.json()
+    assert "<strong>negrita</strong>" in creado["descripcion"]
+    assert "<em>cursiva</em>" in creado["descripcion"]
+    assert "<li>Primer punto</li>" in creado["descripcion"]
+    assert "<script" not in creado["descripcion"]
+    assert "alert" not in creado["descripcion"]
+
+    # El PATCH también sanea y conserva el formato.
+    actualizado = client.patch(
+        f"/api/informes/anexos/{creado['id']}",
+        data={
+            "titulo": "[[ANEXO_DESCRIPCION_RICA]]",
+            "descripcion": "<p>Nota <b>fuerte</b> e <i>inclinada</i></p>",
+        },
+    )
+    assert actualizado.status_code == 200, actualizado.text
+    assert actualizado.json()["descripcion"] == (
+        "<p>Nota <strong>fuerte</strong> e <em>inclinada</em></p>"
+    )
+
+    document = Document(BytesIO(_exportar(client)))
+    parrafo = next(
+        p
+        for p in document.paragraphs
+        if "Nota fuerte e inclinada" in p.text.replace("\xa0", " ")
+    )
+    runs = {run.text: run for run in parrafo.runs}
+    assert runs["fuerte"].bold is True
+    assert runs["inclinada"].italic is True
+
+
 def test_docx_sin_anexos_conserva_el_listado_institucional(client):
     with client.session_factory() as session:
         _seed_periodo(session)

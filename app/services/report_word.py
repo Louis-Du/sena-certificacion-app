@@ -1211,10 +1211,20 @@ def _write_annex_detail(
 
         descripcion = str(anexo.get("descripcion") or "").strip()
         if descripcion:
+            # La descripción acepta el mismo HTML restringido que las
+            # estrategias: negrita, cursiva, listas y saltos de línea.
             try:
-                anchor.insert_paragraph_before(descripcion, style="Body Text")
+                parrafo_descripcion = anchor.insert_paragraph_before(
+                    style="Body Text"
+                )
             except KeyError:
-                anchor.insert_paragraph_before(descripcion)
+                parrafo_descripcion = anchor.insert_paragraph_before()
+            html_to_docx_paragraphs(
+                parrafo_descripcion,
+                descripcion,
+                placeholder="",
+                layout="body",
+            )
 
         archivos = anexo.get("archivos")
         if not archivos and anexo.get("ruta"):

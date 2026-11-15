@@ -5295,6 +5295,25 @@ body.has-conflict-banner .sidebar {
   font-weight: 750;
 }
 
+.informe-undo-button {
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.informe-undo-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.informe-undo-button[data-modo="redo"] {
+  border-color: rgba(15, 118, 110, 0.4);
+  color: var(--accent);
+}
+
 .informe-estrategias-form {
   display: grid;
   gap: 18px;
@@ -5807,6 +5826,22 @@ body.has-conflict-banner .sidebar {
 
 .informe-editor-area p:last-child {
   margin-bottom: 0;
+}
+
+/* Variante compacta para la descripción de los anexos. */
+.informe-editor--compact .informe-editor-toolbar {
+  padding: 4px 5px;
+}
+
+.informe-editor-area--compact {
+  min-height: 82px;
+  max-height: 220px;
+  font-size: 0.88rem;
+}
+
+.informe-anexo-descripcion-field {
+  display: grid;
+  gap: 6px;
 }
 
 .informe-editor-area ul,
@@ -6392,6 +6427,20 @@ label.informe-anexo-dropzone--compact {
   line-height: 1.45;
 }
 
+.informe-anexo-desc p {
+  margin: 0 0 0.45em;
+}
+
+.informe-anexo-desc p:last-child {
+  margin-bottom: 0;
+}
+
+.informe-anexo-desc ul,
+.informe-anexo-desc ol {
+  margin: 0.3em 0 0.45em;
+  padding-left: 1.4em;
+}
+
 .informe-anexo-meta {
   margin: 0;
   color: var(--muted);
@@ -6626,7 +6675,8 @@ label.informe-anexo-dropzone--compact {
     align-self: flex-start;
   }
 
-  .informe-save-button {
+  .informe-save-button,
+  .informe-undo-button {
     width: 100%;
   }
 

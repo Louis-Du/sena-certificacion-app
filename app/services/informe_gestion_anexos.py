@@ -53,6 +53,7 @@ from app.services.informe_gestion_estrategias import (
     normalizar_anio,
     normalizar_trimestre,
 )
+from app.services.rich_text import sanitize_estrategia_html
 
 logger = logging.getLogger(__name__)
 
@@ -152,8 +153,18 @@ def _titulo(value: Any) -> str:
 
 
 def _descripcion(value: Any) -> str | None:
+    """Sanea la descripción; acepta HTML restringido o texto plano histórico.
+
+    La descripción usa el mismo editor enriquecido que las estrategias
+    (negrita, cursiva y listas). El DOCX la renderiza con esos formatos. Un
+    texto plano se sigue guardando tal cual, sin convertirlo a HTML.
+    """
     texto = str(value or "").replace("\r\n", "\n").strip()
-    return texto[:MAX_DESCRIPCION] or None
+    if not texto:
+        return None
+    if not re.search(r"</?[a-zA-Z][^>]*>", texto):
+        return re.sub(r"\s+", " ", texto)[:MAX_DESCRIPCION] or None
+    return sanitize_estrategia_html(texto) or None
 
 
 def _siguiente_orden(session: Session, anio: int, trimestre: str) -> int:
@@ -260,7 +271,7 @@ def _serializar(
         "anio": registro.anio,
         "trimestre": registro.trimestre,
         "titulo": registro.titulo,
-        "descripcion": registro.descripcion,
+        "descripcion": _descripcion(registro.descripcion),
         "orden": registro.orden,
         "total_archivos": len(archivos),
         "archivo_disponible": bool(archivos)
@@ -550,7 +561,7 @@ def anexos_para_docx(
                 "numero": numero,
                 "rotulo": f"ANEXO {numero}",
                 "titulo": registro.titulo,
-                "descripcion": registro.descripcion,
+                "descripcion": _descripcion(registro.descripcion),
                 "archivos": [
                     {
                         "nombre_archivo": archivo.nombre_archivo,

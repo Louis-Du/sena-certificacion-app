@@ -1169,7 +1169,9 @@ def test_ui_acordeones_sin_input_editable_en_fila_contraida():
     assert index.count("data-estrategia-quick=") == 0
     assert "informe-quick-input" not in index
     assert index.count("data-estrategia-seccion=") == 6
-    assert index.count('contenteditable="true"') == 6
+    # Seis editores de estrategias + las dos descripciones enriquecidas de
+    # anexos (alta y edición).
+    assert index.count('contenteditable="true"') == 8
     assert '<textarea id="estrategia' not in index
     # El estado/preview en texto plano vive en la propia fila.
     assert index.count("data-accordion-status") == 6
@@ -1193,7 +1195,8 @@ def test_ui_editor_restringido_con_negrita_cursiva_y_listas():
         encoding="utf-8"
     )
 
-    assert index.count("informe-editor-toolbar") == 6
+    # Seis barras de estrategias + dos de descripciones de anexos.
+    assert index.count("informe-editor-toolbar") == 8
     for comando in (
         "bold",
         "italic",
@@ -1219,7 +1222,20 @@ def test_ui_editor_restringido_con_negrita_cursiva_y_listas():
     assert "function htmlParaPegadoEstrategia(value)" in ui_js
     assert "function textoPlanoAHtmlEstrategia(texto)" in ui_js
     assert 'document.execCommand("insertHTML", false, htmlSeguro);' in ui_js
-    assert "secciones[editor.dataset.estrategiaSeccion] = normalizarHtmlEstrategia(" in ui_js
+    assert "function normalizarSeccionInforme(value)" in ui_js
+    assert "secciones[editor.dataset.estrategiaSeccion] = normalizarSeccionInforme(" in ui_js
+
+    # Atajos de Word/Google Docs: negrita, cursiva y listas.
+    assert 'code === "KeyB" || code === "KeyN"' in ui_js
+    assert 'code === "KeyI" || code === "KeyK"' in ui_js
+    assert 'code === "Digit7"' in ui_js
+    assert 'code === "Digit8" || code === "KeyL"' in ui_js
+
+    # La descripción de los anexos usa el mismo editor enriquecido.
+    assert index.count("data-anexo-editor=") == 2
+    assert index.count("data-anexo-descripcion=") == 2
+    assert '"[data-estrategia-editor], [data-anexo-editor]"' in ui_js
+    assert '"[data-estrategia-seccion], [data-anexo-descripcion]"' in ui_js
 
     for selector in (
         ".informe-editor",
@@ -1230,6 +1246,28 @@ def test_ui_editor_restringido_con_negrita_cursiva_y_listas():
         ".informe-editor-area.is-empty::before",
     ):
         assert selector in css
+
+
+def test_ui_autoguardado_al_salir_y_boton_deshacer_rehacer():
+    """El autoguardado se dispara al salir del editor y el botón alterna."""
+    root = Path(__file__).resolve().parents[1]
+    index = (root / "app" / "static" / "index.html").read_text(encoding="utf-8")
+    ui_js = (root / "app" / "static" / "ui-enhancements.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'id="informe-estrategias-undo"' in index
+    assert "↶ Deshacer" in index
+    assert "function programarAutosave()" in ui_js
+    assert 'editor.addEventListener("blur", () => programarAutosave());' in ui_js
+    assert "function alternarHistorialEstrategias()" in ui_js
+    assert 'informeUndo.textContent = rehaciendo ? "↷ Rehacer" : "↶ Deshacer";' in ui_js
+    # El segundo estado describe volver a la última versión guardada.
+    assert '"Volver a la última versión guardada"' in ui_js
+    assert "Se volvió a la última versión guardada." in ui_js
+    assert "informeUndoSnapshot = null;" in ui_js
+    assert "informeRedoSnapshot = actual;" in ui_js
+    assert "await guardarEstrategias({" in ui_js
 
 
 def test_ui_editor_permite_insertar_referencia_anexo():
