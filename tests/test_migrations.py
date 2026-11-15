@@ -33,6 +33,25 @@ CREATE TABLE requirements (
 )
 """
 
+# Esquema anterior de anexos: un anexo = un archivo y código manual.
+OLD_ANEXOS_SCHEMA = """
+CREATE TABLE informe_gestion_anexos (
+    id INTEGER PRIMARY KEY,
+    anio INTEGER NOT NULL,
+    trimestre VARCHAR(2) NOT NULL,
+    codigo VARCHAR(40),
+    titulo VARCHAR(255) NOT NULL,
+    descripcion TEXT,
+    nombre_archivo VARCHAR(255) NOT NULL,
+    content_type VARCHAR(120) NOT NULL,
+    ruta_archivo VARCHAR(255) NOT NULL,
+    tamano INTEGER DEFAULT 0,
+    orden INTEGER DEFAULT 0,
+    created_at DATETIME,
+    updated_at DATETIME
+)
+"""
+
 
 def _old_schema_engine(tmp_path):
     db_path = tmp_path / "old_schema.db"
@@ -149,6 +168,83 @@ def test_migration_preserves_data_after_repeated_runs(tmp_path):
             text("SELECT file_name, records_count FROM import_history ORDER BY id")
         ).fetchall()
     assert rows == [("a.csv", 1), ("b.csv", 2)]
+
+
+def test_migration_moves_legacy_annex_files_to_child_table(tmp_path):
+    engine = _old_schema_engine(tmp_path)
+    with engine.begin() as connection:
+        connection.execute(text(OLD_ANEXOS_SCHEMA))
+        connection.execute(
+            text(
+                "INSERT INTO informe_gestion_anexos "
+                "(id, anio, trimestre, codigo, titulo, descripcion, "
+                "nombre_archivo, content_type, ruta_archivo, tamano, orden, "
+                "created_at, updated_at) VALUES "
+                "(1, 2026, 'T3', 'A-1', 'Captura', 'Detalle', "
+                "'captura.png', 'image/png', '2026-T3-uno.png', 10, 1, "
+                "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP), "
+                "(2, 2026, 'T3', 'A-2', 'Documento', NULL, "
+                "'soporte.pdf', 'application/pdf', '2026-T3-dos.pdf', 20, 2, "
+                "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            )
+        )
+
+    _upgrade_sqlite_schema(engine)
+
+    columns = _columns(engine, "informe_gestion_anexos")
+    assert "codigo" not in columns
+    assert "ruta_archivo" not in columns
+    assert "nombre_archivo" not in columns
+    assert "content_type" not in columns
+    assert "titulo" in columns
+
+    with engine.begin() as connection:
+        padres = connection.execute(
+            text(
+                "SELECT id, anio, trimestre, titulo, descripcion, orden "
+                "FROM informe_gestion_anexos ORDER BY id"
+            )
+        ).fetchall()
+        hijos = connection.execute(
+            text(
+                "SELECT anexo_id, nombre_archivo, content_type, ruta_archivo, "
+                "tamano, orden FROM informe_gestion_anexo_archivos "
+                "ORDER BY anexo_id"
+            )
+        ).fetchall()
+
+    assert padres == [
+        (1, 2026, "T3", "Captura", "Detalle", 1),
+        (2, 2026, "T3", "Documento", None, 2),
+    ]
+    assert hijos == [
+        (1, "captura.png", "image/png", "2026-T3-uno.png", 10, 0),
+        (2, "soporte.pdf", "application/pdf", "2026-T3-dos.pdf", 20, 0),
+    ]
+
+
+def test_migration_of_annexes_is_idempotent(tmp_path):
+    engine = _old_schema_engine(tmp_path)
+    with engine.begin() as connection:
+        connection.execute(text(OLD_ANEXOS_SCHEMA))
+        connection.execute(
+            text(
+                "INSERT INTO informe_gestion_anexos "
+                "(id, anio, trimestre, titulo, nombre_archivo, content_type, "
+                "ruta_archivo, tamano, orden) VALUES "
+                "(1, 2026, 'T3', 'Captura', 'captura.png', 'image/png', "
+                "'2026-T3-uno.png', 10, 1)"
+            )
+        )
+
+    _upgrade_sqlite_schema(engine)
+    _upgrade_sqlite_schema(engine)
+
+    with engine.begin() as connection:
+        total = connection.execute(
+            text("SELECT COUNT(*) FROM informe_gestion_anexo_archivos")
+        ).scalar_one()
+    assert total == 1
 
 
 def test_migration_handles_database_without_target_tables(tmp_path):

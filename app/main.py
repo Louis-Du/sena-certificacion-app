@@ -7,13 +7,15 @@ from datetime import date
 from typing import Any
 
 # Importamos varias clases y funciones de FastAPI para crear la aplicación web, manejar dependencias, recibir archivos y formularios, y manejar excepciones HTTP.
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile 
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile 
 # Importamos la clase FileResponse de fastapi.responses para enviar archivos como respuesta HTTP.
 from fastapi.responses import FileResponse, Response
 # Importamos la clase StaticFiles de fastapi.staticfiles para servir archivos estáticos desde un directorio específico.
 from fastapi.staticfiles import StaticFiles
 # Importamos la clase BaseModel de pydantic para definir modelos de datos que se validan automáticamente.
 from pydantic import BaseModel
+# Importamos select para consultar la imagen principal de un anexo.
+from sqlalchemy import select
 # Importamos la clase Session de sqlalchemy.orm para manejar sesiones de base de datos.
 from sqlalchemy.orm import Session
 
@@ -762,6 +764,54 @@ def _anexo_http_error(error: Exception) -> HTTPException:
     return HTTPException(status_code=status_code, detail=str(error))
 
 
+async def _leer_imagenes_anexo(
+    files: list[UploadFile] | None,
+    file: UploadFile | None = None,
+) -> list[tuple[str, bytes]]:
+    """Normaliza los campos ``files``/``file`` a ``(nombre, contenido)``."""
+    entradas: list[tuple[str, bytes]] = []
+    for upload in files or []:
+        entradas.append(
+            (upload.filename or "imagen", await upload.read())
+        )
+    if file is not None:
+        entradas.append((file.filename or "imagen", await file.read()))
+    return entradas
+
+
+def _parsear_reordenamiento(payload: Any) -> tuple[list[int], Any, Any]:
+    """Acepta lista directa o dict con ``anexo_ids``/``ids``/``orden``/``items``."""
+    anio = None
+    trimestre = None
+    if isinstance(payload, dict):
+        anio = payload.get("anio")
+        trimestre = payload.get("trimestre")
+        crudo = (
+            payload.get("anexo_ids")
+            or payload.get("ids")
+            or payload.get("orden")
+            or payload.get("items")
+        )
+    else:
+        crudo = payload
+    if not isinstance(crudo, list):
+        raise HTTPException(
+            status_code=400,
+            detail="Envía una lista ordenada de identificadores de anexo.",
+        )
+    ids: list[int] = []
+    for item in crudo:
+        valor = item.get("id") or item.get("anexo_id") if isinstance(item, dict) else item
+        try:
+            ids.append(int(valor))
+        except (TypeError, ValueError) as error:
+            raise HTTPException(
+                status_code=400,
+                detail="Los identificadores de anexo deben ser números.",
+            ) from error
+    return ids, anio, trimestre
+
+
 @app.get("/api/informes/anexos")
 async def informe_gestion_anexos_list(
     anio: int | None = Query(default=None, ge=2000, le=2100),
@@ -777,18 +827,49 @@ async def informe_gestion_anexos_list(
         raise _anexo_http_error(error) from error
 
 
+@app.put("/api/informes/anexos/orden")
+@app.patch("/api/informes/anexos/orden")
+async def informe_gestion_anexos_reorder(
+    payload: Any = Body(...),
+    anio: int | None = Query(default=None, ge=2000, le=2100),
+    trimestre: str | None = Query(default=None, description="T1, T2, T3 o T4."),
+    session: Session = Depends(get_db),
+) -> dict:
+    """Persiste el orden 1..N resultante del drag-and-drop."""
+    from app.models import InformeGestionAnexo
+    from app.services.informe_gestion_anexos import reordenar_anexos
+
+    ids, anio_payload, trimestre_payload = _parsear_reordenamiento(payload)
+    anio = anio if anio is not None else anio_payload
+    trimestre = trimestre if trimestre is not None else trimestre_payload
+    if (anio is None or trimestre is None) and ids:
+        primero = session.get(InformeGestionAnexo, ids[0])
+        if primero is None:
+            raise HTTPException(status_code=404, detail="Anexo no encontrado.")
+        anio = anio if anio is not None else primero.anio
+        trimestre = trimestre if trimestre is not None else primero.trimestre
+    try:
+        return reordenar_anexos(
+            session,
+            anio=anio,
+            trimestre=trimestre,
+            anexo_ids=ids,
+        )
+    except ValueError as error:
+        raise _anexo_http_error(error) from error
+
+
 @app.post("/api/informes/anexos", status_code=201)
 async def informe_gestion_anexos_create(
     titulo: str = Form(...),
     anio: int | None = Form(default=None),
     trimestre: str | None = Form(default=None),
     descripcion: str | None = Form(default=None),
-    codigo: str | None = Form(default=None),
-    orden: int | None = Form(default=None),
-    file: UploadFile = File(...),
+    files: list[UploadFile] = File(default=[]),
+    file: UploadFile | None = File(default=None),
     session: Session = Depends(get_db),
 ) -> dict:
-    """Sube un anexo (multipart) para el periodo indicado."""
+    """Crea un anexo con una o varias imágenes."""
     from app.services.informe_gestion_anexos import crear_anexo
 
     try:
@@ -798,11 +879,22 @@ async def informe_gestion_anexos_create(
             trimestre=trimestre,
             titulo=titulo,
             descripcion=descripcion,
-            codigo=codigo,
-            orden=orden,
-            nombre_archivo=file.filename or "anexo",
-            contenido=await file.read(),
+            archivos=await _leer_imagenes_anexo(files, file),
         )
+    except ValueError as error:
+        raise _anexo_http_error(error) from error
+
+
+@app.get("/api/informes/anexos/{anexo_id}")
+async def informe_gestion_anexos_detail(
+    anexo_id: int,
+    session: Session = Depends(get_db),
+) -> dict:
+    """Detalle fresco del anexo, con sus imágenes actuales."""
+    from app.services.informe_gestion_anexos import obtener_anexo
+
+    try:
+        return obtener_anexo(session, anexo_id)
     except ValueError as error:
         raise _anexo_http_error(error) from error
 
@@ -812,26 +904,53 @@ async def informe_gestion_anexos_update(
     anexo_id: int,
     titulo: str | None = Form(default=None),
     descripcion: str | None = Form(default=None),
-    codigo: str | None = Form(default=None),
-    orden: int | None = Form(default=None),
-    file: UploadFile | None = File(default=None),
     session: Session = Depends(get_db),
 ) -> dict:
-    """Actualiza metadatos y, opcionalmente, reemplaza el archivo."""
+    """Actualiza solo los metadatos del anexo."""
     from app.services.informe_gestion_anexos import actualizar_anexo
 
-    contenido = await file.read() if file is not None else None
     try:
         return actualizar_anexo(
             session,
             anexo_id,
             titulo=titulo,
             descripcion=descripcion,
-            codigo=codigo,
-            orden=orden,
-            nombre_archivo=file.filename if file is not None else None,
-            contenido=contenido,
         )
+    except ValueError as error:
+        raise _anexo_http_error(error) from error
+
+
+@app.post("/api/informes/anexos/{anexo_id}/imagenes", status_code=201)
+async def informe_gestion_anexos_add_images(
+    anexo_id: int,
+    files: list[UploadFile] = File(default=[]),
+    file: UploadFile | None = File(default=None),
+    session: Session = Depends(get_db),
+) -> dict:
+    """Añade una o varias imágenes a un anexo existente."""
+    from app.services.informe_gestion_anexos import agregar_archivos
+
+    try:
+        return agregar_archivos(
+            session,
+            anexo_id,
+            await _leer_imagenes_anexo(files, file),
+        )
+    except ValueError as error:
+        raise _anexo_http_error(error) from error
+
+
+@app.delete("/api/informes/anexos/{anexo_id}/imagenes/{archivo_id}")
+async def informe_gestion_anexos_delete_image(
+    anexo_id: int,
+    archivo_id: int,
+    session: Session = Depends(get_db),
+) -> dict:
+    """Elimina una imagen concreta; no permite dejar el anexo vacío."""
+    from app.services.informe_gestion_anexos import eliminar_archivo
+
+    try:
+        return eliminar_archivo(session, anexo_id, archivo_id)
     except ValueError as error:
         raise _anexo_http_error(error) from error
 
@@ -841,7 +960,7 @@ async def informe_gestion_anexos_delete(
     anexo_id: int,
     session: Session = Depends(get_db),
 ) -> Response:
-    """Elimina el anexo; la limpieza del binario es best-effort."""
+    """Elimina el anexo completo y todas sus imágenes."""
     from app.services.informe_gestion_anexos import eliminar_anexo
 
     try:
@@ -851,27 +970,74 @@ async def informe_gestion_anexos_delete(
     return Response(status_code=204)
 
 
+@app.get("/api/informes/anexos/{anexo_id}/archivos/{archivo_id}/download")
+async def informe_gestion_anexos_file_download(
+    anexo_id: int,
+    archivo_id: int,
+    session: Session = Depends(get_db),
+) -> FileResponse:
+    """Descarga/previsualiza una imagen concreta del anexo."""
+    from app.models import InformeGestionAnexoArchivo
+    from app.services.informe_gestion_anexos import ruta_absoluta
+
+    archivo = session.get(InformeGestionAnexoArchivo, archivo_id)
+    if archivo is None or archivo.anexo_id != anexo_id:
+        raise HTTPException(
+            status_code=404, detail="Imagen del anexo no encontrada."
+        )
+    ruta = ruta_absoluta(archivo)
+    if not ruta.exists():
+        raise HTTPException(
+            status_code=404, detail="La imagen no está disponible."
+        )
+    return FileResponse(
+        path=ruta,
+        media_type=archivo.content_type,
+        filename=archivo.nombre_archivo,
+    )
+
+
 @app.get("/api/informes/anexos/{anexo_id}/download")
 async def informe_gestion_anexos_download(
     anexo_id: int,
     session: Session = Depends(get_db),
 ) -> FileResponse:
-    """Descarga el archivo original del anexo."""
-    from app.models import InformeGestionAnexo
-    from app.services.informe_gestion_anexos import ruta_absoluta
+    """Descarga la primera imagen del anexo (atajo simple del catálogo)."""
+    from app.models import InformeGestionAnexoArchivo
+    from app.services.informe_gestion_anexos import (
+        TIPOS_PERMITIDOS,
+        ruta_absoluta,
+    )
 
-    registro = session.get(InformeGestionAnexo, anexo_id)
-    if registro is None:
-        raise HTTPException(status_code=404, detail="Anexo no encontrado.")
-    ruta = ruta_absoluta(registro)
+    archivos = session.scalars(
+        select(InformeGestionAnexoArchivo)
+        .where(InformeGestionAnexoArchivo.anexo_id == anexo_id)
+        .order_by(
+            InformeGestionAnexoArchivo.orden,
+            InformeGestionAnexoArchivo.id,
+        )
+    ).all()
+    archivo = next(
+        (
+            item
+            for item in archivos
+            if str(item.content_type or "").lower() in TIPOS_PERMITIDOS
+        ),
+        None,
+    )
+    if archivo is None:
+        raise HTTPException(
+            status_code=404, detail="El anexo no tiene imágenes disponibles."
+        )
+    ruta = ruta_absoluta(archivo)
     if not ruta.exists():
         raise HTTPException(
-            status_code=404, detail="El archivo del anexo no está disponible."
+            status_code=404, detail="La imagen no está disponible."
         )
     return FileResponse(
         path=ruta,
-        media_type=registro.content_type,
-        filename=registro.nombre_archivo,
+        media_type=archivo.content_type,
+        filename=archivo.nombre_archivo,
     )
 
 

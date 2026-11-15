@@ -865,8 +865,9 @@
   const informeAnexoDescripcion = document.getElementById(
     "informe-anexo-descripcion",
   );
-  const informeAnexoCodigo = document.getElementById("informe-anexo-codigo");
-  const informeAnexoOrden = document.getElementById("informe-anexo-orden");
+  const informeAnexoFileClear = document.getElementById(
+    "informe-anexo-file-clear",
+  );
   const informeAnexoSubmit = document.getElementById("informe-anexo-submit");
   const informeAnexoStatus = document.getElementById("informe-anexo-status");
   const informeAnexosList = document.getElementById("informe-anexos-list");
@@ -891,12 +892,6 @@
   const informeAnexoEditDescripcion = document.getElementById(
     "informe-anexo-edit-descripcion",
   );
-  const informeAnexoEditCodigo = document.getElementById(
-    "informe-anexo-edit-codigo",
-  );
-  const informeAnexoEditOrden = document.getElementById(
-    "informe-anexo-edit-orden",
-  );
   const informeAnexoEditFile = document.getElementById(
     "informe-anexo-edit-file",
   );
@@ -918,36 +913,27 @@
   const informeAnexoModalClose = document.getElementById(
     "informe-anexo-modal-close",
   );
-  const informeAnexoCurrentMeta = document.getElementById(
-    "informe-anexo-current-meta",
-  );
   const informeAnexoCurrent = document.getElementById("informe-anexo-current");
-  const informeAnexoCurrentDownload = document.getElementById(
-    "informe-anexo-current-download",
+  const informeAnexoCurrentCount = document.getElementById(
+    "informe-anexo-current-count",
+  );
+  const informeAnexoCurrentGallery = document.getElementById(
+    "informe-anexo-current-gallery",
   );
   const informeAnexoCurrentNote = document.getElementById(
     "informe-anexo-current-note",
-  );
-  const informeAnexoCurrentRemove = document.getElementById(
-    "informe-anexo-current-remove",
   );
   const informeAnexoEditFileClear = document.getElementById(
     "informe-anexo-edit-file-clear",
   );
 
   const ANEXO_MAX_BYTES = 10 * 1024 * 1024;
-  const ANEXO_TIPOS = new Set([
-    "image/png",
-    "image/jpeg",
-    "image/webp",
-    "application/pdf",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ]);
+  const ANEXO_TIPOS = new Set(["image/png", "image/jpeg", "image/webp"]);
   let informeAnexosToken = 0;
   let informeAnexosCache = [];
-  let informeAnexoEditActual = null;
-  let informeAnexoQuitarActual = false;
   let informeAnexoGuardando = false;
+  let informeAnexoDragId = null;
+  let informeAnexoReordenando = false;
 
   function formatoBytesAnexo(bytes) {
     const valor = Number(bytes) || 0;
@@ -992,105 +978,55 @@
     return fallback;
   }
 
-  function anexoEsImagen(item) {
-    return String(item?.content_type || "").startsWith("image/");
+  function archivosAnexo(item) {
+    return Array.isArray(item?.archivos) ? item.archivos : [];
   }
 
-  function anexoPuedeIncrustarse(item) {
-    const tipo = String(item?.content_type || "");
-    // python-docx no interpreta WEBP: se lista en §5, pero no se incrusta.
-    return tipo === "image/png" || tipo === "image/jpeg";
+  function urlConVersion(url, version) {
+    if (!url) return "";
+    const separador = url.includes("?") ? "&" : "?";
+    return `${url}${separador}v=${encodeURIComponent(version || "1")}`;
   }
 
-  function anexoArchivoDisponible(item) {
-    return Boolean(item) && item.archivo_disponible !== false;
-  }
-
-  function anexoEditReemplazo() {
-    return informeAnexoEditFile?.files?.[0] || null;
-  }
-
-  function actualizarEstadoArchivoAnexo() {
-    const item = informeAnexoEditActual;
-    if (!item) return;
-    const disponible = anexoArchivoDisponible(item);
-    const reemplazo = anexoEditReemplazo();
-    const quitar = informeAnexoQuitarActual;
-    const requiereReemplazo = (quitar || !disponible) && !reemplazo;
-
-    if (informeAnexoCurrentMeta) {
-      const meta = `${etiquetaTipoAnexo(
-        item.content_type,
-        item.nombre_archivo,
-      )} · ${formatoBytesAnexo(item.tamano)} · ${item.nombre_archivo || ""}`;
-      informeAnexoCurrentMeta.textContent = disponible
-        ? meta
-        : `${meta} · No disponible en el servidor`;
-    }
-    if (informeAnexoCurrentDownload) {
-      informeAnexoCurrentDownload.hidden = !disponible || !item.download_url;
-    }
-    if (informeAnexoCurrentRemove) {
-      informeAnexoCurrentRemove.hidden = !disponible || Boolean(reemplazo);
-      informeAnexoCurrentRemove.textContent = quitar
-        ? "Restaurar archivo actual"
-        : "Quitar archivo actual";
-      informeAnexoCurrentRemove.setAttribute("aria-pressed", String(quitar));
-    }
-    if (informeAnexoCurrentNote) {
-      let nota = "";
-      if (!disponible) {
-        nota =
-          "El archivo actual no está disponible en el servidor. Selecciona un reemplazo para poder guardar.";
-      } else if (quitar && !reemplazo) {
-        nota =
-          "Marcaste quitar el archivo actual. Selecciona un reemplazo para poder guardar.";
-      } else if (reemplazo) {
-        nota = "El archivo actual se reemplazará al guardar los cambios.";
+  function validarArchivosAnexo(archivos) {
+    if (!archivos?.length) return "Selecciona al menos una imagen.";
+    for (const archivo of archivos) {
+      if (archivo.size > ANEXO_MAX_BYTES) {
+        return `“${archivo.name}” supera el máximo de 10 MB.`;
       }
-      informeAnexoCurrentNote.textContent = nota;
-      informeAnexoCurrentNote.hidden = !nota;
-    }
-    if (informeAnexoCurrent) {
-      informeAnexoCurrent.classList.toggle("is-removing", quitar);
-      informeAnexoCurrent.classList.toggle("is-missing", !disponible);
-    }
-    if (informeAnexoEditSave) {
-      informeAnexoEditSave.disabled =
-        informeAnexoGuardando || requiereReemplazo;
-    }
-  }
-
-  function validarArchivoAnexo(archivo) {
-    if (!archivo) return "Selecciona un archivo para el anexo.";
-    if (archivo.size > ANEXO_MAX_BYTES) {
-      return "El archivo supera el máximo de 10 MB.";
-    }
-    if (archivo.type && !ANEXO_TIPOS.has(archivo.type)) {
-      return "Tipo de archivo no permitido. Usa PNG, JPEG, WEBP, PDF o DOCX.";
+      if (archivo.type && !ANEXO_TIPOS.has(archivo.type)) {
+        return "Solo se permiten imágenes PNG, JPEG o WEBP.";
+      }
     }
     return "";
   }
 
-  function mostrarNombreArchivo(elemento, archivo) {
+  function mostrarArchivosSeleccionados(elemento, archivos) {
     if (!elemento) return;
-    if (!archivo) {
+    const lista = Array.from(archivos || []);
+    if (!lista.length) {
       elemento.hidden = true;
       elemento.textContent = "";
       return;
     }
+    const total = lista.reduce((suma, archivo) => suma + archivo.size, 0);
+    const nombres = lista.map((archivo) => archivo.name).join(", ");
     elemento.hidden = false;
-    elemento.textContent = `Archivo seleccionado: ${archivo.name} · ${formatoBytesAnexo(archivo.size)}`;
+    elemento.textContent =
+      lista.length === 1
+        ? `Imagen seleccionada: ${nombres} · ${formatoBytesAnexo(total)}`
+        : `${lista.length} imágenes seleccionadas: ${nombres} · ${formatoBytesAnexo(total)}`;
   }
 
   function configurarDropzone(dropzone, input, nombreEl, alSeleccionar) {
     if (!dropzone || !input) return;
-    const aplicar = (archivo) => {
-      mostrarNombreArchivo(nombreEl, archivo);
-      if (alSeleccionar) alSeleccionar(archivo);
+    const aplicar = (archivos) => {
+      const lista = Array.from(archivos || []);
+      mostrarArchivosSeleccionados(nombreEl, lista);
+      if (alSeleccionar) alSeleccionar(lista);
     };
     input.addEventListener("change", () => {
-      aplicar(input.files?.[0] || null);
+      aplicar(input.files || []);
     });
     ["dragenter", "dragover"].forEach((evento) => {
       dropzone.addEventListener(evento, (event) => {
@@ -1108,17 +1044,17 @@
       event.preventDefault();
       event.stopPropagation();
       dropzone.classList.remove("is-dragover");
-      const archivo = event.dataTransfer?.files?.[0];
-      if (!archivo) return;
+      const archivos = Array.from(event.dataTransfer?.files || []);
+      if (!archivos.length) return;
       try {
         const transferencia = new DataTransfer();
-        transferencia.items.add(archivo);
+        archivos.forEach((archivo) => transferencia.items.add(archivo));
         input.files = transferencia.files;
       } catch (_) {
-        // Si el navegador no permite asignar files, el input conserva el
-        // archivo elegido manualmente.
+        // Si el navegador no permite asignar files, el input conserva las
+        // imágenes elegidas manualmente.
       }
-      aplicar(archivo);
+      aplicar(archivos);
     });
   }
 
@@ -1132,20 +1068,70 @@
   }
 
   function crearTarjetaAnexo(item) {
+    const archivos = archivosAnexo(item);
     const card = document.createElement("li");
     card.className = "informe-anexo-card";
     card.dataset.anexoId = String(item.id);
+    card.draggable = true;
+    card.title = "Arrastra para reordenar este anexo";
+
+    card.addEventListener("dragstart", (event) => {
+      informeAnexoDragId = item.id;
+      card.classList.add("is-dragging");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", String(item.id));
+    });
+    card.addEventListener("dragend", () => {
+      informeAnexoDragId = null;
+      informeAnexosList
+        ?.querySelectorAll(".is-dragging, .is-drag-over")
+        .forEach((elemento) => {
+          elemento.classList.remove("is-dragging", "is-drag-over");
+        });
+    });
+    card.addEventListener("dragover", (event) => {
+      if (informeAnexoDragId == null || informeAnexoDragId === item.id) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      card.classList.add("is-drag-over");
+    });
+    card.addEventListener("dragleave", (event) => {
+      if (!card.contains(event.relatedTarget)) {
+        card.classList.remove("is-drag-over");
+      }
+    });
+    card.addEventListener("drop", (event) => {
+      event.preventDefault();
+      card.classList.remove("is-drag-over");
+      const sourceId = Number(
+        event.dataTransfer.getData("text/plain") || informeAnexoDragId,
+      );
+      if (!sourceId || sourceId === item.id) return;
+      reordenarAnexo(sourceId, item.id);
+    });
 
     const head = document.createElement("div");
     head.className = "informe-anexo-card-head";
+    const izquierda = document.createElement("div");
+    izquierda.className = "informe-anexo-card-tags";
+    const handle = document.createElement("span");
+    handle.className = "informe-anexo-drag";
+    handle.textContent = "⠿";
+    handle.setAttribute("aria-hidden", "true");
     const code = document.createElement("span");
     code.className = "informe-anexo-code";
-    code.textContent =
-      item.rotulo || item.codigo || `ANEXO ${item.numero || item.id}`;
+    code.textContent = item.rotulo || `ANEXO ${item.numero || item.id}`;
+    izquierda.append(handle, code);
     const type = document.createElement("span");
     type.className = "informe-anexo-type";
-    type.textContent = `${etiquetaTipoAnexo(item.content_type, item.nombre_archivo)} · ${formatoBytesAnexo(item.tamano)}`;
-    head.append(code, type);
+    const totalBytes = archivos.reduce(
+      (suma, archivo) => suma + (Number(archivo.tamano) || 0),
+      0,
+    );
+    type.textContent = `${archivos.length} ${
+      archivos.length === 1 ? "imagen" : "imágenes"
+    } · ${formatoBytesAnexo(totalBytes)}`;
+    head.append(izquierda, type);
 
     const title = document.createElement("h4");
     title.textContent = item.titulo || "Anexo sin título";
@@ -1158,28 +1144,16 @@
       card.appendChild(desc);
     }
 
-    const meta = document.createElement("p");
-    meta.className = "informe-anexo-meta";
-    meta.textContent = item.nombre_archivo || "";
-    card.appendChild(meta);
-
-    if (!anexoPuedeIncrustarse(item)) {
-      const nota = document.createElement("p");
-      nota.className = "informe-anexo-note";
-      nota.textContent = anexoEsImagen(item)
-        ? "WEBP: se lista en la sección 5, pero el DOCX no incrusta este formato. Usa PNG o JPEG si quieres verlo dentro del informe."
-        : "PDF/DOCX: se lista en la sección 5 del DOCX, pero el archivo no se incrusta. Descárgalo desde este catálogo.";
-      if (!anexoArchivoDisponible(item)) {
-        nota.textContent =
-          "El archivo no está disponible en el servidor. Vuelve a cargarlo o elimina el anexo.";
-        nota.classList.add("is-warning");
-      }
-      card.appendChild(nota);
-    } else if (!anexoArchivoDisponible(item)) {
+    const faltantes = archivos.filter(
+      (archivo) => archivo.archivo_disponible === false,
+    ).length;
+    if (faltantes) {
       const nota = document.createElement("p");
       nota.className = "informe-anexo-note is-warning";
       nota.textContent =
-        "El archivo no está disponible en el servidor. Vuelve a cargarlo o elimina el anexo.";
+        faltantes === 1
+          ? "Una imagen no está disponible en el servidor. Elimínala o vuelve a cargarla."
+          : `${faltantes} imágenes no están disponibles en el servidor. Elimínalas o vuelve a cargarlas.`;
       card.appendChild(nota);
     }
 
@@ -1190,14 +1164,14 @@
       download.className = "informe-anexo-action";
       download.href = item.download_url;
       download.textContent = "Descargar";
+      download.title = "Descarga la primera imagen del anexo";
       download.setAttribute("download", "");
       actions.appendChild(download);
     }
 
-    // Vista previa solo para imágenes: PDF/DOCX se quedan como ficha con
-    // acciones. El panel nace colapsado para no cargar miniaturas de golpe.
+    // Vista previa como galería de todas las imágenes del anexo.
     let previewPanel = null;
-    if (anexoEsImagen(item)) {
+    if (archivos.length) {
       const previewButton = botonAccionAnexo("Vista previa", "preview");
       const panelId = `informe-anexo-preview-${item.id}`;
       previewButton.setAttribute("aria-expanded", "false");
@@ -1206,12 +1180,24 @@
       previewPanel.className = "informe-anexo-preview";
       previewPanel.id = panelId;
       previewPanel.hidden = true;
-      const imagen = document.createElement("img");
-      imagen.loading = "lazy";
-      imagen.decoding = "async";
-      imagen.src = item.download_url || "";
-      imagen.alt = `Vista previa de ${item.titulo || "anexo"}`;
-      previewPanel.appendChild(imagen);
+      const grid = document.createElement("div");
+      grid.className = "informe-anexo-preview-grid";
+      archivos.forEach((archivo) => {
+        const figure = document.createElement("figure");
+        const imagen = document.createElement("img");
+        imagen.loading = "lazy";
+        imagen.decoding = "async";
+        imagen.src = urlConVersion(
+          archivo.preview_url || archivo.download_url,
+          item.updated_at,
+        );
+        imagen.alt = archivo.nombre_archivo || "Imagen del anexo";
+        const caption = document.createElement("figcaption");
+        caption.textContent = archivo.nombre_archivo || "";
+        figure.append(imagen, caption);
+        grid.appendChild(figure);
+      });
+      previewPanel.appendChild(grid);
       previewButton.addEventListener("click", () => {
         const abrir = previewPanel.hidden;
         previewPanel.hidden = !abrir;
@@ -1238,42 +1224,178 @@
     informeAnexoModal.classList.remove("is-open");
     informeAnexoModal.setAttribute("aria-hidden", "true");
     document.body.style.overflow = "";
-    informeAnexoEditActual = null;
-    informeAnexoQuitarActual = false;
     informeAnexoGuardando = false;
   }
 
-  function abrirModalAnexo(item) {
+  function renderGaleriaModal(item) {
+    const archivos = archivosAnexo(item);
+    if (informeAnexoCurrentCount) {
+      informeAnexoCurrentCount.textContent = `${archivos.length} ${
+        archivos.length === 1 ? "imagen" : "imágenes"
+      } en este anexo`;
+    }
+    if (informeAnexoCurrentGallery) {
+      informeAnexoCurrentGallery.replaceChildren();
+      archivos.forEach((archivo) => {
+        const fila = document.createElement("li");
+        fila.className = "informe-anexo-gallery-item";
+        const imagen = document.createElement("img");
+        imagen.loading = "lazy";
+        imagen.decoding = "async";
+        imagen.src = urlConVersion(
+          archivo.preview_url || archivo.download_url,
+          item.updated_at,
+        );
+        imagen.alt = archivo.nombre_archivo || "Imagen del anexo";
+        const info = document.createElement("div");
+        info.className = "informe-anexo-gallery-info";
+        const nombre = document.createElement("p");
+        nombre.className = "informe-anexo-gallery-name";
+        nombre.textContent = archivo.nombre_archivo || "Imagen";
+        const meta = document.createElement("p");
+        meta.className = "informe-anexo-gallery-meta";
+        meta.textContent = `${etiquetaTipoAnexo(
+          archivo.content_type,
+          archivo.nombre_archivo,
+        )} · ${formatoBytesAnexo(archivo.tamano)}${
+          archivo.archivo_disponible === false
+            ? " · No disponible en el servidor"
+            : ""
+        }`;
+        const acciones = document.createElement("div");
+        acciones.className = "informe-anexo-gallery-actions";
+        if (archivo.download_url) {
+          const descargar = document.createElement("a");
+          descargar.className = "informe-anexo-action";
+          descargar.href = archivo.download_url;
+          descargar.textContent = "Descargar";
+          descargar.setAttribute("download", "");
+          acciones.appendChild(descargar);
+        }
+        const eliminar = document.createElement("button");
+        eliminar.type = "button";
+        eliminar.className = "informe-anexo-action is-danger";
+        eliminar.textContent = "Eliminar imagen";
+        if (archivos.length <= 1) {
+          eliminar.disabled = true;
+          eliminar.title =
+            "Añade otra imagen antes de eliminar la última del anexo.";
+        }
+        eliminar.addEventListener("click", () =>
+          eliminarImagenAnexo(item.id, archivo.id, eliminar),
+        );
+        acciones.appendChild(eliminar);
+        info.append(nombre, meta, acciones);
+        fila.append(imagen, info);
+        informeAnexoCurrentGallery.appendChild(fila);
+      });
+    }
+    if (informeAnexoCurrentNote) {
+      const faltantes = archivos.filter(
+        (archivo) => archivo.archivo_disponible === false,
+      ).length;
+      const nota = faltantes
+        ? "Hay imágenes que no están disponibles en el servidor. Puedes eliminarlas o añadirlas de nuevo."
+        : "";
+      informeAnexoCurrentNote.textContent = nota;
+      informeAnexoCurrentNote.hidden = !nota;
+      informeAnexoCurrentNote.classList.toggle("is-warning", Boolean(faltantes));
+    }
+    if (informeAnexoCurrent) {
+      informeAnexoCurrent.classList.toggle("is-missing", !archivos.length);
+    }
+  }
+
+  async function abrirModalAnexo(item) {
     if (!informeAnexoModal || !informeAnexoEditForm) return;
+    let fresco = item;
+    try {
+      const response = await fetch(`/api/informes/anexos/${item.id}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        throw new Error(
+          await mensajeErrorAnexo(
+            response,
+            "No se pudo cargar el detalle del anexo.",
+          ),
+        );
+      }
+      fresco = await response.json();
+    } catch (error) {
+      showToast(
+        error.message || "No se pudo actualizar el detalle del anexo.",
+        "error",
+      );
+    }
+
     informeAnexoEditForm.reset();
-    if (informeAnexoEditId) informeAnexoEditId.value = String(item.id);
+    if (informeAnexoEditId) informeAnexoEditId.value = String(fresco.id);
     if (informeAnexoEditTitulo) {
-      informeAnexoEditTitulo.value = item.titulo || "";
+      informeAnexoEditTitulo.value = fresco.titulo || "";
     }
     if (informeAnexoEditDescripcion) {
-      informeAnexoEditDescripcion.value = item.descripcion || "";
-    }
-    if (informeAnexoEditCodigo) {
-      informeAnexoEditCodigo.value = item.codigo || "";
-    }
-    if (informeAnexoEditOrden) {
-      informeAnexoEditOrden.value = item.orden ?? "";
+      informeAnexoEditDescripcion.value = fresco.descripcion || "";
     }
     if (informeAnexoEditFile) informeAnexoEditFile.value = "";
-    mostrarNombreArchivo(informeAnexoEditFileName, null);
+    mostrarArchivosSeleccionados(informeAnexoEditFileName, []);
     if (informeAnexoEditFileClear) informeAnexoEditFileClear.hidden = true;
     setInformeStatus(informeAnexoEditStatus, "", "info");
-    informeAnexoEditActual = item;
-    informeAnexoQuitarActual = false;
     informeAnexoGuardando = false;
-    if (informeAnexoCurrentDownload) {
-      informeAnexoCurrentDownload.href = item.download_url || "#";
-    }
-    actualizarEstadoArchivoAnexo();
+    renderGaleriaModal(fresco);
     informeAnexoModal.classList.add("is-open");
     informeAnexoModal.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
     window.setTimeout(() => informeAnexoEditTitulo?.focus(), 0);
+  }
+
+  async function eliminarImagenAnexo(anexoId, archivoId, boton) {
+    const confirmado = window.confirm(
+      "¿Eliminar esta imagen del anexo? Esta acción no se puede deshacer.",
+    );
+    if (!confirmado) return;
+    const texto = boton?.textContent || "Eliminar imagen";
+    if (boton) {
+      boton.disabled = true;
+      boton.textContent = "Eliminando…";
+    }
+    setInformeStatus(informeAnexoEditStatus, "Eliminando imagen…", "info");
+    try {
+      const response = await fetch(
+        `/api/informes/anexos/${anexoId}/imagenes/${archivoId}`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) {
+        throw new Error(
+          await mensajeErrorAnexo(
+            response,
+            "No se pudo eliminar la imagen del anexo.",
+          ),
+        );
+      }
+      const actualizado = await response.json();
+      if (String(informeAnexoEditId?.value) === String(actualizado.id)) {
+        renderGaleriaModal(actualizado);
+      }
+      setInformeStatus(
+        informeAnexoEditStatus,
+        "Imagen eliminada.",
+        "success",
+      );
+      showToast("Imagen eliminada.", "success");
+      await cargarAnexos();
+    } catch (error) {
+      setInformeStatus(
+        informeAnexoEditStatus,
+        error.message || "No se pudo eliminar la imagen.",
+        "error",
+      );
+      showToast(error.message || "No se pudo eliminar la imagen.", "error");
+      if (boton) {
+        boton.disabled = false;
+        boton.textContent = texto;
+      }
+    }
   }
 
   async function guardarAnexo(event) {
@@ -1289,32 +1411,18 @@
       );
       return;
     }
-    const archivo = anexoEditReemplazo();
-    if (archivo) {
-      const errorArchivo = validarArchivoAnexo(archivo);
+    const archivos = Array.from(informeAnexoEditFile?.files || []);
+    if (archivos.length) {
+      const errorArchivo = validarArchivosAnexo(archivos);
       if (errorArchivo) {
         setInformeStatus(informeAnexoEditStatus, errorArchivo, "error");
         return;
       }
     }
-    const disponible = anexoArchivoDisponible(informeAnexoEditActual);
-    if ((informeAnexoQuitarActual || !disponible) && !archivo) {
-      const mensaje = disponible
-        ? "Marcaste quitar el archivo actual. Selecciona un reemplazo antes de guardar."
-        : "El archivo actual no está disponible. Selecciona un reemplazo antes de guardar.";
-      setInformeStatus(informeAnexoEditStatus, mensaje, "error");
-      actualizarEstadoArchivoAnexo();
-      return;
-    }
 
     const body = new FormData();
     body.append("titulo", titulo);
     body.append("descripcion", informeAnexoEditDescripcion?.value || "");
-    body.append("codigo", (informeAnexoEditCodigo?.value || "").trim());
-    if (informeAnexoEditOrden?.value) {
-      body.append("orden", informeAnexoEditOrden.value);
-    }
-    if (archivo) body.append("file", archivo, archivo.name);
 
     informeAnexoGuardando = true;
     if (informeAnexoEditSave) informeAnexoEditSave.disabled = true;
@@ -1332,6 +1440,24 @@
           ),
         );
       }
+      if (archivos.length) {
+        const imagenes = new FormData();
+        archivos.forEach((archivo) =>
+          imagenes.append("files", archivo, archivo.name),
+        );
+        const respuestaImagenes = await fetch(
+          `/api/informes/anexos/${id}/imagenes`,
+          { method: "POST", body: imagenes },
+        );
+        if (!respuestaImagenes.ok) {
+          throw new Error(
+            await mensajeErrorAnexo(
+              respuestaImagenes,
+              "Los metadatos se guardaron, pero no se pudieron añadir las imágenes.",
+            ),
+          );
+        }
+      }
       showToast("Anexo actualizado correctamente.", "success");
       cerrarModalAnexo();
       await cargarAnexos();
@@ -1343,7 +1469,9 @@
       );
     } finally {
       informeAnexoGuardando = false;
-      actualizarEstadoArchivoAnexo();
+      if (informeAnexoModal?.classList.contains("is-open")) {
+        if (informeAnexoEditSave) informeAnexoEditSave.disabled = false;
+      }
     }
   }
 
@@ -1390,7 +1518,7 @@
   async function subirAnexo(event) {
     event.preventDefault();
     const periodo = periodoInforme();
-    const archivo = informeAnexoFile?.files?.[0];
+    const archivos = Array.from(informeAnexoFile?.files || []);
     const titulo = (informeAnexoTitulo?.value || "").trim();
     if (!titulo) {
       setInformeStatus(
@@ -1400,7 +1528,7 @@
       );
       return;
     }
-    const errorArchivo = validarArchivoAnexo(archivo);
+    const errorArchivo = validarArchivosAnexo(archivos);
     if (errorArchivo) {
       setInformeStatus(informeAnexoStatus, errorArchivo, "error");
       return;
@@ -1410,13 +1538,9 @@
     body.append("trimestre", periodo.trimestre);
     body.append("titulo", titulo);
     body.append("descripcion", informeAnexoDescripcion?.value || "");
-    if (informeAnexoCodigo?.value.trim()) {
-      body.append("codigo", informeAnexoCodigo.value.trim());
-    }
-    if (informeAnexoOrden?.value) {
-      body.append("orden", informeAnexoOrden.value);
-    }
-    body.append("file", archivo, archivo.name);
+    archivos.forEach((archivo) =>
+      body.append("files", archivo, archivo.name),
+    );
 
     if (informeAnexoSubmit) informeAnexoSubmit.disabled = true;
     setInformeStatus(informeAnexoStatus, "Subiendo anexo…", "info");
@@ -1431,7 +1555,8 @@
         );
       }
       informeAnexoForm?.reset();
-      mostrarNombreArchivo(informeAnexoFileName, null);
+      mostrarArchivosSeleccionados(informeAnexoFileName, []);
+      if (informeAnexoFileClear) informeAnexoFileClear.hidden = true;
       setInformeStatus(
         informeAnexoStatus,
         `Anexo cargado en ${etiquetaPeriodo(periodo)}.`,
@@ -1451,8 +1576,68 @@
     }
   }
 
+  async function reordenarAnexo(sourceId, targetId) {
+    if (informeAnexoReordenando || sourceId === targetId) return;
+    const items = informeAnexosCache.slice();
+    const origen = items.findIndex((item) => item.id === sourceId);
+    const destino = items.findIndex((item) => item.id === targetId);
+    if (origen < 0 || destino < 0) return;
+
+    const [movido] = items.splice(origen, 1);
+    items.splice(destino, 0, movido);
+    // Optimista: renumera las tarjetas al soltar y luego confirma con el
+    // servidor. Si falla, se recarga el catálogo real.
+    renderAnexos(items);
+    informeAnexoReordenando = true;
+    try {
+      const periodo = periodoInforme();
+      const response = await fetch("/api/informes/anexos/orden", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          anio: periodo.anio,
+          trimestre: periodo.trimestre,
+          anexo_ids: items.map((item) => item.id),
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(
+          await mensajeErrorAnexo(
+            response,
+            "No se pudo guardar el nuevo orden de los anexos.",
+          ),
+        );
+      }
+      const data = await response.json();
+      renderAnexos(data?.items || items);
+      setInformeStatus(
+        informeAnexoStatus,
+        "Orden de anexos actualizado.",
+        "success",
+      );
+    } catch (error) {
+      setInformeStatus(
+        informeAnexoStatus,
+        error.message || "No se pudo guardar el nuevo orden.",
+        "error",
+      );
+      showToast(error.message || "No se pudo guardar el nuevo orden.", "error");
+      await cargarAnexos();
+    } finally {
+      informeAnexoReordenando = false;
+    }
+  }
+
   function renderAnexos(items) {
-    informeAnexosCache = Array.isArray(items) ? items : [];
+    // La numeración visible depende de la posición, no de datos del servidor:
+    // así el drag-and-drop renumera al instante antes de confirmar con la API.
+    informeAnexosCache = (Array.isArray(items) ? items : []).map(
+      (item, index) => ({
+        ...item,
+        numero: index + 1,
+        rotulo: `ANEXO ${index + 1}`,
+      }),
+    );
     actualizarBadgeAnexos(informeAnexosCache.length);
     if (!informeAnexosList || !informeAnexosEmpty) return;
     if (!informeAnexosCache.length) {
@@ -1506,9 +1691,15 @@
     informeAnexoDropzone,
     informeAnexoFile,
     informeAnexoFileName,
-    (archivo) => {
-      if (!archivo) return;
-      const error = validarArchivoAnexo(archivo);
+    (archivos) => {
+      if (informeAnexoFileClear) {
+        informeAnexoFileClear.hidden = !archivos.length;
+      }
+      if (!archivos.length) {
+        setInformeStatus(informeAnexoStatus, "", "info");
+        return;
+      }
+      const error = validarArchivosAnexo(archivos);
       setInformeStatus(
         informeAnexoStatus,
         error || "",
@@ -1521,35 +1712,31 @@
     informeAnexoEditDropzone,
     informeAnexoEditFile,
     informeAnexoEditFileName,
-    (archivo) => {
+    (archivos) => {
       if (informeAnexoEditFileClear) {
-        informeAnexoEditFileClear.hidden = !archivo;
+        informeAnexoEditFileClear.hidden = !archivos.length;
       }
-      if (archivo) {
-        informeAnexoQuitarActual = false;
-        const error = validarArchivoAnexo(archivo);
-        setInformeStatus(
-          informeAnexoEditStatus,
-          error || "",
-          error ? "error" : "info",
-        );
-      }
-      actualizarEstadoArchivoAnexo();
+      const error = archivos.length ? validarArchivosAnexo(archivos) : "";
+      setInformeStatus(
+        informeAnexoEditStatus,
+        error || "",
+        error ? "error" : "info",
+      );
     },
   );
 
-  informeAnexoEditFileClear?.addEventListener("click", () => {
-    if (informeAnexoEditFile) informeAnexoEditFile.value = "";
-    mostrarNombreArchivo(informeAnexoEditFileName, null);
-    if (informeAnexoEditFileClear) informeAnexoEditFileClear.hidden = true;
-    setInformeStatus(informeAnexoEditStatus, "", "info");
-    actualizarEstadoArchivoAnexo();
+  informeAnexoFileClear?.addEventListener("click", () => {
+    if (informeAnexoFile) informeAnexoFile.value = "";
+    mostrarArchivosSeleccionados(informeAnexoFileName, []);
+    if (informeAnexoFileClear) informeAnexoFileClear.hidden = true;
+    setInformeStatus(informeAnexoStatus, "", "info");
   });
 
-  informeAnexoCurrentRemove?.addEventListener("click", () => {
-    informeAnexoQuitarActual = !informeAnexoQuitarActual;
+  informeAnexoEditFileClear?.addEventListener("click", () => {
+    if (informeAnexoEditFile) informeAnexoEditFile.value = "";
+    mostrarArchivosSeleccionados(informeAnexoEditFileName, []);
+    if (informeAnexoEditFileClear) informeAnexoEditFileClear.hidden = true;
     setInformeStatus(informeAnexoEditStatus, "", "info");
-    actualizarEstadoArchivoAnexo();
   });
 
   informeAnexoForm?.addEventListener("submit", subirAnexo);

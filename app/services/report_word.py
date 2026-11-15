@@ -866,12 +866,6 @@ _PREFIJO_ANEXO_RE = re.compile(
     r"^\s*anexo\s*(?:n[°º.]?\s*)?\d{1,3}\s*[.):\-–—]*\s*",
     re.IGNORECASE,
 )
-_CODIGO_ANEXO_RE = re.compile(
-    r"^(?:anexo\s*(?:n[°º.]?\s*)?)?\d{1,3}\s*[.)]?$",
-    re.IGNORECASE,
-)
-
-
 def _titulo_anexo(value: Any) -> str:
     """Título sin prefijo ``ANEXO N`` (defensa para filas antiguas)."""
     titulo = re.sub(r"\s+", " ", str(value or "")).strip()
@@ -884,23 +878,30 @@ def _titulo_anexo(value: Any) -> str:
 
 
 def _rotulo_anexo(anexo: dict[str, Any], numero: int) -> str:
-    """Rótulo único ``ANEXO {n}`` o el código manual no numérico."""
+    """Rótulo único ``ANEXO {n}`` según la posición en el periodo."""
     rotulo = str(anexo.get("rotulo") or "").strip()
-    if rotulo:
-        return rotulo.rstrip(".")
-    codigo = str(anexo.get("codigo") or "").strip()
-    if codigo and not _CODIGO_ANEXO_RE.match(codigo):
-        return codigo.rstrip(".")
-    return f"ANEXO {numero}"
+    return rotulo.rstrip(".") if rotulo else f"ANEXO {numero}"
+
+
+def _dimensiones_imagen(ancho: int, ancho_px: int, alto_px: int, alto=None):
+    """Escala una imagen al ancho útil sin superar el alto máximo."""
+    if not ancho_px or not alto_px:
+        return int(ancho), int(alto or ALTO_MAXIMO_IMAGEN)
+    ancho_final = int(ancho)
+    alto_final = int(ancho_final * alto_px / ancho_px)
+    limite_alto = int(alto or ALTO_MAXIMO_IMAGEN)
+    if alto_final > limite_alto:
+        alto_final = limite_alto
+        ancho_final = int(alto_final * ancho_px / alto_px)
+    return ancho_final, alto_final
 
 
 def _insertar_imagen(anchor, ruta: Any, ancho, alto=None) -> None:
-    """Inserta la imagen del anexo; si el archivo no es válido, no rompe el DOCX.
+    """Inserta una imagen del anexo sin romper el DOCX si no es legible.
 
-    La limitación se documenta: un archivo corrupto o ilegible se omite y el
-    anexo queda solo como título/descripción en el listado. Tampoco se fuerza
-    la conversión de formatos que python-docx no interpreta (p. ej. WEBP): en
-    ese caso se conserva la entrada de la lista sin imagen.
+    python-docx no interpreta WEBP, así que, si falla la lectura directa, se
+    convierte a PNG en memoria con Pillow (cuando está disponible). Un archivo
+    corrupto se omite: el anexo conserva al menos su título y descripción.
     """
     if not ruta:
         return
@@ -913,14 +914,34 @@ def _insertar_imagen(anchor, ruta: Any, ancho, alto=None) -> None:
         from docx.shared import Emu
 
         imagen = DocxImage.from_file(str(path))
-        ancho_final = int(ancho)
-        alto_final = int(ancho_final * imagen.height / imagen.width)
-        limite_alto = int(alto or ALTO_MAXIMO_IMAGEN)
-        if alto_final > limite_alto:
-            alto_final = limite_alto
-            ancho_final = int(alto_final * imagen.width / imagen.height)
+        ancho_final, alto_final = _dimensiones_imagen(
+            ancho, imagen.width, imagen.height, alto
+        )
         paragraph.add_run().add_picture(
             str(path), width=Emu(ancho_final), height=Emu(alto_final)
+        )
+        return
+    except Exception:
+        pass
+
+    try:
+        from io import BytesIO
+
+        from docx.shared import Emu
+        from PIL import Image as PILImage
+
+        with PILImage.open(path) as original:
+            ancho_px, alto_px = original.size
+            if original.mode not in ("RGB", "RGBA"):
+                original = original.convert("RGBA")
+            buffer = BytesIO()
+            original.save(buffer, format="PNG")
+        buffer.seek(0)
+        ancho_final, alto_final = _dimensiones_imagen(
+            ancho, ancho_px, alto_px, alto
+        )
+        paragraph.add_run().add_picture(
+            buffer, width=Emu(ancho_final), height=Emu(alto_final)
         )
     except Exception:
         parent = paragraph._p.getparent()
@@ -933,12 +954,12 @@ def _write_annex_section(
 ) -> None:
     """Sustituye el listado genérico de §5 por los anexos reales del periodo.
 
-    * Cada anexo se escribe como ``ANEXO {n}. {título}``. ``n`` lo calcula el
-      servicio (posición ordenada o código manual único) y el título llega sin
-      el prefijo ``ANEXO N``; así nunca se duplica el rótulo.
+    * Cada anexo se escribe como ``ANEXO {n}. {título}``. ``n`` es la posición
+      ordenada del periodo y el título llega sin el prefijo ``ANEXO N``; así
+      nunca se duplica el rótulo.
     * La descripción, si existe, va en un párrafo debajo.
-    * Si el soporte es una imagen (PNG/JPEG/WEBP), se inserta escalada al ancho
-      útil de la página; PDF y DOCX solo se listan en v1.
+    * Todas las imágenes del anexo se insertan escaladas al ancho útil de la
+      página, una debajo de otra.
     * Sin anexos cargados se conserva el listado institucional de la plantilla
       (decisión v1: no se inventa un listado vacío ni se rompe la generación).
     """
@@ -976,8 +997,17 @@ def _write_annex_section(
             except KeyError:
                 anchor.insert_paragraph_before(descripcion)
 
-        if str(anexo.get("content_type") or "").startswith("image/"):
-            _insertar_imagen(anchor, anexo.get("ruta"), ancho)
+        archivos = anexo.get("archivos")
+        if not archivos and anexo.get("ruta"):
+            archivos = [
+                {
+                    "ruta": anexo.get("ruta"),
+                    "content_type": anexo.get("content_type"),
+                }
+            ]
+        for archivo in archivos or []:
+            if str(archivo.get("content_type") or "").startswith("image/"):
+                _insertar_imagen(anchor, archivo.get("ruta"), ancho)
 
 
 def generate_report_docx(

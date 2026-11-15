@@ -809,8 +809,8 @@
               <div class="informe-section-copy">
                 <p class="eyebrow">Bloque 5 · Soportes</p>
                 <h2>Anexos del informe</h2>
-                <p>Adjunta capturas o documentos del periodo. Se guardan por año y trimestre y se incluyen en la sección 5 del DOCX. El informe se puede generar sin anexos.</p>
-                <p class="informe-anexo-help informe-anexo-help--block">Las imágenes (PNG/JPEG) se incrustan en el DOCX; los PDF y DOCX solo se listan en la sección 5 y se descargan desde el catálogo.</p>
+                <p>Adjunta capturas o imágenes del periodo. Se guardan por año y trimestre y se incluyen en la sección 5 del DOCX. El informe se puede generar sin anexos.</p>
+                <p class="informe-anexo-help informe-anexo-help--block">Las imágenes se incluirán en el informe. El número ANEXO se asigna según el orden de la lista (puedes reordenar arrastrando las tarjetas).</p>
               </div>
               <div class="informe-section-actions">
                 <span class="result-badge" id="informe-anexos-badge">0 ANEXOS</span>
@@ -827,26 +827,21 @@
                 <label for="informe-anexo-descripcion">Descripción
                   <textarea id="informe-anexo-descripcion" name="descripcion" rows="3" maxlength="4000" placeholder="Nota o contexto que acompañará el anexo en el informe."></textarea>
                 </label>
-                <div class="informe-anexo-row">
-                  <label for="informe-anexo-codigo">Código (opcional)
-                    <input id="informe-anexo-codigo" name="codigo" type="text" maxlength="40" placeholder="Automático">
-                  </label>
-                  <label for="informe-anexo-orden">Orden (opcional)
-                    <input id="informe-anexo-orden" name="orden" type="number" min="1" step="1" placeholder="Automático">
-                  </label>
-                </div>
-                <p class="informe-anexo-help informe-anexo-help--block">El código es una referencia manual: el informe siempre numera ANEXO 1, 2, 3… según el orden. El título no debe repetir “ANEXO N”.</p>
+                <p class="informe-anexo-help informe-anexo-help--block">El título no debe repetir “ANEXO N”: el sistema lo agrega al exportar.</p>
                 <div class="informe-anexo-field">
-                  <span class="informe-anexo-field-label">Archivo <span aria-hidden="true">*</span></span>
+                  <span class="informe-anexo-field-label">Imágenes <span aria-hidden="true">*</span></span>
                   <label id="informe-anexo-dropzone" class="informe-anexo-dropzone" for="informe-anexo-file">
                     <span class="informe-anexo-drop-icon" aria-hidden="true">⬆</span>
-                    <strong>Arrastra un archivo aquí</strong>
+                    <strong>Arrastra una o varias imágenes aquí</strong>
                     <span>o <span class="informe-anexo-browse">examinar</span></span>
-                    <small>PNG, JPEG, WEBP, PDF o DOCX · máx. 10 MB</small>
-                    <small>Las imágenes se incrustan; PDF/DOCX solo se listan en §5.</small>
-                    <input id="informe-anexo-file" name="file" class="informe-anexo-file-input" type="file" accept="image/png,image/jpeg,image/webp,application/pdf,.docx" required>
+                    <small>PNG, JPEG o WEBP · máx. 10 MB por imagen</small>
+                    <small>Puedes seleccionar varias imágenes para un mismo anexo.</small>
+                    <input id="informe-anexo-file" name="files" class="informe-anexo-file-input" type="file" accept="image/png,image/jpeg,image/webp" multiple required>
                   </label>
-                  <p id="informe-anexo-file-name" class="informe-anexo-file-name" hidden></p>
+                  <div class="informe-anexo-file-selection">
+                    <p id="informe-anexo-file-name" class="informe-anexo-file-name" hidden></p>
+                    <button id="informe-anexo-file-clear" class="informe-anexo-file-clear" type="button" hidden>Quitar selección</button>
+                  </div>
                 </div>
                 <button id="informe-anexo-submit" class="primary-button informe-save-button" type="submit">Subir anexo</button>
                 <p id="informe-anexo-status" class="detail-feedback" role="status"></p>
@@ -855,12 +850,12 @@
               <div class="informe-anexos-catalogo">
                 <div class="informe-anexos-catalogo-head">
                   <h3>Anexos del periodo</h3>
-                  <p>Se numeran ANEXO 1..N según el orden indicado. Los códigos manuales no alteran la secuencia. PDF/DOCX se listan en §5 sin incrustarse; las imágenes pueden incrustarse.</p>
+                  <p>Arrastra las tarjetas para cambiar el orden. El número ANEXO 1..N y el DOCX se actualizan según esa posición.</p>
                 </div>
                 <div class="informe-empty-state" id="informe-anexos-empty">
                   <span aria-hidden="true">📎</span>
                   <h3>No hay anexos para este trimestre</h3>
-                  <p>Carga capturas o documentos para incluirlos en la sección 5 del informe. También puedes generar el DOCX sin anexos.</p>
+                  <p>Carga una o varias imágenes para incluirlas en la sección 5 del informe. También puedes generar el DOCX sin anexos.</p>
                 </div>
                 <ul id="informe-anexos-list" class="informe-anexos-list" hidden></ul>
               </div>
@@ -1095,7 +1090,7 @@
         <div>
           <p class="eyebrow">Anexo del periodo</p>
           <h2 id="informe-anexo-modal-title">Editar anexo</h2>
-          <p>Cambia los metadatos o reemplaza el archivo. El número del DOCX se calcula automáticamente.</p>
+          <p>Cambia los metadatos, añade imágenes o elimina las que ya no necesites. El número del DOCX se calcula automáticamente.</p>
         </div>
       </div>
       <form id="informe-anexo-edit-form" class="informe-anexo-edit">
@@ -1106,38 +1101,26 @@
         <label for="informe-anexo-edit-descripcion">Descripción
           <textarea id="informe-anexo-edit-descripcion" rows="3" maxlength="4000"></textarea>
         </label>
-        <div class="informe-anexo-row">
-          <label for="informe-anexo-edit-codigo">Código (opcional)
-            <input id="informe-anexo-edit-codigo" type="text" maxlength="40" placeholder="Automático">
-          </label>
-          <label for="informe-anexo-edit-orden">Orden (opcional)
-            <input id="informe-anexo-edit-orden" type="number" min="1" step="1" placeholder="Automático">
-          </label>
-        </div>
-        <p class="informe-anexo-help informe-anexo-help--block">El código es una referencia manual: el informe siempre numera ANEXO 1, 2, 3… según el orden. El título no debe repetir “ANEXO N”.</p>
+        <p class="informe-anexo-help informe-anexo-help--block">El título no debe repetir “ANEXO N”: el sistema lo agrega al exportar.</p>
         <div id="informe-anexo-current" class="informe-anexo-current">
-          <p class="informe-anexo-current-label">Archivo actual</p>
-          <p id="informe-anexo-current-meta" class="informe-anexo-current-meta"></p>
+          <p class="informe-anexo-current-label">Imágenes actuales</p>
+          <p id="informe-anexo-current-count" class="informe-anexo-current-meta"></p>
+          <ul id="informe-anexo-current-gallery" class="informe-anexo-gallery"></ul>
           <p id="informe-anexo-current-note" class="informe-anexo-current-note" hidden></p>
-          <div class="informe-anexo-current-actions">
-            <a id="informe-anexo-current-download" class="informe-anexo-action" href="#" download>Descargar actual</a>
-            <button id="informe-anexo-current-remove" class="informe-anexo-action" type="button" aria-pressed="false">Quitar archivo actual</button>
-          </div>
         </div>
         <div class="informe-anexo-field">
-          <label class="informe-anexo-field-label" for="informe-anexo-edit-file">Reemplazar archivo (opcional)</label>
+          <label class="informe-anexo-field-label" for="informe-anexo-edit-file">Añadir imágenes (opcional)</label>
           <label id="informe-anexo-edit-dropzone" class="informe-anexo-dropzone informe-anexo-dropzone--compact" for="informe-anexo-edit-file">
             <span class="informe-anexo-drop-icon" aria-hidden="true">⬆</span>
-            <strong>Arrastra el nuevo archivo o examina</strong>
-            <small>PNG, JPEG, WEBP, PDF o DOCX · máx. 10 MB</small>
-            <small>Las imágenes se incrustan en §5; PDF/DOCX solo se listan.</small>
-            <input id="informe-anexo-edit-file" class="informe-anexo-file-input" type="file" accept="image/png,image/jpeg,image/webp,application/pdf,.docx">
+            <strong>Arrastra una o varias imágenes o examina</strong>
+            <small>PNG, JPEG o WEBP · máx. 10 MB por imagen</small>
+            <input id="informe-anexo-edit-file" class="informe-anexo-file-input" type="file" accept="image/png,image/jpeg,image/webp" multiple>
           </label>
           <div class="informe-anexo-file-selection">
             <p id="informe-anexo-edit-file-name" class="informe-anexo-file-name" hidden></p>
             <button id="informe-anexo-edit-file-clear" class="informe-anexo-file-clear" type="button" hidden>Quitar selección</button>
           </div>
-          <p class="informe-anexo-help informe-anexo-help--block">Si quitas el archivo actual, debes seleccionar un reemplazo para poder guardar.</p>
+          <p class="informe-anexo-help informe-anexo-help--block">Debe quedar al menos una imagen en el anexo.</p>
         </div>
         <p id="informe-anexo-edit-status" class="detail-feedback" role="status"></p>
         <div class="report-modal-actions">
