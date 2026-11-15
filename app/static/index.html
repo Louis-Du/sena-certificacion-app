@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SENA Certificación</title>
-  <link href="/static/styles.css?v=20261112-v23" rel="stylesheet">
+  <link href="/static/styles.css?v=20261115-v27" rel="stylesheet">
 </head>
 
 <body>
@@ -497,6 +497,7 @@
                 <div class="informe-section-actions">
                   <span class="result-badge" id="informe-estrategias-badge">GUARDADO</span>
                   <button id="informe-estrategias-save" class="primary-button informe-save-button" type="submit">Guardar estrategias</button>
+                  <button id="informe-estrategias-undo" class="cancel-button informe-undo-button" type="button" title="Restaurar el estado anterior al último guardado automático" aria-label="Deshacer el último guardado automático" data-modo="undo" disabled>↶ Deshacer</button>
                 </div>
               </div>
 
@@ -540,13 +541,15 @@
                   <span id="estrategia-label-3-1-1">Estrategia o Actividades llevadas a cabo para certificar <em>(Ingresa tu estrategia aquí)</em></span>
                   <div class="informe-editor" data-estrategia-editor="3.1.1">
                     <div class="informe-editor-toolbar" role="toolbar" aria-label="Formato del texto de la sección 3.1.1">
-                      <button type="button" class="informe-editor-button" data-editor-command="bold" aria-label="Negrita" title="Negrita (Ctrl+B)" aria-pressed="false"><strong>N</strong></button>
-                      <button type="button" class="informe-editor-button" data-editor-command="italic" aria-label="Cursiva" title="Cursiva (Ctrl+I)" aria-pressed="false"><em>C</em></button>
-                      <button type="button" class="informe-editor-button" data-editor-command="insertUnorderedList" aria-label="Lista con viñetas" title="Lista con viñetas" aria-pressed="false">•</button>
-                      <button type="button" class="informe-editor-button" data-editor-command="insertOrderedList" aria-label="Lista numerada" title="Lista numerada" aria-pressed="false">1.</button>
+                      <button type="button" class="informe-editor-button" data-editor-command="bold" aria-label="Negrita" title="Negrita (Ctrl+B o Ctrl+N)" aria-pressed="false" aria-keyshortcuts="Control+B Control+N"><strong>N</strong></button>
+                      <button type="button" class="informe-editor-button" data-editor-command="italic" aria-label="Cursiva" title="Cursiva (Ctrl+I o Ctrl+K)" aria-pressed="false" aria-keyshortcuts="Control+I Control+K"><em>C</em></button>
+                      <button type="button" class="informe-editor-button" data-editor-command="insertUnorderedList" aria-label="Lista con viñetas" title="Lista con viñetas (Ctrl+Shift+8 o Ctrl+Shift+L)" aria-pressed="false" aria-keyshortcuts="Control+Shift+8 Control+Shift+L">•</button>
+                      <button type="button" class="informe-editor-button" data-editor-command="insertOrderedList" aria-label="Lista numerada" title="Lista numerada (Ctrl+Shift+7)" aria-pressed="false" aria-keyshortcuts="Control+Shift+7">1.</button>
                       <span class="informe-editor-divider" aria-hidden="true"></span>
                       <button type="button" class="informe-editor-button" data-editor-command="undo" aria-label="Deshacer" title="Deshacer (Ctrl+Z)">↶</button>
                       <button type="button" class="informe-editor-button" data-editor-command="redo" aria-label="Rehacer" title="Rehacer (Ctrl+Y)">↷</button>
+                      <span class="informe-editor-divider" aria-hidden="true"></span>
+                      <button type="button" class="informe-editor-button informe-editor-button--anexo" data-editor-anexo aria-label="Insertar referencia a anexo" title="Insertar referencia a anexo" aria-haspopup="menu" aria-expanded="false">ANEXO</button>
                     </div>
                     <div id="estrategia-3-1-1" class="informe-editor-area is-empty" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="estrategia-label-3-1-1" data-estrategia-seccion="3.1.1" data-placeholder="Describe las actividades, acciones y gestiones realizadas para este programa de formación."></div>
                   </div>
@@ -592,13 +595,15 @@
                   <span id="estrategia-label-3-1-2">Estrategia o Actividades llevadas a cabo para certificar <em>(Ingresa tu estrategia aquí)</em></span>
                   <div class="informe-editor" data-estrategia-editor="3.1.2">
                     <div class="informe-editor-toolbar" role="toolbar" aria-label="Formato del texto de la sección 3.1.2">
-                      <button type="button" class="informe-editor-button" data-editor-command="bold" aria-label="Negrita" title="Negrita (Ctrl+B)" aria-pressed="false"><strong>N</strong></button>
-                      <button type="button" class="informe-editor-button" data-editor-command="italic" aria-label="Cursiva" title="Cursiva (Ctrl+I)" aria-pressed="false"><em>C</em></button>
-                      <button type="button" class="informe-editor-button" data-editor-command="insertUnorderedList" aria-label="Lista con viñetas" title="Lista con viñetas" aria-pressed="false">•</button>
-                      <button type="button" class="informe-editor-button" data-editor-command="insertOrderedList" aria-label="Lista numerada" title="Lista numerada" aria-pressed="false">1.</button>
+                      <button type="button" class="informe-editor-button" data-editor-command="bold" aria-label="Negrita" title="Negrita (Ctrl+B o Ctrl+N)" aria-pressed="false" aria-keyshortcuts="Control+B Control+N"><strong>N</strong></button>
+                      <button type="button" class="informe-editor-button" data-editor-command="italic" aria-label="Cursiva" title="Cursiva (Ctrl+I o Ctrl+K)" aria-pressed="false" aria-keyshortcuts="Control+I Control+K"><em>C</em></button>
+                      <button type="button" class="informe-editor-button" data-editor-command="insertUnorderedList" aria-label="Lista con viñetas" title="Lista con viñetas (Ctrl+Shift+8 o Ctrl+Shift+L)" aria-pressed="false" aria-keyshortcuts="Control+Shift+8 Control+Shift+L">•</button>
+                      <button type="button" class="informe-editor-button" data-editor-command="insertOrderedList" aria-label="Lista numerada" title="Lista numerada (Ctrl+Shift+7)" aria-pressed="false" aria-keyshortcuts="Control+Shift+7">1.</button>
                       <span class="informe-editor-divider" aria-hidden="true"></span>
                       <button type="button" class="informe-editor-button" data-editor-command="undo" aria-label="Deshacer" title="Deshacer (Ctrl+Z)">↶</button>
                       <button type="button" class="informe-editor-button" data-editor-command="redo" aria-label="Rehacer" title="Rehacer (Ctrl+Y)">↷</button>
+                      <span class="informe-editor-divider" aria-hidden="true"></span>
+                      <button type="button" class="informe-editor-button informe-editor-button--anexo" data-editor-anexo aria-label="Insertar referencia a anexo" title="Insertar referencia a anexo" aria-haspopup="menu" aria-expanded="false">ANEXO</button>
                     </div>
                     <div id="estrategia-3-1-2" class="informe-editor-area is-empty" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="estrategia-label-3-1-2" data-estrategia-seccion="3.1.2" data-placeholder="Describe las actividades, acciones y gestiones realizadas para este programa de formación."></div>
                   </div>
@@ -644,13 +649,15 @@
                   <span id="estrategia-label-3-1-3">Estrategia o Actividades llevadas a cabo para certificar <em>(Ingresa tu estrategia aquí)</em></span>
                   <div class="informe-editor" data-estrategia-editor="3.1.3">
                     <div class="informe-editor-toolbar" role="toolbar" aria-label="Formato del texto de la sección 3.1.3">
-                      <button type="button" class="informe-editor-button" data-editor-command="bold" aria-label="Negrita" title="Negrita (Ctrl+B)" aria-pressed="false"><strong>N</strong></button>
-                      <button type="button" class="informe-editor-button" data-editor-command="italic" aria-label="Cursiva" title="Cursiva (Ctrl+I)" aria-pressed="false"><em>C</em></button>
-                      <button type="button" class="informe-editor-button" data-editor-command="insertUnorderedList" aria-label="Lista con viñetas" title="Lista con viñetas" aria-pressed="false">•</button>
-                      <button type="button" class="informe-editor-button" data-editor-command="insertOrderedList" aria-label="Lista numerada" title="Lista numerada" aria-pressed="false">1.</button>
+                      <button type="button" class="informe-editor-button" data-editor-command="bold" aria-label="Negrita" title="Negrita (Ctrl+B o Ctrl+N)" aria-pressed="false" aria-keyshortcuts="Control+B Control+N"><strong>N</strong></button>
+                      <button type="button" class="informe-editor-button" data-editor-command="italic" aria-label="Cursiva" title="Cursiva (Ctrl+I o Ctrl+K)" aria-pressed="false" aria-keyshortcuts="Control+I Control+K"><em>C</em></button>
+                      <button type="button" class="informe-editor-button" data-editor-command="insertUnorderedList" aria-label="Lista con viñetas" title="Lista con viñetas (Ctrl+Shift+8 o Ctrl+Shift+L)" aria-pressed="false" aria-keyshortcuts="Control+Shift+8 Control+Shift+L">•</button>
+                      <button type="button" class="informe-editor-button" data-editor-command="insertOrderedList" aria-label="Lista numerada" title="Lista numerada (Ctrl+Shift+7)" aria-pressed="false" aria-keyshortcuts="Control+Shift+7">1.</button>
                       <span class="informe-editor-divider" aria-hidden="true"></span>
                       <button type="button" class="informe-editor-button" data-editor-command="undo" aria-label="Deshacer" title="Deshacer (Ctrl+Z)">↶</button>
                       <button type="button" class="informe-editor-button" data-editor-command="redo" aria-label="Rehacer" title="Rehacer (Ctrl+Y)">↷</button>
+                      <span class="informe-editor-divider" aria-hidden="true"></span>
+                      <button type="button" class="informe-editor-button informe-editor-button--anexo" data-editor-anexo aria-label="Insertar referencia a anexo" title="Insertar referencia a anexo" aria-haspopup="menu" aria-expanded="false">ANEXO</button>
                     </div>
                     <div id="estrategia-3-1-3" class="informe-editor-area is-empty" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="estrategia-label-3-1-3" data-estrategia-seccion="3.1.3" data-placeholder="Describe las actividades, acciones y gestiones realizadas para este programa de formación."></div>
                   </div>
@@ -696,13 +703,15 @@
                   <span id="estrategia-label-3-1-4">Estrategia o Actividades llevadas a cabo para certificar <em>(Ingresa tu estrategia aquí)</em></span>
                   <div class="informe-editor" data-estrategia-editor="3.1.4">
                     <div class="informe-editor-toolbar" role="toolbar" aria-label="Formato del texto de la sección 3.1.4">
-                      <button type="button" class="informe-editor-button" data-editor-command="bold" aria-label="Negrita" title="Negrita (Ctrl+B)" aria-pressed="false"><strong>N</strong></button>
-                      <button type="button" class="informe-editor-button" data-editor-command="italic" aria-label="Cursiva" title="Cursiva (Ctrl+I)" aria-pressed="false"><em>C</em></button>
-                      <button type="button" class="informe-editor-button" data-editor-command="insertUnorderedList" aria-label="Lista con viñetas" title="Lista con viñetas" aria-pressed="false">•</button>
-                      <button type="button" class="informe-editor-button" data-editor-command="insertOrderedList" aria-label="Lista numerada" title="Lista numerada" aria-pressed="false">1.</button>
+                      <button type="button" class="informe-editor-button" data-editor-command="bold" aria-label="Negrita" title="Negrita (Ctrl+B o Ctrl+N)" aria-pressed="false" aria-keyshortcuts="Control+B Control+N"><strong>N</strong></button>
+                      <button type="button" class="informe-editor-button" data-editor-command="italic" aria-label="Cursiva" title="Cursiva (Ctrl+I o Ctrl+K)" aria-pressed="false" aria-keyshortcuts="Control+I Control+K"><em>C</em></button>
+                      <button type="button" class="informe-editor-button" data-editor-command="insertUnorderedList" aria-label="Lista con viñetas" title="Lista con viñetas (Ctrl+Shift+8 o Ctrl+Shift+L)" aria-pressed="false" aria-keyshortcuts="Control+Shift+8 Control+Shift+L">•</button>
+                      <button type="button" class="informe-editor-button" data-editor-command="insertOrderedList" aria-label="Lista numerada" title="Lista numerada (Ctrl+Shift+7)" aria-pressed="false" aria-keyshortcuts="Control+Shift+7">1.</button>
                       <span class="informe-editor-divider" aria-hidden="true"></span>
                       <button type="button" class="informe-editor-button" data-editor-command="undo" aria-label="Deshacer" title="Deshacer (Ctrl+Z)">↶</button>
                       <button type="button" class="informe-editor-button" data-editor-command="redo" aria-label="Rehacer" title="Rehacer (Ctrl+Y)">↷</button>
+                      <span class="informe-editor-divider" aria-hidden="true"></span>
+                      <button type="button" class="informe-editor-button informe-editor-button--anexo" data-editor-anexo aria-label="Insertar referencia a anexo" title="Insertar referencia a anexo" aria-haspopup="menu" aria-expanded="false">ANEXO</button>
                     </div>
                     <div id="estrategia-3-1-4" class="informe-editor-area is-empty" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="estrategia-label-3-1-4" data-estrategia-seccion="3.1.4" data-placeholder="Describe las actividades, acciones y gestiones realizadas para este programa de formación."></div>
                   </div>
@@ -748,13 +757,15 @@
                   <span id="estrategia-label-3-1-5">Estrategia o Actividades llevadas a cabo para certificar <em>(Ingresa tu estrategia aquí)</em></span>
                   <div class="informe-editor" data-estrategia-editor="3.1.5">
                     <div class="informe-editor-toolbar" role="toolbar" aria-label="Formato del texto de la sección 3.1.5">
-                      <button type="button" class="informe-editor-button" data-editor-command="bold" aria-label="Negrita" title="Negrita (Ctrl+B)" aria-pressed="false"><strong>N</strong></button>
-                      <button type="button" class="informe-editor-button" data-editor-command="italic" aria-label="Cursiva" title="Cursiva (Ctrl+I)" aria-pressed="false"><em>C</em></button>
-                      <button type="button" class="informe-editor-button" data-editor-command="insertUnorderedList" aria-label="Lista con viñetas" title="Lista con viñetas" aria-pressed="false">•</button>
-                      <button type="button" class="informe-editor-button" data-editor-command="insertOrderedList" aria-label="Lista numerada" title="Lista numerada" aria-pressed="false">1.</button>
+                      <button type="button" class="informe-editor-button" data-editor-command="bold" aria-label="Negrita" title="Negrita (Ctrl+B o Ctrl+N)" aria-pressed="false" aria-keyshortcuts="Control+B Control+N"><strong>N</strong></button>
+                      <button type="button" class="informe-editor-button" data-editor-command="italic" aria-label="Cursiva" title="Cursiva (Ctrl+I o Ctrl+K)" aria-pressed="false" aria-keyshortcuts="Control+I Control+K"><em>C</em></button>
+                      <button type="button" class="informe-editor-button" data-editor-command="insertUnorderedList" aria-label="Lista con viñetas" title="Lista con viñetas (Ctrl+Shift+8 o Ctrl+Shift+L)" aria-pressed="false" aria-keyshortcuts="Control+Shift+8 Control+Shift+L">•</button>
+                      <button type="button" class="informe-editor-button" data-editor-command="insertOrderedList" aria-label="Lista numerada" title="Lista numerada (Ctrl+Shift+7)" aria-pressed="false" aria-keyshortcuts="Control+Shift+7">1.</button>
                       <span class="informe-editor-divider" aria-hidden="true"></span>
                       <button type="button" class="informe-editor-button" data-editor-command="undo" aria-label="Deshacer" title="Deshacer (Ctrl+Z)">↶</button>
                       <button type="button" class="informe-editor-button" data-editor-command="redo" aria-label="Rehacer" title="Rehacer (Ctrl+Y)">↷</button>
+                      <span class="informe-editor-divider" aria-hidden="true"></span>
+                      <button type="button" class="informe-editor-button informe-editor-button--anexo" data-editor-anexo aria-label="Insertar referencia a anexo" title="Insertar referencia a anexo" aria-haspopup="menu" aria-expanded="false">ANEXO</button>
                     </div>
                     <div id="estrategia-3-1-5" class="informe-editor-area is-empty" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="estrategia-label-3-1-5" data-estrategia-seccion="3.1.5" data-placeholder="Describe las actividades, acciones y gestiones realizadas para este programa de formación."></div>
                   </div>
@@ -782,13 +793,15 @@
                   <span id="estrategia-label-3-2">Estrategia o Actividades llevadas a cabo para certificar <em>(Ingresa tu estrategia aquí)</em></span>
                   <div class="informe-editor" data-estrategia-editor="3.2">
                     <div class="informe-editor-toolbar" role="toolbar" aria-label="Formato del texto de la sección 3.2">
-                      <button type="button" class="informe-editor-button" data-editor-command="bold" aria-label="Negrita" title="Negrita (Ctrl+B)" aria-pressed="false"><strong>N</strong></button>
-                      <button type="button" class="informe-editor-button" data-editor-command="italic" aria-label="Cursiva" title="Cursiva (Ctrl+I)" aria-pressed="false"><em>C</em></button>
-                      <button type="button" class="informe-editor-button" data-editor-command="insertUnorderedList" aria-label="Lista con viñetas" title="Lista con viñetas" aria-pressed="false">•</button>
-                      <button type="button" class="informe-editor-button" data-editor-command="insertOrderedList" aria-label="Lista numerada" title="Lista numerada" aria-pressed="false">1.</button>
+                      <button type="button" class="informe-editor-button" data-editor-command="bold" aria-label="Negrita" title="Negrita (Ctrl+B o Ctrl+N)" aria-pressed="false" aria-keyshortcuts="Control+B Control+N"><strong>N</strong></button>
+                      <button type="button" class="informe-editor-button" data-editor-command="italic" aria-label="Cursiva" title="Cursiva (Ctrl+I o Ctrl+K)" aria-pressed="false" aria-keyshortcuts="Control+I Control+K"><em>C</em></button>
+                      <button type="button" class="informe-editor-button" data-editor-command="insertUnorderedList" aria-label="Lista con viñetas" title="Lista con viñetas (Ctrl+Shift+8 o Ctrl+Shift+L)" aria-pressed="false" aria-keyshortcuts="Control+Shift+8 Control+Shift+L">•</button>
+                      <button type="button" class="informe-editor-button" data-editor-command="insertOrderedList" aria-label="Lista numerada" title="Lista numerada (Ctrl+Shift+7)" aria-pressed="false" aria-keyshortcuts="Control+Shift+7">1.</button>
                       <span class="informe-editor-divider" aria-hidden="true"></span>
                       <button type="button" class="informe-editor-button" data-editor-command="undo" aria-label="Deshacer" title="Deshacer (Ctrl+Z)">↶</button>
                       <button type="button" class="informe-editor-button" data-editor-command="redo" aria-label="Rehacer" title="Rehacer (Ctrl+Y)">↷</button>
+                      <span class="informe-editor-divider" aria-hidden="true"></span>
+                      <button type="button" class="informe-editor-button informe-editor-button--anexo" data-editor-anexo aria-label="Insertar referencia a anexo" title="Insertar referencia a anexo" aria-haspopup="menu" aria-expanded="false">ANEXO</button>
                     </div>
                     <div id="estrategia-3-2" class="informe-editor-area is-empty" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="estrategia-label-3-2" data-estrategia-seccion="3.2" data-placeholder="Describe las actividades, acciones y gestiones realizadas para este programa de formación."></div>
                   </div>
@@ -807,16 +820,71 @@
           <section class="pill-panel panel informe-panel" id="informe-panel-anexos" data-informe-panel="anexos" role="tabpanel" aria-labelledby="informe-tab-anexos" hidden>
             <div class="informe-section-head">
               <div class="informe-section-copy">
-                <p class="eyebrow">Bloque de soportes</p>
+                <p class="eyebrow">Bloque 5 · Soportes</p>
                 <h2>Anexos del informe</h2>
-                <p>Espacio reservado para los soportes documentales del trimestre.</p>
+                <p>Adjunta capturas o imágenes del periodo. Se guardan por año y trimestre y se incluyen en la sección 5 del DOCX. El informe se puede generar sin anexos.</p>
+                <p class="informe-anexo-help informe-anexo-help--block">Las imágenes se incluirán en el informe. El número ANEXO se asigna según el orden de la lista (puedes reordenar arrastrando las tarjetas).</p>
               </div>
-              <span class="result-badge pending">PRÓXIMAMENTE</span>
+              <div class="informe-section-actions">
+                <span class="result-badge" id="informe-anexos-badge">0 ANEXOS</span>
+              </div>
             </div>
-            <div class="informe-empty-state">
-              <span aria-hidden="true">📎</span>
-              <h3>Carga de anexos próximamente</h3>
-              <p>La gestión de archivos no está disponible en esta entrega. El informe se puede generar sin anexos.</p>
+
+            <div class="informe-anexos-grid">
+              <form id="informe-anexo-form" class="informe-anexo-form" novalidate>
+                <h3>Cargar anexo</h3>
+                <p class="informe-anexo-periodo">Periodo actual: <strong id="informe-anexos-periodo">Trimestre III 2026</strong></p>
+                <label for="informe-anexo-titulo">Título <span aria-hidden="true">*</span>
+                  <input id="informe-anexo-titulo" name="titulo" type="text" maxlength="255" required placeholder="Ej. Actas con aprendices por certificar">
+                </label>
+                <div class="informe-anexo-descripcion-field">
+                  <span id="informe-anexo-descripcion-label" class="informe-anexo-field-label">Descripción</span>
+                  <div class="informe-editor informe-editor--compact" data-anexo-editor="nuevo">
+                    <div class="informe-editor-toolbar" role="toolbar" aria-label="Formato de la descripción del anexo">
+                      <button type="button" class="informe-editor-button" data-editor-command="bold" aria-label="Negrita" title="Negrita (Ctrl+B o Ctrl+N)" aria-pressed="false" aria-keyshortcuts="Control+B Control+N"><strong>N</strong></button>
+                      <button type="button" class="informe-editor-button" data-editor-command="italic" aria-label="Cursiva" title="Cursiva (Ctrl+I o Ctrl+K)" aria-pressed="false" aria-keyshortcuts="Control+I Control+K"><em>C</em></button>
+                      <button type="button" class="informe-editor-button" data-editor-command="insertUnorderedList" aria-label="Lista con viñetas" title="Lista con viñetas (Ctrl+Shift+8 o Ctrl+Shift+L)" aria-pressed="false" aria-keyshortcuts="Control+Shift+8 Control+Shift+L">•</button>
+                      <button type="button" class="informe-editor-button" data-editor-command="insertOrderedList" aria-label="Lista numerada" title="Lista numerada (Ctrl+Shift+7)" aria-pressed="false" aria-keyshortcuts="Control+Shift+7">1.</button>
+                      <span class="informe-editor-divider" aria-hidden="true"></span>
+                      <button type="button" class="informe-editor-button" data-editor-command="undo" aria-label="Deshacer" title="Deshacer (Ctrl+Z)">↶</button>
+                      <button type="button" class="informe-editor-button" data-editor-command="redo" aria-label="Rehacer" title="Rehacer (Ctrl+Y)">↷</button>
+                    </div>
+                    <div id="informe-anexo-descripcion" class="informe-editor-area informe-editor-area--compact is-empty" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="informe-anexo-descripcion-label" data-anexo-descripcion="nuevo" data-placeholder="Nota o contexto que acompañará el anexo en el informe."></div>
+                  </div>
+                </div>
+                <p class="informe-anexo-help informe-anexo-help--block">El título no debe repetir “ANEXO N”: el sistema lo agrega al exportar.</p>
+                <div class="informe-anexo-field">
+                  <span class="informe-anexo-field-label">Imágenes <span aria-hidden="true">*</span></span>
+                  <label id="informe-anexo-dropzone" class="informe-anexo-dropzone" for="informe-anexo-file">
+                    <span class="informe-anexo-drop-icon" aria-hidden="true">⬆</span>
+                    <strong>Arrastra una o varias imágenes aquí</strong>
+                    <span>o <span class="informe-anexo-browse">examinar</span></span>
+                    <small>PNG, JPEG o WEBP · máx. 10 MB por imagen</small>
+                    <small>Puedes añadirlas una por una: la selección se acumula antes de subir.</small>
+                    <input id="informe-anexo-file" name="files" class="informe-anexo-file-input" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+                  </label>
+                  <div class="informe-anexo-file-selection">
+                    <p id="informe-anexo-file-name" class="informe-anexo-file-name" hidden></p>
+                    <button id="informe-anexo-file-clear" class="informe-anexo-file-clear" type="button" hidden>Quitar selección</button>
+                  </div>
+                  <ul id="informe-anexo-file-list" class="informe-anexo-file-list" hidden></ul>
+                </div>
+                <button id="informe-anexo-submit" class="primary-button informe-save-button" type="submit">Subir anexo</button>
+                <p id="informe-anexo-status" class="detail-feedback" role="status"></p>
+              </form>
+
+              <div class="informe-anexos-catalogo">
+                <div class="informe-anexos-catalogo-head">
+                  <h3>Anexos del periodo</h3>
+                  <p>Arrastra las tarjetas para cambiar el orden. El número ANEXO 1..N y el DOCX se actualizan según esa posición.</p>
+                </div>
+                <div class="informe-empty-state" id="informe-anexos-empty">
+                  <span aria-hidden="true">📎</span>
+                  <h3>No hay anexos para este trimestre</h3>
+                  <p>Carga una o varias imágenes para incluirlas en la sección 5 del informe. También puedes generar el DOCX sin anexos.</p>
+                </div>
+                <ul id="informe-anexos-list" class="informe-anexos-list" hidden></ul>
+              </div>
             </div>
           </section>
 
@@ -833,6 +901,7 @@
                 <h3>Estrategias cargadas</h3>
                 <p id="informe-export-periodo">Trimestre III 2026</p>
                 <ul id="informe-export-summary"></ul>
+                <p class="informe-export-hint" id="informe-export-anexos">Anexos del periodo: se incluyen en la sección 5 del DOCX.</p>
                 <p class="informe-export-hint" id="informe-export-hint">Las secciones vacías se generarán con el placeholder institucional.</p>
               </div>
               <div class="informe-export-controls">
@@ -1038,6 +1107,69 @@
       </div>
     </div>
   </div>
+  <div id="informe-anexo-modal" class="modal-root" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="informe-anexo-modal-title">
+    <div class="modal-backdrop" data-close-anexo-modal></div>
+    <div class="modal-dialog informe-anexo-modal-dialog" tabindex="-1">
+      <button id="informe-anexo-modal-close" class="modal-close" type="button" aria-label="Cerrar edición de anexo">×</button>
+      <div class="report-modal-header">
+        <span class="report-modal-icon" aria-hidden="true">📎</span>
+        <div>
+          <p class="eyebrow">Anexo del periodo</p>
+          <h2 id="informe-anexo-modal-title">Editar anexo</h2>
+          <p>Cambia los metadatos, añade imágenes o elimina las que ya no necesites. El número del DOCX se calcula automáticamente.</p>
+        </div>
+      </div>
+      <form id="informe-anexo-edit-form" class="informe-anexo-edit" novalidate>
+        <input id="informe-anexo-edit-id" type="hidden">
+        <label for="informe-anexo-edit-titulo">Título <span aria-hidden="true">*</span>
+          <input id="informe-anexo-edit-titulo" type="text" maxlength="255" required>
+        </label>
+        <div class="informe-anexo-descripcion-field">
+          <span id="informe-anexo-edit-descripcion-label" class="informe-anexo-field-label">Descripción</span>
+          <div class="informe-editor informe-editor--compact" data-anexo-editor="editar">
+            <div class="informe-editor-toolbar" role="toolbar" aria-label="Formato de la descripción del anexo en edición">
+              <button type="button" class="informe-editor-button" data-editor-command="bold" aria-label="Negrita" title="Negrita (Ctrl+B o Ctrl+N)" aria-pressed="false" aria-keyshortcuts="Control+B Control+N"><strong>N</strong></button>
+              <button type="button" class="informe-editor-button" data-editor-command="italic" aria-label="Cursiva" title="Cursiva (Ctrl+I o Ctrl+K)" aria-pressed="false" aria-keyshortcuts="Control+I Control+K"><em>C</em></button>
+              <button type="button" class="informe-editor-button" data-editor-command="insertUnorderedList" aria-label="Lista con viñetas" title="Lista con viñetas (Ctrl+Shift+8 o Ctrl+Shift+L)" aria-pressed="false" aria-keyshortcuts="Control+Shift+8 Control+Shift+L">•</button>
+              <button type="button" class="informe-editor-button" data-editor-command="insertOrderedList" aria-label="Lista numerada" title="Lista numerada (Ctrl+Shift+7)" aria-pressed="false" aria-keyshortcuts="Control+Shift+7">1.</button>
+              <span class="informe-editor-divider" aria-hidden="true"></span>
+              <button type="button" class="informe-editor-button" data-editor-command="undo" aria-label="Deshacer" title="Deshacer (Ctrl+Z)">↶</button>
+              <button type="button" class="informe-editor-button" data-editor-command="redo" aria-label="Rehacer" title="Rehacer (Ctrl+Y)">↷</button>
+            </div>
+            <div id="informe-anexo-edit-descripcion" class="informe-editor-area informe-editor-area--compact is-empty" contenteditable="true" role="textbox" aria-multiline="true" aria-labelledby="informe-anexo-edit-descripcion-label" data-anexo-descripcion="editar" data-placeholder="Nota o contexto que acompañará el anexo en el informe."></div>
+          </div>
+        </div>
+        <p class="informe-anexo-help informe-anexo-help--block">El título no debe repetir “ANEXO N”: el sistema lo agrega al exportar.</p>
+        <div id="informe-anexo-current" class="informe-anexo-current">
+          <p class="informe-anexo-current-label">Imágenes actuales</p>
+          <p id="informe-anexo-current-count" class="informe-anexo-current-meta"></p>
+          <ul id="informe-anexo-current-gallery" class="informe-anexo-gallery"></ul>
+          <p id="informe-anexo-current-note" class="informe-anexo-current-note" hidden></p>
+        </div>
+        <div class="informe-anexo-field">
+          <label class="informe-anexo-field-label" for="informe-anexo-edit-file">Añadir imágenes (opcional)</label>
+          <label id="informe-anexo-edit-dropzone" class="informe-anexo-dropzone informe-anexo-dropzone--compact" for="informe-anexo-edit-file">
+            <span class="informe-anexo-drop-icon" aria-hidden="true">⬆</span>
+            <strong>Arrastra una o varias imágenes o examina</strong>
+            <small>PNG, JPEG o WEBP · máx. 10 MB por imagen</small>
+            <input id="informe-anexo-edit-file" class="informe-anexo-file-input" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+          </label>
+          <div class="informe-anexo-file-selection">
+            <p id="informe-anexo-edit-file-name" class="informe-anexo-file-name" hidden></p>
+            <button id="informe-anexo-edit-file-clear" class="informe-anexo-file-clear" type="button" hidden>Quitar selección</button>
+          </div>
+          <ul id="informe-anexo-edit-file-list" class="informe-anexo-file-list" hidden></ul>
+          <p class="informe-anexo-help informe-anexo-help--block">Puedes añadirlas una por una: se acumulan al guardar. Debe quedar al menos una imagen en el anexo.</p>
+        </div>
+        <p id="informe-anexo-edit-status" class="detail-feedback" role="status"></p>
+        <div class="report-modal-actions">
+          <button id="informe-anexo-edit-delete" class="cancel-button informe-anexo-delete-annex" type="button">Eliminar anexo</button>
+          <button id="informe-anexo-edit-cancel" class="cancel-button" type="button">Cancelar</button>
+          <button id="informe-anexo-edit-save" class="primary-button" type="submit">Guardar cambios</button>
+        </div>
+      </form>
+    </div>
+  </div>
   <div id="sheets-review-modal" class="modal-root" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="sheets-review-title">
     <div class="modal-backdrop" data-close-sheets-review></div>
     <div class="modal-dialog" tabindex="-1">
@@ -1067,7 +1199,7 @@
 
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
   <script src="/static/vendor/chart.umd.min.js"></script>
-  <script src="/static/app.js?v=20261112-v24"></script>
-  <script src="/static/ui-enhancements.js?v=20261112-v13"></script>
+  <script src="/static/app.js?v=20261114-v25"></script>
+  <script src="/static/ui-enhancements.js?v=20261115-v19"></script>
 </body>
 </html>

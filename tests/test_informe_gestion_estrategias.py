@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 from docx import Document
+from docx.oxml.ns import qn
 
 from app.models import InformeGestionEstrategia
 from app.services.imports import confirm_import, stage_file
@@ -335,6 +336,28 @@ def test_docx_inserta_estrategias_guardadas_y_usa_placeholder_si_faltan(client):
     ]
 
 
+def _vinetas_sin_texto(content: bytes) -> list[str]:
+    """Párrafos que Word dibujaría como viñeta o punto sin contenido."""
+    document = Document(BytesIO(content))
+    vacias: list[str] = []
+    for paragraph in document.paragraphs:
+        texto = paragraph.text.replace("\xa0", " ").strip()
+        con_numeracion = paragraph._p.find(".//" + qn("w:numPr")) is not None
+        if texto.strip("•-*"):
+            continue
+        if con_numeracion or texto:
+            vacias.append(texto)
+    return vacias
+
+
+def _guardar_estrategias(client, secciones: dict[str, str]) -> None:
+    saved = client.put(
+        "/api/informes/estrategias",
+        json={"anio": 2026, "trimestre": "T3", "secciones": secciones},
+    )
+    assert saved.status_code == 200, saved.text
+
+
 def test_docx_sin_estrategias_usa_placeholder(client):
     with client.session_factory() as session:
         _seed_periodo(session)
@@ -343,6 +366,99 @@ def test_docx_sin_estrategias_usa_placeholder(client):
     assert response.status_code == 200, response.text
     text = _texto_docx(response.content)
     assert text.count(PLACEHOLDER_ESTRATEGIAS) == 6
+    # El placeholder va en un párrafo normal: nunca con viñeta ni numeración.
+    document = Document(BytesIO(response.content))
+    for paragraph in document.paragraphs:
+        if PLACEHOLDER_ESTRATEGIAS not in paragraph.text:
+            continue
+        assert paragraph._p.find(".//" + qn("w:numPr")) is None
+    assert _vinetas_sin_texto(response.content) == []
+
+
+def test_docx_estrategia_plano_no_deja_vinetas_vacias(client):
+    """Un solo párrafo plano no arrastra bullets de ejemplo de la plantilla."""
+    with client.session_factory() as session:
+        _seed_periodo(session)
+    _guardar_estrategias(
+        client, {"3.1.1": "Texto plano único de la estrategia 3.1.1."}
+    )
+
+    response = client.get("/api/informes/word?trimestre=T3&modo=acumulado")
+    assert response.status_code == 200, response.text
+
+    document = Document(BytesIO(response.content))
+    indice = next(
+        index
+        for index, paragraph in enumerate(document.paragraphs)
+        if "Texto plano único de la estrategia 3.1.1." in paragraph.text
+    )
+    siguiente = document.paragraphs[indice + 1]
+    assert not siguiente.text.strip()
+    assert siguiente._p.find(".//" + qn("w:numPr")) is None
+    # Los ejemplos numerados de la plantilla se sustituyen por la estrategia.
+    texto = _texto_docx(response.content)
+    assert "Dentro de las estrategias establecidas" not in texto
+    assert _vinetas_sin_texto(response.content) == []
+
+
+def test_docx_32_texto_simple_no_conserva_vinetas_de_plantilla(client):
+    """3.2 no debe dejar las tres viñetas de ejemplo debajo del texto."""
+    with client.session_factory() as session:
+        _seed_periodo(session)
+    _guardar_estrategias(
+        client, {"3.2": "Texto simple para otras actividades del T3."}
+    )
+
+    response = client.get("/api/informes/word?trimestre=T3&modo=acumulado")
+    assert response.status_code == 200, response.text
+
+    texto = _texto_docx(response.content)
+    assert "Texto simple para otras actividades del T3." in texto
+    for plantilla in (
+        "Coordinación realización de Fase II",
+        "Matrículas I Convocatoria",
+        "Inducción nuevos aprendices",
+    ):
+        assert plantilla not in texto
+    assert _vinetas_sin_texto(response.content) == []
+
+    document = Document(BytesIO(response.content))
+    indice = next(
+        index
+        for index, paragraph in enumerate(document.paragraphs)
+        if "Texto simple para otras actividades del T3." in paragraph.text
+    )
+    siguientes = document.paragraphs[indice + 1 : indice + 3]
+    assert all(not paragraph.text.strip() for paragraph in siguientes)
+    assert all(
+        paragraph._p.find(".//" + qn("w:numPr")) is None
+        for paragraph in siguientes
+    )
+
+
+def test_docx_estrategia_con_lista_real_conserva_items(client):
+    """Las listas del editor se escriben con texto; el ejemplo se elimina."""
+    with client.session_factory() as session:
+        _seed_periodo(session)
+    _guardar_estrategias(
+        client,
+        {
+            "3.1.5": (
+                "<ul><li>Primer ítem de la lista</li>"
+                "<li>Segundo ítem de la lista</li></ul>"
+            )
+        },
+    )
+
+    response = client.get("/api/informes/word?trimestre=T3&modo=acumulado")
+    assert response.status_code == 200, response.text
+
+    texto = _texto_docx(response.content)
+    assert "• Primer ítem de la lista" in texto
+    assert "• Segundo ítem de la lista" in texto
+    assert "Realizar llamadas" not in texto
+    assert "Trabajar de la mano con el Líder" not in texto
+    assert _vinetas_sin_texto(response.content) == []
 
 
 def test_docx_convierte_negrita_cursiva_y_listas_de_estrategias(client):
@@ -1053,7 +1169,9 @@ def test_ui_acordeones_sin_input_editable_en_fila_contraida():
     assert index.count("data-estrategia-quick=") == 0
     assert "informe-quick-input" not in index
     assert index.count("data-estrategia-seccion=") == 6
-    assert index.count('contenteditable="true"') == 6
+    # Seis editores de estrategias + las dos descripciones enriquecidas de
+    # anexos (alta y edición).
+    assert index.count('contenteditable="true"') == 8
     assert '<textarea id="estrategia' not in index
     # El estado/preview en texto plano vive en la propia fila.
     assert index.count("data-accordion-status") == 6
@@ -1077,7 +1195,8 @@ def test_ui_editor_restringido_con_negrita_cursiva_y_listas():
         encoding="utf-8"
     )
 
-    assert index.count("informe-editor-toolbar") == 6
+    # Seis barras de estrategias + dos de descripciones de anexos.
+    assert index.count("informe-editor-toolbar") == 8
     for comando in (
         "bold",
         "italic",
@@ -1103,7 +1222,20 @@ def test_ui_editor_restringido_con_negrita_cursiva_y_listas():
     assert "function htmlParaPegadoEstrategia(value)" in ui_js
     assert "function textoPlanoAHtmlEstrategia(texto)" in ui_js
     assert 'document.execCommand("insertHTML", false, htmlSeguro);' in ui_js
-    assert "secciones[editor.dataset.estrategiaSeccion] = normalizarHtmlEstrategia(" in ui_js
+    assert "function normalizarSeccionInforme(value)" in ui_js
+    assert "secciones[editor.dataset.estrategiaSeccion] = normalizarSeccionInforme(" in ui_js
+
+    # Atajos de Word/Google Docs: negrita, cursiva y listas.
+    assert 'code === "KeyB" || code === "KeyN"' in ui_js
+    assert 'code === "KeyI" || code === "KeyK"' in ui_js
+    assert 'code === "Digit7"' in ui_js
+    assert 'code === "Digit8" || code === "KeyL"' in ui_js
+
+    # La descripción de los anexos usa el mismo editor enriquecido.
+    assert index.count("data-anexo-editor=") == 2
+    assert index.count("data-anexo-descripcion=") == 2
+    assert '"[data-estrategia-editor], [data-anexo-editor]"' in ui_js
+    assert '"[data-estrategia-seccion], [data-anexo-descripcion]"' in ui_js
 
     for selector in (
         ".informe-editor",
@@ -1114,6 +1246,50 @@ def test_ui_editor_restringido_con_negrita_cursiva_y_listas():
         ".informe-editor-area.is-empty::before",
     ):
         assert selector in css
+
+
+def test_ui_autoguardado_al_salir_y_boton_deshacer_rehacer():
+    """El autoguardado se dispara al salir del editor y el botón alterna."""
+    root = Path(__file__).resolve().parents[1]
+    index = (root / "app" / "static" / "index.html").read_text(encoding="utf-8")
+    ui_js = (root / "app" / "static" / "ui-enhancements.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'id="informe-estrategias-undo"' in index
+    assert "↶ Deshacer" in index
+    assert "function programarAutosave()" in ui_js
+    assert 'editor.addEventListener("blur", () => programarAutosave());' in ui_js
+    assert "function alternarHistorialEstrategias()" in ui_js
+    assert 'informeUndo.textContent = rehaciendo ? "↷ Rehacer" : "↶ Deshacer";' in ui_js
+    # El segundo estado describe volver a la última versión guardada.
+    assert '"Volver a la última versión guardada"' in ui_js
+    assert "Se volvió a la última versión guardada." in ui_js
+    assert "informeUndoSnapshot = null;" in ui_js
+    assert "informeRedoSnapshot = actual;" in ui_js
+    assert "await guardarEstrategias({" in ui_js
+
+
+def test_ui_editor_permite_insertar_referencia_anexo():
+    """El toolbar ofrece un selector con los anexos del periodo actual."""
+    root = Path(__file__).resolve().parents[1]
+    index = (root / "app" / "static" / "index.html").read_text(encoding="utf-8")
+    css = (root / "app" / "static" / "styles.css").read_text(encoding="utf-8")
+    ui_js = (root / "app" / "static" / "ui-enhancements.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert index.count("data-editor-anexo") == 6
+    assert index.count('title="Insertar referencia a anexo"') == 6
+    assert "function abrirMenuReferenciaAnexo(editor, boton)" in ui_js
+    assert "function insertarReferenciaAnexo(numeroValue, textoValue)" in ui_js
+    assert "No hay anexos en este trimestre" in ui_js
+    assert "`ANEXO ${numero}.`" in ui_js
+    # El selector consulta el catálogo del (año, trimestre) del header.
+    assert "/api/informes/anexos?" in ui_js
+    assert "el texto ya insertado no se renumera solo" in ui_js
+    assert ".informe-editor-anexos-menu" in css
+    assert ".informe-editor-button--anexo" in css
 
 
 def test_ui_contexto_estadistico_usa_el_consolidado_por_seccion():

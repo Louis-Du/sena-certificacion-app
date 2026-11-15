@@ -290,3 +290,78 @@ class InformeGestionEstrategia(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+
+
+# Soportes (solo imágenes) de la sección 5 del Informe de Gestión.
+# Igual que las estrategias, se listan por ``(año, trimestre)``: el modo de
+# exportación (solo trimestre / acumulado) NO crea un juego distinto de anexos.
+# Un anexo agrupa una o varias imágenes; los binarios viven en disco y las filas
+# hijas solo conservan la referencia y los metadatos.
+class InformeGestionAnexo(Base):
+    __tablename__ = "informe_gestion_anexos"
+    __table_args__ = (
+        Index(
+            "ix_informe_gestion_anexos_periodo",
+            "anio",
+            "trimestre",
+            "orden",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    anio: Mapped[int] = mapped_column(Integer)
+    trimestre: Mapped[str] = mapped_column(String(2))
+    titulo: Mapped[str] = mapped_column(String(255))
+    descripcion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Posición 1..N dentro del periodo. El frontend puede reordenarla con
+    # drag-and-drop; la numeración visible ``ANEXO N`` se deriva de esta columna.
+    orden: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    archivos: Mapped[list["InformeGestionAnexoArchivo"]] = relationship(
+        back_populates="anexo",
+        cascade="all, delete-orphan",
+        order_by="InformeGestionAnexoArchivo.orden, InformeGestionAnexoArchivo.id",
+    )
+
+
+class InformeGestionAnexoArchivo(Base):
+    """Imagen de un anexo (PNG, JPEG o WEBP)."""
+
+    __tablename__ = "informe_gestion_anexo_archivos"
+    __table_args__ = (
+        Index(
+            "ix_informe_gestion_anexo_archivos_anexo",
+            "anexo_id",
+            "orden",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    anexo_id: Mapped[int] = mapped_column(
+        ForeignKey("informe_gestion_anexos.id", ondelete="CASCADE")
+    )
+    nombre_archivo: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str] = mapped_column(String(120))
+    # Nombre del archivo dentro del directorio de almacenamiento. Se guarda
+    # relativo para que mover ``data/`` no rompa las referencias.
+    ruta_archivo: Mapped[str] = mapped_column(String(255))
+    tamano: Mapped[int] = mapped_column(Integer, default=0)
+    orden: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+    anexo: Mapped[InformeGestionAnexo] = relationship(
+        back_populates="archivos"
+    )

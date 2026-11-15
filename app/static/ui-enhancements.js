@@ -278,6 +278,7 @@
   const informeTrimestre = document.getElementById("informe-trimestre");
   const informeForm = document.getElementById("informe-estrategias-form");
   const informeSave = document.getElementById("informe-estrategias-save");
+  const informeUndo = document.getElementById("informe-estrategias-undo");
   const informeStatus = document.getElementById("informe-estrategias-status");
   const informeBadge = document.getElementById("informe-estrategias-badge");
   const informeExportMode = document.getElementById("informe-export-mode");
@@ -319,6 +320,15 @@
   let informeDirty = false;
   let informeLoadToken = 0;
   let informeContextoToken = 0;
+  // Historial de un paso para el autoguardado: ``undo`` es el estado que había
+  // antes del último guardado y ``redo`` el que se acaba de guardar. El botón
+  // alterna entre ambos tras una restauración.
+  let informeUltimoGuardado = null;
+  let informeUndoSnapshot = null;
+  let informeRedoSnapshot = null;
+  let informeUndoModo = false;
+  let informeAutosaveTimer = null;
+  let informeGuardadoEnCurso = null;
 
   function setInformeStatus(element, message, kind) {
     if (!element) return;
@@ -496,7 +506,7 @@
   }
 
   function actualizarEstadoToolbar(editor) {
-    const contenedor = editor?.closest("[data-estrategia-editor]");
+    const contenedor = editor?.closest(".informe-editor");
     const toolbar = contenedor?.querySelector(".informe-editor-toolbar");
     if (!toolbar) return;
     toolbar.querySelectorAll("[data-editor-command]").forEach((button) => {
@@ -519,14 +529,110 @@
     });
   }
 
+  // Representación estable de una sección: el texto plano histórico también
+  // se envuelve en párrafos. Así el HTML del editor y el que devuelve el
+  // servidor se comparan sin falsos positivos de "cambios sin guardar".
+  function normalizarSeccionInforme(value) {
+    return normalizarHtmlEstrategia(htmlParaEditor(value || ""));
+  }
+
   function seccionesDelFormulario() {
     const secciones = {};
     informeTextareas.forEach((editor) => {
-      secciones[editor.dataset.estrategiaSeccion] = normalizarHtmlEstrategia(
+      secciones[editor.dataset.estrategiaSeccion] = normalizarSeccionInforme(
         editor.innerHTML,
       );
     });
     return secciones;
+  }
+
+  function clonarSeccionesInforme(secciones) {
+    const salida = {};
+    SECCIONES_INFORME.forEach(([key]) => {
+      salida[key] = normalizarSeccionInforme(secciones?.[key] || "");
+    });
+    return salida;
+  }
+
+  function mismasSeccionesInforme(primero, segundo) {
+    return JSON.stringify(primero || {}) === JSON.stringify(segundo || {});
+  }
+
+  function horaCorta() {
+    try {
+      return new Date().toLocaleTimeString("es-CO", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function actualizarBotonUndo() {
+    if (!informeUndo) return;
+    const rehaciendo = informeUndoModo;
+    const disponible = rehaciendo
+      ? Boolean(informeRedoSnapshot)
+      : Boolean(informeUndoSnapshot);
+    informeUndo.disabled = !disponible || Boolean(informeGuardadoEnCurso);
+    informeUndo.dataset.modo = rehaciendo ? "redo" : "undo";
+    informeUndo.textContent = rehaciendo ? "↷ Rehacer" : "↶ Deshacer";
+    informeUndo.title = rehaciendo
+      ? "Volver a la última versión guardada"
+      : "Restaurar el estado anterior al último guardado automático";
+    informeUndo.setAttribute(
+      "aria-label",
+      rehaciendo
+        ? "Volver a la última versión guardada"
+        : "Deshacer el último guardado automático",
+    );
+  }
+
+  function limpiarHistorialEstrategias() {
+    informeUltimoGuardado = null;
+    informeUndoSnapshot = null;
+    informeRedoSnapshot = null;
+    informeUndoModo = false;
+    actualizarBotonUndo();
+  }
+
+  function registrarHistorialEstrategias(antes, despues) {
+    if (!antes || !despues || mismasSeccionesInforme(antes, despues)) return;
+    informeUndoSnapshot = clonarSeccionesInforme(antes);
+    informeRedoSnapshot = clonarSeccionesInforme(despues);
+    informeUndoModo = false;
+    actualizarBotonUndo();
+  }
+
+  // Pinta un snapshot completo en los editores. No toca el historial: el
+  // llamador decide si la acción es un guardado, una restauración o una carga.
+  function aplicarSnapshotEstrategias(secciones, periodo = periodoInforme()) {
+    const snapshot = clonarSeccionesInforme(secciones);
+    informeTextareas.forEach((editor) => {
+      editor.innerHTML = htmlParaEditor(
+        snapshot[editor.dataset.estrategiaSeccion] || "",
+      );
+      actualizarPlaceholderEditor(editor);
+    });
+    renderResumenEstrategias(snapshot, periodo);
+    return snapshot;
+  }
+
+  function cancelarAutosave() {
+    if (informeAutosaveTimer !== null) {
+      window.clearTimeout(informeAutosaveTimer);
+      informeAutosaveTimer = null;
+    }
+  }
+
+  function programarAutosave() {
+    if (!informeDirty) return;
+    cancelarAutosave();
+    informeAutosaveTimer = window.setTimeout(() => {
+      informeAutosaveTimer = null;
+      guardarEstrategias({ silent: true, autosave: true });
+    }, 350);
   }
 
   function marcarInformeDirty(dirty) {
@@ -750,17 +856,15 @@
   }
 
   function aplicarEstrategias(data, periodo = periodoInforme()) {
-    const secciones = data?.secciones || {};
-    informeTextareas.forEach((editor) => {
-      editor.innerHTML = htmlParaEditor(
-        secciones[editor.dataset.estrategiaSeccion] || "",
-      );
-      actualizarPlaceholderEditor(editor);
-    });
+    const secciones = aplicarSnapshotEstrategias(
+      data?.secciones || {},
+      periodo,
+    );
+    informeUltimoGuardado = secciones;
     marcarInformeDirty(false);
-    renderResumenEstrategias(secciones, periodo);
+    actualizarBotonUndo();
     const cargadas = SECCIONES_INFORME.filter(
-      ([key]) => Boolean(normalizarHtmlEstrategia(secciones[key] || "")),
+      ([key]) => Boolean(secciones[key]),
     ).length;
     setInformeStatus(
       informeStatus,
@@ -773,6 +877,8 @@
 
   async function cargarEstrategias() {
     if (!informeView) return;
+    cancelarAutosave();
+    limpiarHistorialEstrategias();
     const periodo = periodoInforme();
     informePeriodoActual = periodo;
     const token = ++informeLoadToken;
@@ -806,14 +912,49 @@
     }
   }
 
-  async function guardarEstrategias({ event, periodo, silent = false } = {}) {
+  async function guardarEstrategias({
+    event,
+    periodo,
+    silent = false,
+    autosave = false,
+  } = {}) {
     if (event) event.preventDefault();
     if (!informeForm) return false;
+    cancelarAutosave();
+
+    // Si hay un guardado en curso (por ejemplo, un autoguardado disparado por
+    // el blur) se espera antes de lanzar otro. Así el guardado manual y el
+    // automático nunca se pisan.
+    if (informeGuardadoEnCurso) {
+      try {
+        await informeGuardadoEnCurso;
+      } catch (_) {}
+    }
+
     const objetivo = periodo || periodoInforme();
     const secciones = seccionesDelFormulario();
+    const antes = clonarSeccionesInforme(informeUltimoGuardado || {});
+    if (mismasSeccionesInforme(antes, secciones)) {
+      marcarInformeDirty(false);
+      if (!silent) {
+        setInformeStatus(
+          informeStatus,
+          `Las estrategias de ${etiquetaPeriodo(objetivo)} ya están guardadas.`,
+          "success",
+        );
+      }
+      actualizarBotonUndo();
+      return true;
+    }
+
     if (informeSave) informeSave.disabled = true;
-    if (!silent) setInformeStatus(informeStatus, "Guardando estrategias…", "info");
-    try {
+    if (autosave) {
+      setInformeStatus(informeStatus, "Autoguardando estrategias…", "info");
+    } else if (!silent) {
+      setInformeStatus(informeStatus, "Guardando estrategias…", "info");
+    }
+
+    const ejecutar = async () => {
       const response = await fetch("/api/informes/estrategias", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -832,31 +973,1513 @@
         throw new Error(message);
       }
       const data = await response.json();
+      const despues = clonarSeccionesInforme(data?.secciones || secciones);
       informePeriodoActual = objetivo;
-      if (!silent) {
-        aplicarEstrategias(data, objetivo);
+      informeUltimoGuardado = despues;
+      registrarHistorialEstrategias(antes, despues);
+
+      // El usuario pudo seguir escribiendo mientras la petición estaba en
+      // vuelo. En ese caso no se pisa el editor ni se marca como guardado.
+      const actuales = seccionesDelFormulario();
+      const hayCambiosNuevos = !mismasSeccionesInforme(actuales, despues);
+
+      if (!silent && !hayCambiosNuevos) {
+        aplicarSnapshotEstrategias(despues, objetivo);
+      }
+      marcarInformeDirty(hayCambiosNuevos);
+
+      if (hayCambiosNuevos) {
+        setInformeStatus(
+          informeStatus,
+          "Se guardó una versión anterior; hay cambios nuevos sin guardar.",
+          "warning",
+        );
+        if (!silent) {
+          showToast(
+            "Hay texto nuevo escrito durante el guardado. Se autoguardará al salir del campo.",
+            "warning",
+          );
+        }
+      } else if (!silent) {
         setInformeStatus(
           informeStatus,
           `Estrategias de ${etiquetaPeriodo(objetivo)} guardadas.`,
           "success",
         );
         showToast("Estrategias guardadas correctamente.", "success");
-      } else {
-        marcarInformeDirty(false);
+      } else if (autosave) {
+        const hora = horaCorta();
+        setInformeStatus(
+          informeStatus,
+          hora
+            ? `Autoguardado a las ${hora}.`
+            : "Estrategias autoguardadas.",
+          "success",
+        );
       }
+      renderResumenEstrategias(
+        hayCambiosNuevos ? actuales : despues,
+        objetivo,
+      );
+      actualizarBotonUndo();
       return true;
+    };
+
+    const promesa = ejecutar();
+    informeGuardadoEnCurso = promesa;
+    actualizarBotonUndo();
+    try {
+      return await promesa;
     } catch (error) {
       setInformeStatus(
         informeStatus,
-        error.message || "No se pudieron guardar las estrategias.",
+        autosave
+          ? `No se pudo autoguardar: ${
+              error.message || "error de red"
+            }. Pulsa «Guardar estrategias» para reintentar.`
+          : error.message || "No se pudieron guardar las estrategias.",
         "error",
       );
       if (!silent) showToast(error.message, "error");
       return false;
     } finally {
+      if (informeGuardadoEnCurso === promesa) {
+        informeGuardadoEnCurso = null;
+      }
       if (informeSave) informeSave.disabled = false;
+      actualizarBotonUndo();
     }
   }
+
+  // Alterna entre deshacer el último guardado y rehacerlo. El estado anterior
+  // se persiste en el servidor (no solo se cambia en pantalla) para que el
+  // informe y las demás pestañas vean siempre la misma versión.
+  async function alternarHistorialEstrategias() {
+    cancelarAutosave();
+    if (informeGuardadoEnCurso) {
+      try {
+        await informeGuardadoEnCurso;
+      } catch (_) {}
+    }
+
+    // Si hay texto sin guardar, primero se guarda para que el botón pueda
+    // volver a esa versión como cualquier autoguardado.
+    if (informeDirty) {
+      const guardado = await guardarEstrategias({
+        periodo: informePeriodoActual,
+        silent: true,
+        autosave: true,
+      });
+      if (!guardado) return;
+    }
+
+    const modo = informeUndoModo ? "redo" : "undo";
+    const destino = modo === "redo" ? informeRedoSnapshot : informeUndoSnapshot;
+    if (!destino) {
+      actualizarBotonUndo();
+      return;
+    }
+
+    const actual = clonarSeccionesInforme(informeUltimoGuardado || {});
+    const objetivo = { ...informePeriodoActual };
+    if (informeUndo) informeUndo.disabled = true;
+    setInformeStatus(
+      informeStatus,
+      modo === "redo"
+        ? "Volviendo a la última versión guardada…"
+        : "Restaurando el estado anterior…",
+      "info",
+    );
+
+    try {
+      const response = await fetch("/api/informes/estrategias", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          anio: objetivo.anio,
+          trimestre: objetivo.trimestre,
+          secciones: destino,
+        }),
+      });
+      if (!response.ok) {
+        let message = "No se pudo restaurar la versión de las estrategias.";
+        try {
+          const data = await response.json();
+          if (data?.detail) message = data.detail;
+        } catch (_) {}
+        throw new Error(message);
+      }
+      const data = await response.json();
+      const restaurado = aplicarSnapshotEstrategias(
+        data?.secciones || destino,
+        objetivo,
+      );
+      informePeriodoActual = objetivo;
+      informeUltimoGuardado = restaurado;
+      marcarInformeDirty(false);
+
+      if (modo === "undo") {
+        informeUndoSnapshot = null;
+        informeRedoSnapshot = actual;
+        informeUndoModo = true;
+        setInformeStatus(
+          informeStatus,
+          `Se restauró el estado anterior de ${etiquetaPeriodo(objetivo)}.`,
+          "success",
+        );
+        showToast("Se deshizo el último autoguardado.", "success");
+      } else {
+        informeUndoSnapshot = actual;
+        informeRedoSnapshot = null;
+        informeUndoModo = false;
+        setInformeStatus(
+          informeStatus,
+          `Se volvió a la última versión guardada de ${etiquetaPeriodo(objetivo)}.`,
+          "success",
+        );
+        showToast("Se volvió a la última versión guardada.", "success");
+      }
+      renderResumenEstrategias(restaurado, objetivo);
+    } catch (error) {
+      setInformeStatus(
+        informeStatus,
+        error.message || "No se pudo restaurar la versión.",
+        "error",
+      );
+      showToast(error.message || "No se pudo restaurar la versión.", "error");
+    } finally {
+      actualizarBotonUndo();
+    }
+  }
+
+  /* ---------------- Informe de gestión: anexos del periodo ---------------- */
+  const informeAnexoForm = document.getElementById("informe-anexo-form");
+  const informeAnexoFile = document.getElementById("informe-anexo-file");
+  const informeAnexoTitulo = document.getElementById("informe-anexo-titulo");
+  const informeAnexoDescripcion = document.getElementById(
+    "informe-anexo-descripcion",
+  );
+  const informeAnexoFileClear = document.getElementById(
+    "informe-anexo-file-clear",
+  );
+  const informeAnexoSubmit = document.getElementById("informe-anexo-submit");
+  const informeAnexoStatus = document.getElementById("informe-anexo-status");
+  const informeAnexosList = document.getElementById("informe-anexos-list");
+  const informeAnexosEmpty = document.getElementById("informe-anexos-empty");
+  const informeAnexosBadge = document.getElementById("informe-anexos-badge");
+  const informeAnexosPeriodo = document.getElementById(
+    "informe-anexos-periodo",
+  );
+  const informeExportAnexos = document.getElementById("informe-export-anexos");
+  const informeAnexoDropzone = document.getElementById("informe-anexo-dropzone");
+  const informeAnexoFileName = document.getElementById(
+    "informe-anexo-file-name",
+  );
+  const informeAnexoModal = document.getElementById("informe-anexo-modal");
+  const informeAnexoEditForm = document.getElementById(
+    "informe-anexo-edit-form",
+  );
+  const informeAnexoEditId = document.getElementById("informe-anexo-edit-id");
+  const informeAnexoEditTitulo = document.getElementById(
+    "informe-anexo-edit-titulo",
+  );
+  const informeAnexoEditDescripcion = document.getElementById(
+    "informe-anexo-edit-descripcion",
+  );
+  const informeAnexoEditFile = document.getElementById(
+    "informe-anexo-edit-file",
+  );
+  const informeAnexoEditDropzone = document.getElementById(
+    "informe-anexo-edit-dropzone",
+  );
+  const informeAnexoEditFileName = document.getElementById(
+    "informe-anexo-edit-file-name",
+  );
+  const informeAnexoEditStatus = document.getElementById(
+    "informe-anexo-edit-status",
+  );
+  const informeAnexoEditSave = document.getElementById(
+    "informe-anexo-edit-save",
+  );
+  const informeAnexoEditCancel = document.getElementById(
+    "informe-anexo-edit-cancel",
+  );
+  const informeAnexoModalClose = document.getElementById(
+    "informe-anexo-modal-close",
+  );
+  const informeAnexoCurrent = document.getElementById("informe-anexo-current");
+  const informeAnexoCurrentCount = document.getElementById(
+    "informe-anexo-current-count",
+  );
+  const informeAnexoCurrentGallery = document.getElementById(
+    "informe-anexo-current-gallery",
+  );
+  const informeAnexoCurrentNote = document.getElementById(
+    "informe-anexo-current-note",
+  );
+  const informeAnexoEditFileClear = document.getElementById(
+    "informe-anexo-edit-file-clear",
+  );
+  const informeAnexoFileList = document.getElementById(
+    "informe-anexo-file-list",
+  );
+  const informeAnexoEditFileList = document.getElementById(
+    "informe-anexo-edit-file-list",
+  );
+  const informeAnexoEditDelete = document.getElementById(
+    "informe-anexo-edit-delete",
+  );
+
+  const ANEXO_MAX_BYTES = 10 * 1024 * 1024;
+  const ANEXO_TIPOS = new Set(["image/png", "image/jpeg", "image/webp"]);
+  let informeAnexosToken = 0;
+  let informeAnexosCache = [];
+  let informeAnexoGuardando = false;
+  let informeAnexoDragId = null;
+  let informeAnexoReordenando = false;
+  let informeAnexoActual = null;
+
+  function htmlEditorAnexo(editor) {
+    return editor ? normalizarHtmlEstrategia(editor.innerHTML) : "";
+  }
+
+  function mostrarDescripcionAnexo(editor, value = "") {
+    if (!editor) return;
+    editor.innerHTML = htmlParaEditor(value);
+    actualizarPlaceholderEditor(editor);
+  }
+
+  function limpiarEditorAnexo(editor) {
+    if (!editor) return;
+    editor.innerHTML = "";
+    actualizarPlaceholderEditor(editor);
+  }
+
+  function formatoBytesAnexo(bytes) {
+    const valor = Number(bytes) || 0;
+    if (valor >= 1024 * 1024) {
+      return `${(valor / (1024 * 1024)).toFixed(1).replace(".", ",")} MB`;
+    }
+    if (valor >= 1024) return `${Math.round(valor / 1024)} KB`;
+    return `${valor} B`;
+  }
+
+  function etiquetaTipoAnexo(contentType, nombreArchivo) {
+    const tipo = String(contentType || "");
+    if (tipo === "image/png") return "PNG";
+    if (tipo === "image/jpeg") return "JPEG";
+    if (tipo === "image/webp") return "WEBP";
+    if (tipo === "application/pdf") return "PDF";
+    if (tipo.includes("wordprocessingml")) return "DOCX";
+    const extension = String(nombreArchivo || "").split(".").pop();
+    return (extension || "Archivo").toUpperCase();
+  }
+
+  function actualizarBadgeAnexos(total) {
+    if (informeAnexosBadge) {
+      informeAnexosBadge.textContent = `${total} ${
+        total === 1 ? "ANEXO" : "ANEXOS"
+      }`;
+      informeAnexosBadge.className =
+        "result-badge" + (total ? " ready" : " pending");
+    }
+    if (informeExportAnexos) {
+      informeExportAnexos.textContent = total
+        ? `Anexos del periodo: ${total}. Se incluirán en la sección 5 del DOCX.`
+        : "Anexos del periodo: sin anexos cargados. El informe se genera igualmente.";
+    }
+  }
+
+  async function mensajeErrorAnexo(response, fallback) {
+    try {
+      const data = await response.json();
+      if (data?.detail) return data.detail;
+    } catch (_) {}
+    return fallback;
+  }
+
+  function archivosAnexo(item) {
+    return Array.isArray(item?.archivos) ? item.archivos : [];
+  }
+
+  function urlConVersion(url, version) {
+    if (!url) return "";
+    const separador = url.includes("?") ? "&" : "?";
+    return `${url}${separador}v=${encodeURIComponent(version || "1")}`;
+  }
+
+  function validarArchivosAnexo(archivos) {
+    if (!archivos?.length) return "Selecciona al menos una imagen.";
+    for (const archivo of archivos) {
+      if (archivo.size > ANEXO_MAX_BYTES) {
+        return `“${archivo.name}” supera el máximo de 10 MB.`;
+      }
+      if (archivo.type && !ANEXO_TIPOS.has(archivo.type)) {
+        return "Solo se permiten imágenes PNG, JPEG o WEBP.";
+      }
+    }
+    return "";
+  }
+
+  function mostrarArchivosSeleccionados(
+    elemento,
+    archivos,
+    listaEl = null,
+    alQuitar = null,
+  ) {
+    if (!elemento) return;
+    const lista = Array.from(archivos || []);
+    if (listaEl) {
+      listaEl.replaceChildren();
+      listaEl.hidden = !lista.length;
+    }
+    if (!lista.length) {
+      elemento.hidden = true;
+      elemento.textContent = "";
+      return;
+    }
+    const total = lista.reduce((suma, archivo) => suma + archivo.size, 0);
+    const nombres = lista.map((archivo) => archivo.name).join(", ");
+    elemento.hidden = false;
+    elemento.textContent =
+      lista.length === 1
+        ? `Imagen seleccionada: ${nombres} · ${formatoBytesAnexo(total)}`
+        : `${lista.length} imágenes seleccionadas: ${nombres} · ${formatoBytesAnexo(total)}`;
+    if (!listaEl) return;
+    lista.forEach((archivo, indice) => {
+      const item = document.createElement("li");
+      const nombre = document.createElement("span");
+      nombre.className = "informe-anexo-file-item-name";
+      nombre.textContent = `${archivo.name} · ${formatoBytesAnexo(archivo.size)}`;
+      item.appendChild(nombre);
+      if (alQuitar) {
+        const quitar = document.createElement("button");
+        quitar.type = "button";
+        quitar.className = "informe-anexo-file-remove";
+        quitar.textContent = "Quitar";
+        quitar.setAttribute("aria-label", `Quitar ${archivo.name}`);
+        quitar.addEventListener("click", () => alQuitar(indice));
+        item.appendChild(quitar);
+      }
+      listaEl.appendChild(item);
+    });
+  }
+
+  /**
+   * Selector de imágenes que acumula archivos entre aperturas del diálogo y
+   * entre arrastres. El estado vive en memoria (no en ``input.files``), de modo
+   * que elegir una imagen no reemplaza las que ya estaban seleccionadas.
+   */
+  function configurarSelectorAnexo({
+    dropzone,
+    input,
+    nombreEl,
+    listaEl,
+    clearBtn,
+    alCambiar,
+  }) {
+    let archivos = [];
+    const clave = (archivo) =>
+      `${archivo.name}|${archivo.size}|${archivo.lastModified}`;
+    const notificar = () => {
+      mostrarArchivosSeleccionados(nombreEl, archivos, listaEl, quitar);
+      if (clearBtn) clearBtn.hidden = !archivos.length;
+      if (alCambiar) alCambiar(archivos.slice());
+    };
+    const quitar = (indice) => {
+      archivos = archivos.filter((_, posicion) => posicion !== indice);
+      notificar();
+    };
+    const agregar = (nuevos) => {
+      const mapa = new Map(archivos.map((archivo) => [clave(archivo), archivo]));
+      Array.from(nuevos || []).forEach((archivo) =>
+        mapa.set(clave(archivo), archivo),
+      );
+      archivos = Array.from(mapa.values());
+      // Limpiar el input permite volver a elegir el mismo archivo; la lista
+      // real de la carga es este acumulador.
+      if (input) {
+        try {
+          input.value = "";
+        } catch (_) {}
+      }
+      notificar();
+    };
+    const limpiar = () => {
+      archivos = [];
+      if (input) {
+        try {
+          input.value = "";
+        } catch (_) {}
+      }
+      notificar();
+    };
+
+    input?.addEventListener("change", () => agregar(input.files));
+    if (dropzone) {
+      ["dragenter", "dragover"].forEach((evento) => {
+        dropzone.addEventListener(evento, (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          dropzone.classList.add("is-dragover");
+        });
+      });
+      dropzone.addEventListener("dragleave", (event) => {
+        if (!dropzone.contains(event.relatedTarget)) {
+          dropzone.classList.remove("is-dragover");
+        }
+      });
+      dropzone.addEventListener("drop", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        dropzone.classList.remove("is-dragover");
+        agregar(event.dataTransfer?.files || []);
+      });
+    }
+    clearBtn?.addEventListener("click", limpiar);
+
+    return {
+      get archivos() {
+        return archivos.slice();
+      },
+      agregar,
+      limpiar,
+    };
+  }
+
+  function botonAccionAnexo(texto, accion) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "informe-anexo-action";
+    button.dataset.anexoAction = accion;
+    button.textContent = texto;
+    return button;
+  }
+
+  function crearTarjetaAnexo(item) {
+    const archivos = archivosAnexo(item);
+    const card = document.createElement("li");
+    card.className = "informe-anexo-card";
+    card.dataset.anexoId = String(item.id);
+    card.draggable = true;
+    card.title = "Arrastra para reordenar este anexo";
+
+    card.addEventListener("dragstart", (event) => {
+      informeAnexoDragId = item.id;
+      card.classList.add("is-dragging");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", String(item.id));
+    });
+    card.addEventListener("dragend", () => {
+      informeAnexoDragId = null;
+      informeAnexosList
+        ?.querySelectorAll(".is-dragging, .is-drag-over")
+        .forEach((elemento) => {
+          elemento.classList.remove("is-dragging", "is-drag-over");
+        });
+    });
+    card.addEventListener("dragover", (event) => {
+      if (informeAnexoDragId == null || informeAnexoDragId === item.id) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      card.classList.add("is-drag-over");
+    });
+    card.addEventListener("dragleave", (event) => {
+      if (!card.contains(event.relatedTarget)) {
+        card.classList.remove("is-drag-over");
+      }
+    });
+    card.addEventListener("drop", (event) => {
+      event.preventDefault();
+      card.classList.remove("is-drag-over");
+      const sourceId = Number(
+        event.dataTransfer.getData("text/plain") || informeAnexoDragId,
+      );
+      if (!sourceId || sourceId === item.id) return;
+      reordenarAnexo(sourceId, item.id);
+    });
+
+    const head = document.createElement("div");
+    head.className = "informe-anexo-card-head";
+    const izquierda = document.createElement("div");
+    izquierda.className = "informe-anexo-card-tags";
+    const handle = document.createElement("span");
+    handle.className = "informe-anexo-drag";
+    handle.textContent = "⠿";
+    handle.setAttribute("aria-hidden", "true");
+    const code = document.createElement("span");
+    code.className = "informe-anexo-code";
+    code.textContent = item.rotulo || `ANEXO ${item.numero || item.id}`;
+    izquierda.append(handle, code);
+    const type = document.createElement("span");
+    type.className = "informe-anexo-type";
+    const totalBytes = archivos.reduce(
+      (suma, archivo) => suma + (Number(archivo.tamano) || 0),
+      0,
+    );
+    type.textContent = `${archivos.length} ${
+      archivos.length === 1 ? "imagen" : "imágenes"
+    } · ${formatoBytesAnexo(totalBytes)}`;
+    head.append(izquierda, type);
+
+    const title = document.createElement("h4");
+    title.textContent = item.titulo || "Anexo sin título";
+    card.append(head, title);
+
+    const descripcionHtml = htmlParaEditor(item.descripcion || "");
+    if (descripcionHtml) {
+      const desc = document.createElement("div");
+      desc.className = "informe-anexo-desc";
+      desc.innerHTML = descripcionHtml;
+      card.appendChild(desc);
+    }
+
+    const faltantes = archivos.filter(
+      (archivo) => archivo.archivo_disponible === false,
+    ).length;
+    if (faltantes) {
+      const nota = document.createElement("p");
+      nota.className = "informe-anexo-note is-warning";
+      nota.textContent =
+        faltantes === 1
+          ? "Una imagen no está disponible en el servidor. Elimínala o vuelve a cargarla."
+          : `${faltantes} imágenes no están disponibles en el servidor. Elimínalas o vuelve a cargarlas.`;
+      card.appendChild(nota);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "informe-anexo-actions";
+    if (item.download_url) {
+      const download = document.createElement("a");
+      download.className = "informe-anexo-action";
+      download.href = item.download_url;
+      download.textContent = "Descargar";
+      download.title = "Descarga la primera imagen del anexo";
+      download.setAttribute("download", "");
+      actions.appendChild(download);
+    }
+
+    // Vista previa como galería de todas las imágenes del anexo.
+    let previewPanel = null;
+    if (archivos.length) {
+      const previewButton = botonAccionAnexo("Vista previa", "preview");
+      const panelId = `informe-anexo-preview-${item.id}`;
+      previewButton.setAttribute("aria-expanded", "false");
+      previewButton.setAttribute("aria-controls", panelId);
+      previewPanel = document.createElement("div");
+      previewPanel.className = "informe-anexo-preview";
+      previewPanel.id = panelId;
+      previewPanel.hidden = true;
+      const grid = document.createElement("div");
+      grid.className = "informe-anexo-preview-grid";
+      archivos.forEach((archivo) => {
+        const figure = document.createElement("figure");
+        const imagen = document.createElement("img");
+        imagen.loading = "lazy";
+        imagen.decoding = "async";
+        imagen.src = urlConVersion(
+          archivo.preview_url || archivo.download_url,
+          item.updated_at,
+        );
+        imagen.alt = archivo.nombre_archivo || "Imagen del anexo";
+        const caption = document.createElement("figcaption");
+        caption.textContent = archivo.nombre_archivo || "";
+        figure.append(imagen, caption);
+        grid.appendChild(figure);
+      });
+      previewPanel.appendChild(grid);
+      previewButton.addEventListener("click", () => {
+        const abrir = previewPanel.hidden;
+        previewPanel.hidden = !abrir;
+        previewButton.setAttribute("aria-expanded", String(abrir));
+        previewButton.textContent = abrir ? "Ocultar vista" : "Vista previa";
+        card.classList.toggle("is-preview-open", abrir);
+      });
+      actions.appendChild(previewButton);
+    }
+
+    const edit = botonAccionAnexo("Editar", "edit");
+    edit.addEventListener("click", () => abrirModalAnexo(item));
+    const remove = botonAccionAnexo("Eliminar", "delete");
+    remove.addEventListener("click", () => eliminarAnexo(item, remove));
+    actions.append(edit, remove);
+    card.appendChild(actions);
+
+    if (previewPanel) card.appendChild(previewPanel);
+    return card;
+  }
+
+  function cerrarModalAnexo() {
+    if (!informeAnexoModal) return;
+    informeAnexoModal.classList.remove("is-open");
+    informeAnexoModal.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+    informeAnexoGuardando = false;
+    informeAnexoActual = null;
+    limpiarEditorAnexo(informeAnexoEditDescripcion);
+    // El cierre puede ocurrir dentro de un guardado: el botón debe quedar
+    // habilitado para la próxima edición.
+    if (informeAnexoEditSave) informeAnexoEditSave.disabled = false;
+  }
+
+  function renderGaleriaModal(item) {
+    const archivos = archivosAnexo(item);
+    if (informeAnexoCurrentCount) {
+      informeAnexoCurrentCount.textContent = `${archivos.length} ${
+        archivos.length === 1 ? "imagen" : "imágenes"
+      } en este anexo`;
+    }
+    if (informeAnexoCurrentGallery) {
+      informeAnexoCurrentGallery.replaceChildren();
+      archivos.forEach((archivo) => {
+        const fila = document.createElement("li");
+        fila.className = "informe-anexo-gallery-item";
+        const imagen = document.createElement("img");
+        imagen.loading = "lazy";
+        imagen.decoding = "async";
+        imagen.src = urlConVersion(
+          archivo.preview_url || archivo.download_url,
+          item.updated_at,
+        );
+        imagen.alt = archivo.nombre_archivo || "Imagen del anexo";
+        const info = document.createElement("div");
+        info.className = "informe-anexo-gallery-info";
+        const nombre = document.createElement("p");
+        nombre.className = "informe-anexo-gallery-name";
+        nombre.textContent = archivo.nombre_archivo || "Imagen";
+        const meta = document.createElement("p");
+        meta.className = "informe-anexo-gallery-meta";
+        meta.textContent = `${etiquetaTipoAnexo(
+          archivo.content_type,
+          archivo.nombre_archivo,
+        )} · ${formatoBytesAnexo(archivo.tamano)}${
+          archivo.archivo_disponible === false
+            ? " · No disponible en el servidor"
+            : ""
+        }`;
+        const acciones = document.createElement("div");
+        acciones.className = "informe-anexo-gallery-actions";
+        if (archivo.download_url) {
+          const descargar = document.createElement("a");
+          descargar.className = "informe-anexo-action";
+          descargar.href = archivo.download_url;
+          descargar.textContent = "Descargar";
+          descargar.setAttribute("download", "");
+          acciones.appendChild(descargar);
+        }
+        const eliminar = document.createElement("button");
+        eliminar.type = "button";
+        eliminar.className = "informe-anexo-action is-danger";
+        eliminar.textContent = "Eliminar imagen";
+        if (archivos.length <= 1) {
+          eliminar.disabled = true;
+          eliminar.title =
+            "Añade otra imagen antes de eliminar la última del anexo.";
+        }
+        eliminar.addEventListener("click", () =>
+          eliminarImagenAnexo(item.id, archivo.id, eliminar),
+        );
+        acciones.appendChild(eliminar);
+        info.append(nombre, meta, acciones);
+        fila.append(imagen, info);
+        informeAnexoCurrentGallery.appendChild(fila);
+      });
+    }
+    if (informeAnexoCurrentNote) {
+      const faltantes = archivos.filter(
+        (archivo) => archivo.archivo_disponible === false,
+      ).length;
+      const notas = [];
+      if (faltantes) {
+        notas.push(
+          faltantes === 1
+            ? "Una imagen no está disponible en el servidor. Elimínala o vuelve a cargarla."
+            : `${faltantes} imágenes no están disponibles en el servidor. Elimínalas o vuelve a cargarlas.`,
+        );
+      }
+      if (archivos.length === 1) {
+        notas.push(
+          "Con una sola imagen usa «Eliminar anexo» o añade otra antes de borrar la última.",
+        );
+      }
+      const nota = notas.join(" ");
+      informeAnexoCurrentNote.textContent = nota;
+      informeAnexoCurrentNote.hidden = !nota;
+      informeAnexoCurrentNote.classList.toggle("is-warning", Boolean(faltantes));
+      informeAnexoCurrentNote.classList.toggle(
+        "is-hint",
+        !faltantes && archivos.length === 1,
+      );
+    }
+    if (informeAnexoCurrent) {
+      informeAnexoCurrent.classList.toggle("is-missing", !archivos.length);
+    }
+  }
+
+  async function abrirModalAnexo(item) {
+    if (!informeAnexoModal || !informeAnexoEditForm) return;
+    let fresco = item;
+    try {
+      const response = await fetch(`/api/informes/anexos/${item.id}`, {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        throw new Error(
+          await mensajeErrorAnexo(
+            response,
+            "No se pudo cargar el detalle del anexo.",
+          ),
+        );
+      }
+      fresco = await response.json();
+    } catch (error) {
+      showToast(
+        error.message || "No se pudo actualizar el detalle del anexo.",
+        "error",
+      );
+    }
+
+    informeAnexoEditForm.reset();
+    informeAnexoActual = fresco;
+    if (informeAnexoEditId) informeAnexoEditId.value = String(fresco.id);
+    if (informeAnexoEditTitulo) {
+      informeAnexoEditTitulo.value = fresco.titulo || "";
+    }
+    mostrarDescripcionAnexo(informeAnexoEditDescripcion, fresco.descripcion || "");
+    informeAnexoEditSelector.limpiar();
+    setInformeStatus(informeAnexoEditStatus, "", "info");
+    informeAnexoGuardando = false;
+    // Siempre se abre con el botón operativo, aunque una edición anterior
+    // haya terminado deshabilitándolo.
+    if (informeAnexoEditSave) informeAnexoEditSave.disabled = false;
+    if (informeAnexoEditDelete) informeAnexoEditDelete.disabled = false;
+    renderGaleriaModal(fresco);
+    informeAnexoModal.classList.add("is-open");
+    informeAnexoModal.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+    window.setTimeout(() => informeAnexoEditTitulo?.focus(), 0);
+  }
+
+  async function eliminarImagenAnexo(anexoId, archivoId, boton) {
+    const confirmado = window.confirm(
+      "¿Eliminar esta imagen del anexo? Esta acción no se puede deshacer.",
+    );
+    if (!confirmado) return;
+    const texto = boton?.textContent || "Eliminar imagen";
+    if (boton) {
+      boton.disabled = true;
+      boton.textContent = "Eliminando…";
+    }
+    setInformeStatus(informeAnexoEditStatus, "Eliminando imagen…", "info");
+    try {
+      const response = await fetch(
+        `/api/informes/anexos/${anexoId}/imagenes/${archivoId}`,
+        { method: "DELETE" },
+      );
+      if (!response.ok) {
+        throw new Error(
+          await mensajeErrorAnexo(
+            response,
+            "No se pudo eliminar la imagen del anexo.",
+          ),
+        );
+      }
+      const actualizado = await response.json();
+      if (
+        informeAnexoActual &&
+        String(informeAnexoActual.id) === String(actualizado.id)
+      ) {
+        informeAnexoActual = { ...informeAnexoActual, ...actualizado };
+      }
+      if (String(informeAnexoEditId?.value) === String(actualizado.id)) {
+        renderGaleriaModal(informeAnexoActual || actualizado);
+      }
+      setInformeStatus(
+        informeAnexoEditStatus,
+        "Imagen eliminada.",
+        "success",
+      );
+      showToast("Imagen eliminada.", "success");
+      await cargarAnexos();
+    } catch (error) {
+      setInformeStatus(
+        informeAnexoEditStatus,
+        error.message || "No se pudo eliminar la imagen.",
+        "error",
+      );
+      showToast(error.message || "No se pudo eliminar la imagen.", "error");
+      if (boton) {
+        boton.disabled = false;
+        boton.textContent = texto;
+      }
+    }
+  }
+
+  async function guardarAnexo(event) {
+    event.preventDefault();
+    const id = Number(informeAnexoEditId?.value || 0);
+    if (!id) return;
+    const titulo = (informeAnexoEditTitulo?.value || "").trim();
+    if (!titulo) {
+      setInformeStatus(
+        informeAnexoEditStatus,
+        "El título del anexo es obligatorio.",
+        "error",
+      );
+      return;
+    }
+    const archivos = informeAnexoEditSelector.archivos;
+    if (archivos.length) {
+      const errorArchivo = validarArchivosAnexo(archivos);
+      if (errorArchivo) {
+        setInformeStatus(informeAnexoEditStatus, errorArchivo, "error");
+        return;
+      }
+    }
+
+    const body = new FormData();
+    body.append("titulo", titulo);
+    body.append("descripcion", htmlEditorAnexo(informeAnexoEditDescripcion));
+
+    informeAnexoGuardando = true;
+    if (informeAnexoEditSave) informeAnexoEditSave.disabled = true;
+    setInformeStatus(informeAnexoEditStatus, "Guardando cambios…", "info");
+    try {
+      const response = await fetch(`/api/informes/anexos/${id}`, {
+        method: "PATCH",
+        body,
+      });
+      if (!response.ok) {
+        throw new Error(
+          await mensajeErrorAnexo(
+            response,
+            "No se pudieron guardar los cambios del anexo.",
+          ),
+        );
+      }
+      if (archivos.length) {
+        const imagenes = new FormData();
+        archivos.forEach((archivo) =>
+          imagenes.append("files", archivo, archivo.name),
+        );
+        const respuestaImagenes = await fetch(
+          `/api/informes/anexos/${id}/imagenes`,
+          { method: "POST", body: imagenes },
+        );
+        if (!respuestaImagenes.ok) {
+          throw new Error(
+            await mensajeErrorAnexo(
+              respuestaImagenes,
+              "Los metadatos se guardaron, pero no se pudieron añadir las imágenes.",
+            ),
+          );
+        }
+      }
+      informeAnexoEditSelector.limpiar();
+      showToast("Anexo actualizado correctamente.", "success");
+      cerrarModalAnexo();
+      await cargarAnexos();
+    } catch (error) {
+      setInformeStatus(
+        informeAnexoEditStatus,
+        error.message || "No se pudieron guardar los cambios.",
+        "error",
+      );
+    } finally {
+      informeAnexoGuardando = false;
+      // Se reactiva siempre: si el guardado tuvo éxito el modal se cerró y la
+      // próxima apertura debe encontrar el botón habilitado.
+      if (informeAnexoEditSave) informeAnexoEditSave.disabled = false;
+    }
+  }
+
+  async function eliminarAnexo(item, boton) {
+    const confirmado = window.confirm(
+      `¿Eliminar el anexo "${item.titulo}"? También se borrará el archivo.`,
+    );
+    if (!confirmado) return;
+    const textoBoton = boton?.textContent || "Eliminar";
+    if (boton) {
+      boton.disabled = true;
+      boton.textContent = "Eliminando…";
+    }
+    setInformeStatus(informeAnexoStatus, "Eliminando anexo…", "info");
+    try {
+      const response = await fetch(`/api/informes/anexos/${item.id}`, {
+        method: "DELETE",
+      });
+      // 404 también es éxito: el anexo ya no existe (por ejemplo, se borró
+      // desde otra pestaña) y el catálogo debe quedar sincronizado.
+      if (!response.ok && response.status !== 404) {
+        throw new Error(
+          await mensajeErrorAnexo(response, "No se pudo eliminar el anexo."),
+        );
+      }
+      setInformeStatus(informeAnexoStatus, "Anexo eliminado.", "success");
+      showToast("Anexo eliminado.", "success");
+      await cargarAnexos();
+    } catch (error) {
+      setInformeStatus(
+        informeAnexoStatus,
+        error.message || "No se pudo eliminar el anexo.",
+        "error",
+      );
+      showToast(error.message || "No se pudo eliminar el anexo.", "error");
+    } finally {
+      if (boton) {
+        boton.disabled = false;
+        boton.textContent = textoBoton;
+      }
+    }
+  }
+
+  async function eliminarAnexoDesdeModal() {
+    if (!informeAnexoActual) return;
+    const item = informeAnexoActual;
+    const confirmado = window.confirm(
+      `¿Eliminar el anexo "${item.titulo || ""}"? También se borrarán sus imágenes.`,
+    );
+    if (!confirmado) return;
+    if (informeAnexoEditDelete) {
+      informeAnexoEditDelete.disabled = true;
+      informeAnexoEditDelete.textContent = "Eliminando…";
+    }
+    setInformeStatus(informeAnexoEditStatus, "Eliminando anexo…", "info");
+    try {
+      const response = await fetch(`/api/informes/anexos/${item.id}`, {
+        method: "DELETE",
+      });
+      if (!response.ok && response.status !== 404) {
+        throw new Error(
+          await mensajeErrorAnexo(response, "No se pudo eliminar el anexo."),
+        );
+      }
+      cerrarModalAnexo();
+      showToast("Anexo eliminado.", "success");
+      await cargarAnexos();
+    } catch (error) {
+      setInformeStatus(
+        informeAnexoEditStatus,
+        error.message || "No se pudo eliminar el anexo.",
+        "error",
+      );
+    } finally {
+      if (informeAnexoEditDelete) {
+        informeAnexoEditDelete.disabled = false;
+        informeAnexoEditDelete.textContent = "Eliminar anexo";
+      }
+    }
+  }
+
+  async function subirAnexo(event) {
+    event.preventDefault();
+    const periodo = periodoInforme();
+    const archivos = informeAnexoSelector.archivos;
+    const titulo = (informeAnexoTitulo?.value || "").trim();
+    if (!titulo) {
+      setInformeStatus(
+        informeAnexoStatus,
+        "El título del anexo es obligatorio.",
+        "error",
+      );
+      return;
+    }
+    const errorArchivo = validarArchivosAnexo(archivos);
+    if (errorArchivo) {
+      setInformeStatus(informeAnexoStatus, errorArchivo, "error");
+      return;
+    }
+    const body = new FormData();
+    body.append("anio", String(periodo.anio));
+    body.append("trimestre", periodo.trimestre);
+    body.append("titulo", titulo);
+    body.append("descripcion", htmlEditorAnexo(informeAnexoDescripcion));
+    archivos.forEach((archivo) =>
+      body.append("files", archivo, archivo.name),
+    );
+
+    if (informeAnexoSubmit) informeAnexoSubmit.disabled = true;
+    setInformeStatus(informeAnexoStatus, "Subiendo anexo…", "info");
+    try {
+      const response = await fetch("/api/informes/anexos", {
+        method: "POST",
+        body,
+      });
+      if (!response.ok) {
+        throw new Error(
+          await mensajeErrorAnexo(response, "No se pudo subir el anexo."),
+        );
+      }
+      informeAnexoForm?.reset();
+      informeAnexoSelector.limpiar();
+      limpiarEditorAnexo(informeAnexoDescripcion);
+      setInformeStatus(
+        informeAnexoStatus,
+        `Anexo cargado en ${etiquetaPeriodo(periodo)}.`,
+        "success",
+      );
+      showToast("Anexo cargado correctamente.", "success");
+      await cargarAnexos();
+    } catch (error) {
+      setInformeStatus(
+        informeAnexoStatus,
+        error.message || "No se pudo subir el anexo.",
+        "error",
+      );
+      showToast(error.message || "No se pudo subir el anexo.", "error");
+    } finally {
+      if (informeAnexoSubmit) informeAnexoSubmit.disabled = false;
+    }
+  }
+
+  async function reordenarAnexo(sourceId, targetId) {
+    if (informeAnexoReordenando || sourceId === targetId) return;
+    const items = informeAnexosCache.slice();
+    const origen = items.findIndex((item) => item.id === sourceId);
+    const destino = items.findIndex((item) => item.id === targetId);
+    if (origen < 0 || destino < 0) return;
+
+    const [movido] = items.splice(origen, 1);
+    items.splice(destino, 0, movido);
+    // Optimista: renumera las tarjetas al soltar y luego confirma con el
+    // servidor. Si falla, se recarga el catálogo real.
+    renderAnexos(items);
+    informeAnexoReordenando = true;
+    try {
+      const periodo = periodoInforme();
+      const response = await fetch("/api/informes/anexos/orden", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          anio: periodo.anio,
+          trimestre: periodo.trimestre,
+          anexo_ids: items.map((item) => item.id),
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(
+          await mensajeErrorAnexo(
+            response,
+            "No se pudo guardar el nuevo orden de los anexos.",
+          ),
+        );
+      }
+      const data = await response.json();
+      renderAnexos(data?.items || items);
+      setInformeStatus(
+        informeAnexoStatus,
+        "Orden de anexos actualizado.",
+        "success",
+      );
+    } catch (error) {
+      setInformeStatus(
+        informeAnexoStatus,
+        error.message || "No se pudo guardar el nuevo orden.",
+        "error",
+      );
+      showToast(error.message || "No se pudo guardar el nuevo orden.", "error");
+      await cargarAnexos();
+    } finally {
+      informeAnexoReordenando = false;
+    }
+  }
+
+  function renderAnexos(items) {
+    // La numeración visible depende de la posición, no de datos del servidor:
+    // así el drag-and-drop renumera al instante antes de confirmar con la API.
+    informeAnexosCache = (Array.isArray(items) ? items : []).map(
+      (item, index) => ({
+        ...item,
+        numero: index + 1,
+        rotulo: `ANEXO ${index + 1}`,
+      }),
+    );
+    actualizarBadgeAnexos(informeAnexosCache.length);
+    if (!informeAnexosList || !informeAnexosEmpty) return;
+    if (!informeAnexosCache.length) {
+      informeAnexosList.hidden = true;
+      informeAnexosList.replaceChildren();
+      informeAnexosEmpty.hidden = false;
+      return;
+    }
+    informeAnexosEmpty.hidden = true;
+    informeAnexosList.hidden = false;
+    informeAnexosList.replaceChildren(
+      ...informeAnexosCache.map(crearTarjetaAnexo),
+    );
+  }
+
+  async function cargarAnexos() {
+    if (!informeView) return;
+    const periodo = periodoInforme();
+    const token = ++informeAnexosToken;
+    if (informeAnexosPeriodo) {
+      informeAnexosPeriodo.textContent = etiquetaPeriodo(periodo);
+    }
+    try {
+      const params = new URLSearchParams({
+        anio: String(periodo.anio),
+        trimestre: periodo.trimestre,
+      });
+      const response = await fetch(
+        `/api/informes/anexos?${params.toString()}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) {
+        throw new Error(
+          await mensajeErrorAnexo(
+            response,
+            "No se pudieron cargar los anexos del periodo.",
+          ),
+        );
+      }
+      const data = await response.json();
+      if (token !== informeAnexosToken) return;
+      renderAnexos(data?.items || []);
+    } catch (error) {
+      if (token !== informeAnexosToken) return;
+      renderAnexos([]);
+      setInformeStatus(informeAnexoStatus, error.message, "error");
+    }
+  }
+
+  /* Referencias ANEXO N desde el editor de estrategias. El texto se inserta
+     en el cursor y el DOCX lo convierte en hipervínculo al detalle post-firma. */
+  let informeAnexoReferenciaMenu = null;
+  let informeAnexoReferenciaBoton = null;
+  let informeAnexoReferenciaEditor = null;
+  let informeAnexoReferenciaRango = null;
+  let informeAnexoReferenciaToken = 0;
+
+  function cerrarMenuReferenciaAnexo() {
+    // Invalida cualquier carga en curso para que no pinte sobre un menú ya
+    // cerrado.
+    informeAnexoReferenciaToken += 1;
+    if (informeAnexoReferenciaMenu) {
+      informeAnexoReferenciaMenu.hidden = true;
+      informeAnexoReferenciaMenu.replaceChildren();
+    }
+    if (informeAnexoReferenciaBoton) {
+      informeAnexoReferenciaBoton.setAttribute("aria-expanded", "false");
+    }
+    informeAnexoReferenciaBoton = null;
+    informeAnexoReferenciaRango = null;
+    informeAnexoReferenciaEditor = null;
+  }
+
+  function posicionarMenuReferenciaAnexo(menu, boton) {
+    const rectBoton = boton.getBoundingClientRect();
+    menu.hidden = false;
+    const rectMenu = menu.getBoundingClientRect();
+    const margen = 8;
+    let left = Math.min(
+      Math.max(margen, rectBoton.left),
+      window.innerWidth - rectMenu.width - margen,
+    );
+    let top = rectBoton.bottom + 6;
+    if (top + rectMenu.height > window.innerHeight - margen) {
+      top = Math.max(margen, rectBoton.top - rectMenu.height - 6);
+    }
+    menu.style.left = `${Math.max(margen, left)}px`;
+    menu.style.top = `${top}px`;
+  }
+
+  function renderMenuReferenciaAnexo(items, error) {
+    const menu = informeAnexoReferenciaMenu;
+    if (!menu) return;
+    menu.replaceChildren();
+    const titulo = document.createElement("p");
+    titulo.className = "informe-editor-anexos-title";
+    titulo.textContent = "Referenciar un anexo del trimestre";
+    menu.appendChild(titulo);
+
+    if (error) {
+      const aviso = document.createElement("p");
+      aviso.className = "informe-editor-anexos-empty is-error";
+      aviso.textContent = error;
+      menu.appendChild(aviso);
+    }
+
+    const anexos = Array.isArray(items) ? items : [];
+    if (!anexos.length) {
+      if (!error) {
+        const vacio = document.createElement("p");
+        vacio.className = "informe-editor-anexos-empty";
+        vacio.textContent = "No hay anexos en este trimestre";
+        menu.appendChild(vacio);
+      }
+    } else {
+      const lista = document.createElement("div");
+      lista.className = "informe-editor-anexos-list";
+      anexos.forEach((anexo, index) => {
+        const numero = index + 1;
+        const opcion = document.createElement("button");
+        opcion.type = "button";
+        opcion.className = "informe-editor-anexos-option";
+        opcion.dataset.anexoReferencia = String(numero);
+        opcion.dataset.anexoTexto = `ANEXO ${numero}.`;
+        opcion.setAttribute("role", "menuitem");
+        const badge = document.createElement("span");
+        badge.className = "informe-editor-anexos-badge";
+        badge.textContent = `ANEXO ${numero}`;
+        const texto = document.createElement("span");
+        texto.className = "informe-editor-anexos-label";
+        texto.textContent = anexo?.titulo || "Sin título";
+        opcion.append(badge, texto);
+        lista.appendChild(opcion);
+      });
+      menu.appendChild(lista);
+    }
+
+    const ayuda = document.createElement("p");
+    ayuda.className = "informe-editor-anexos-hint";
+    ayuda.textContent =
+      "Si reordenas los anexos, el texto ya insertado no se renumera solo.";
+    menu.appendChild(ayuda);
+  }
+
+  async function cargarMenuReferenciaAnexo(token) {
+    const periodo = periodoInforme();
+    const params = new URLSearchParams({
+      anio: String(periodo.anio),
+      trimestre: periodo.trimestre,
+    });
+    try {
+      const response = await fetch(
+        `/api/informes/anexos?${params.toString()}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) {
+        throw new Error(
+          await mensajeErrorAnexo(
+            response,
+            "No se pudieron cargar los anexos del periodo.",
+          ),
+        );
+      }
+      const data = await response.json();
+      if (token !== informeAnexoReferenciaToken) return;
+      renderMenuReferenciaAnexo(data?.items || []);
+    } catch (error) {
+      if (token !== informeAnexoReferenciaToken) return;
+      // Sin red/API se ofrece el último catálogo cargado para no bloquear la
+      // redacción de la estrategia.
+      renderMenuReferenciaAnexo(
+        informeAnexosCache,
+        error.message || "No se pudieron cargar los anexos del periodo.",
+      );
+    }
+    if (token === informeAnexoReferenciaToken && informeAnexoReferenciaBoton) {
+      posicionarMenuReferenciaAnexo(
+        informeAnexoReferenciaMenu,
+        informeAnexoReferenciaBoton,
+      );
+    }
+  }
+
+  function abrirMenuReferenciaAnexo(editor, boton) {
+    if (
+      informeAnexoReferenciaMenu &&
+      !informeAnexoReferenciaMenu.hidden &&
+      informeAnexoReferenciaBoton === boton
+    ) {
+      cerrarMenuReferenciaAnexo();
+      return;
+    }
+    cerrarMenuReferenciaAnexo();
+    if (!informeAnexoReferenciaMenu) {
+      const menu = document.createElement("div");
+      menu.className = "informe-editor-anexos-menu";
+      menu.setAttribute("role", "menu");
+      menu.hidden = true;
+      menu.addEventListener("mousedown", (event) => event.preventDefault());
+      menu.addEventListener("click", (event) => {
+        const opcion = event.target.closest("[data-anexo-referencia]");
+        if (!opcion) return;
+        event.preventDefault();
+        insertarReferenciaAnexo(
+          opcion.dataset.anexoReferencia,
+          opcion.dataset.anexoTexto,
+        );
+        cerrarMenuReferenciaAnexo();
+      });
+      document.body.appendChild(menu);
+      informeAnexoReferenciaMenu = menu;
+    }
+
+    const seleccion = window.getSelection();
+    if (seleccion?.rangeCount) {
+      const rango = seleccion.getRangeAt(0);
+      if (editor.contains(rango.commonAncestorContainer)) {
+        informeAnexoReferenciaRango = rango.cloneRange();
+      }
+    }
+    informeAnexoReferenciaEditor = editor;
+    informeAnexoReferenciaBoton = boton;
+    boton.setAttribute("aria-expanded", "true");
+    const menu = informeAnexoReferenciaMenu;
+    menu.replaceChildren();
+    const cargando = document.createElement("p");
+    cargando.className = "informe-editor-anexos-empty";
+    cargando.textContent = "Cargando anexos del trimestre…";
+    menu.appendChild(cargando);
+    posicionarMenuReferenciaAnexo(menu, boton);
+    const token = ++informeAnexoReferenciaToken;
+    cargarMenuReferenciaAnexo(token);
+  }
+
+  function insertarReferenciaAnexo(numeroValue, textoValue) {
+    const editor = informeAnexoReferenciaEditor;
+    const numero = Number.parseInt(numeroValue, 10);
+    if (!editor || !Number.isFinite(numero)) return;
+    const texto = textoValue || `ANEXO ${numero}.`;
+    editor.focus();
+    const seleccion = window.getSelection();
+    if (!seleccion) return;
+    const rangoGuardado = informeAnexoReferenciaRango;
+    if (
+      rangoGuardado &&
+      editor.contains(rangoGuardado.commonAncestorContainer)
+    ) {
+      seleccion.removeAllRanges();
+      seleccion.addRange(rangoGuardado);
+    } else if (
+      !seleccion.rangeCount ||
+      !seleccion.anchorNode ||
+      !editor.contains(seleccion.anchorNode)
+    ) {
+      const rango = document.createRange();
+      rango.selectNodeContents(editor);
+      rango.collapse(false);
+      seleccion.removeAllRanges();
+      seleccion.addRange(rango);
+    }
+    let insertado = false;
+    try {
+      document.execCommand("styleWithCSS", false, false);
+      insertado = document.execCommand("insertText", false, texto);
+    } catch (_) {
+      insertado = false;
+    }
+    if (!insertado) {
+      const rango = seleccion.rangeCount
+        ? seleccion.getRangeAt(0)
+        : null;
+      if (!rango) return;
+      rango.deleteContents();
+      const nodo = document.createTextNode(texto);
+      rango.insertNode(nodo);
+      rango.setStartAfter(nodo);
+      rango.collapse(true);
+      seleccion.removeAllRanges();
+      seleccion.addRange(rango);
+    }
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  document.addEventListener("mousedown", (event) => {
+    if (
+      !informeAnexoReferenciaMenu ||
+      informeAnexoReferenciaMenu.hidden
+    ) {
+      return;
+    }
+    if (
+      event.target.closest(".informe-editor-anexos-menu") ||
+      event.target.closest("[data-editor-anexo]")
+    ) {
+      return;
+    }
+    cerrarMenuReferenciaAnexo();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && informeAnexoReferenciaMenu?.hidden === false) {
+      cerrarMenuReferenciaAnexo();
+    }
+  });
+  window.addEventListener("resize", cerrarMenuReferenciaAnexo);
+  document.addEventListener(
+    "scroll",
+    (event) => {
+      if (
+        !informeAnexoReferenciaMenu ||
+        informeAnexoReferenciaMenu.hidden
+      ) {
+        return;
+      }
+      if (
+        event.target instanceof Element &&
+        event.target.closest(".informe-editor-anexos-menu")
+      ) {
+        return;
+      }
+      if (informeAnexoReferenciaBoton) {
+        posicionarMenuReferenciaAnexo(
+          informeAnexoReferenciaMenu,
+          informeAnexoReferenciaBoton,
+        );
+      }
+    },
+    true,
+  );
+
+  const informeAnexoSelector = configurarSelectorAnexo({
+    dropzone: informeAnexoDropzone,
+    input: informeAnexoFile,
+    nombreEl: informeAnexoFileName,
+    listaEl: informeAnexoFileList,
+    clearBtn: informeAnexoFileClear,
+    alCambiar: (archivos) => {
+      if (!archivos.length) {
+        setInformeStatus(informeAnexoStatus, "", "info");
+        return;
+      }
+      const error = validarArchivosAnexo(archivos);
+      setInformeStatus(
+        informeAnexoStatus,
+        error || "",
+        error ? "error" : "info",
+      );
+    },
+  });
+
+  const informeAnexoEditSelector = configurarSelectorAnexo({
+    dropzone: informeAnexoEditDropzone,
+    input: informeAnexoEditFile,
+    nombreEl: informeAnexoEditFileName,
+    listaEl: informeAnexoEditFileList,
+    clearBtn: informeAnexoEditFileClear,
+    alCambiar: (archivos) => {
+      const error = archivos.length ? validarArchivosAnexo(archivos) : "";
+      setInformeStatus(
+        informeAnexoEditStatus,
+        error || "",
+        error ? "error" : "info",
+      );
+    },
+  });
+
+  informeAnexoForm?.addEventListener("submit", subirAnexo);
+  informeAnexoEditForm?.addEventListener("submit", guardarAnexo);
+  informeAnexoEditDelete?.addEventListener(
+    "click",
+    eliminarAnexoDesdeModal,
+  );
+  informeAnexoEditCancel?.addEventListener("click", cerrarModalAnexo);
+  informeAnexoModalClose?.addEventListener("click", cerrarModalAnexo);
+  informeAnexoModal
+    ?.querySelectorAll("[data-close-anexo-modal]")
+    .forEach((elemento) => {
+      elemento.addEventListener("click", cerrarModalAnexo);
+    });
+  document.addEventListener("keydown", (event) => {
+    if (
+      event.key === "Escape" &&
+      informeAnexoModal?.classList.contains("is-open")
+    ) {
+      cerrarModalAnexo();
+    }
+  });
 
   function activarTabInforme(nombre) {
     informeTabButtons.forEach((button) => {
@@ -874,6 +2497,11 @@
     // Estrategias en esta sesión (nunca se pisa un borrador sin guardar).
     if (nombre === "exportar" && !informeDirty) {
       cargarEstrategias();
+    }
+    // El catálogo de anexos también se refresca al abrir su pestaña, para
+    // reflejar cambios hechos en otra sesión.
+    if (nombre === "anexos") {
+      cargarAnexos();
     }
   }
 
@@ -896,83 +2524,141 @@
   });
 
   informeForm?.addEventListener("submit", (event) => guardarEstrategias({ event }));
+  informeUndo?.addEventListener("click", alternarHistorialEstrategias);
 
-  document.querySelectorAll("[data-estrategia-editor]").forEach((contenedor) => {
-    const editor = contenedor.querySelector("[data-estrategia-seccion]");
-    const toolbar = contenedor.querySelector(".informe-editor-toolbar");
-    if (!editor || !toolbar) return;
+  // --- Atajos de teclado de los editores enriquecidos ---------------------
+  // Se usan las combinaciones habituales de Word en español (Ctrl+N negrita,
+  // Ctrl+K cursiva) y también las de Word/Google Docs en inglés (Ctrl+B,
+  // Ctrl+I). Ctrl+C se deja intacto para copiar.
+  function ejecutarComandoEditor(editor, comando) {
+    editor.focus();
+    try {
+      document.execCommand("styleWithCSS", false, false);
+      document.execCommand(comando, false, null);
+    } catch (_) {}
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+    actualizarEstadoToolbar(editor);
+  }
 
-    // ``mousedown`` con preventDefault conserva la selección del editor al
-    // pulsar la barra de herramientas.
-    toolbar.addEventListener("mousedown", (event) => {
-      if (event.target.closest("[data-editor-command]")) event.preventDefault();
-    });
-    toolbar.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-editor-command]");
-      if (!button) return;
-      const comando = button.dataset.editorCommand;
-      if (
-        ![
-          "bold",
-          "italic",
-          "insertUnorderedList",
-          "insertOrderedList",
-          "undo",
-          "redo",
-        ].includes(comando)
-      ) {
-        return;
-      }
-      editor.focus();
-      // Fuerza etiquetas (<b>/<i>) en lugar de estilos inline.
-      try {
-        document.execCommand("styleWithCSS", false, false);
-        document.execCommand(comando, false, null);
-      } catch (_) {}
-      editor.dispatchEvent(new Event("input", { bubbles: true }));
-      actualizarEstadoToolbar(editor);
-    });
-  });
+  function manejarAtajosEditor(event, editor) {
+    const ctrl = event.ctrlKey || event.metaKey;
+    if (!ctrl || event.altKey) return;
+    const code = event.code;
+    let comando = null;
+    if (!event.shiftKey) {
+      if (code === "KeyB" || code === "KeyN") comando = "bold";
+      else if (code === "KeyI" || code === "KeyK") comando = "italic";
+    } else if (code === "Digit7") {
+      comando = "insertOrderedList";
+    } else if (code === "Digit8" || code === "KeyL") {
+      comando = "insertUnorderedList";
+    }
+    if (!comando) return;
+    event.preventDefault();
+    ejecutarComandoEditor(editor, comando);
+  }
 
-  informeTextareas.forEach((editor) => {
-    editor.addEventListener("input", () => {
-      actualizarPlaceholderEditor(editor);
-      marcarInformeDirty(true);
-      renderResumenEstrategias(seccionesDelFormulario());
-      setInformeStatus(informeStatus, "Cambios sin guardar.", "warning");
-    });
-    // Pegado con formato: Word y los navegadores entregan ``text/html``. Se
-    // sanea con la misma allowlist del backend y se inserta conservando
-    // negrita, cursiva y listas. Sin HTML se insertan párrafos de texto plano.
-    editor.addEventListener("paste", (event) => {
-      event.preventDefault();
-      const portapapeles = event.clipboardData || window.clipboardData;
-      const html = portapapeles?.getData("text/html") || "";
-      const texto = portapapeles?.getData("text/plain") || "";
-      const htmlSeguro = htmlParaPegadoEstrategia(html);
-      editor.focus();
-      try {
-        if (htmlSeguro) {
-          document.execCommand("insertHTML", false, htmlSeguro);
-        } else if (texto) {
-          document.execCommand(
-            "insertHTML",
-            false,
-            textoPlanoAHtmlEstrategia(texto),
-          );
+  document
+    .querySelectorAll("[data-estrategia-editor], [data-anexo-editor]")
+    .forEach((contenedor) => {
+      const editor = contenedor.querySelector(
+        "[data-estrategia-seccion], [data-anexo-descripcion]",
+      );
+      const toolbar = contenedor.querySelector(".informe-editor-toolbar");
+      if (!editor || !toolbar) return;
+      const esEstrategia = editor.hasAttribute("data-estrategia-seccion");
+
+      // ``mousedown`` con preventDefault conserva la selección del editor al
+      // pulsar la barra de herramientas.
+      toolbar.addEventListener("mousedown", (event) => {
+        if (
+          event.target.closest("[data-editor-command]") ||
+          event.target.closest("[data-editor-anexo]")
+        ) {
+          event.preventDefault();
         }
-      } catch (_) {
-        if (texto) editor.textContent += texto;
+      });
+      toolbar.addEventListener("click", (event) => {
+        const anexoBoton = event.target.closest("[data-editor-anexo]");
+        if (anexoBoton) {
+          event.preventDefault();
+          abrirMenuReferenciaAnexo(editor, anexoBoton);
+          return;
+        }
+        const button = event.target.closest("[data-editor-command]");
+        if (!button) return;
+        const comando = button.dataset.editorCommand;
+        if (
+          ![
+            "bold",
+            "italic",
+            "insertUnorderedList",
+            "insertOrderedList",
+            "undo",
+            "redo",
+          ].includes(comando)
+        ) {
+          return;
+        }
+        ejecutarComandoEditor(editor, comando);
+      });
+
+      editor.addEventListener("keydown", (event) =>
+        manejarAtajosEditor(event, editor),
+      );
+      editor.addEventListener("input", () => {
+        actualizarPlaceholderEditor(editor);
+        if (!esEstrategia) return;
+        // Un cambio nuevo invalida un "rehacer" pendiente.
+        if (informeRedoSnapshot) {
+          informeRedoSnapshot = null;
+          informeUndoModo = false;
+          actualizarBotonUndo();
+        }
+        marcarInformeDirty(true);
+        renderResumenEstrategias(seccionesDelFormulario());
+        setInformeStatus(informeStatus, "Cambios sin guardar.", "warning");
+      });
+      // Pegado con formato: Word y los navegadores entregan ``text/html``. Se
+      // sanea con la misma allowlist del backend y se inserta conservando
+      // negrita, cursiva y listas. Sin HTML se insertan párrafos de texto plano.
+      editor.addEventListener("paste", (event) => {
+        event.preventDefault();
+        const portapapeles = event.clipboardData || window.clipboardData;
+        const html = portapapeles?.getData("text/html") || "";
+        const texto = portapapeles?.getData("text/plain") || "";
+        const htmlSeguro = htmlParaPegadoEstrategia(html);
+        editor.focus();
+        try {
+          if (htmlSeguro) {
+            document.execCommand("insertHTML", false, htmlSeguro);
+          } else if (texto) {
+            document.execCommand(
+              "insertHTML",
+              false,
+              textoPlanoAHtmlEstrategia(texto),
+            );
+          }
+        } catch (_) {
+          if (texto) editor.textContent += texto;
+        }
+        editor.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      editor.addEventListener("focus", () => actualizarEstadoToolbar(editor));
+      if (esEstrategia) {
+        // Al salir del campo se completa el autoguardado. El pequeño retardo
+        // permite cancelarlo si el usuario pulsó Guardar o Deshacer.
+        editor.addEventListener("blur", () => programarAutosave());
       }
-      editor.dispatchEvent(new Event("input", { bubbles: true }));
+      actualizarPlaceholderEditor(editor);
     });
-    editor.addEventListener("focus", () => actualizarEstadoToolbar(editor));
-    actualizarPlaceholderEditor(editor);
-  });
 
   document.addEventListener("selectionchange", () => {
     const activo = document.activeElement;
-    if (activo && activo.matches("[data-estrategia-seccion]")) {
+    if (
+      activo &&
+      activo.matches("[data-estrategia-seccion], [data-anexo-descripcion]")
+    ) {
       actualizarEstadoToolbar(activo);
     }
   });
@@ -987,6 +2673,7 @@
   }
 
   async function cambiarPeriodoInforme() {
+    cancelarAutosave();
     const anterior = { ...informePeriodoActual };
     const nuevo = periodoInforme();
     if (mismoPeriodo(nuevo, anterior)) {
@@ -1013,6 +2700,7 @@
     }
     informePeriodoActual = nuevo;
     await cargarEstrategias();
+    await cargarAnexos();
   }
 
   informeAnio?.addEventListener("change", cambiarPeriodoInforme);
@@ -1108,10 +2796,12 @@
     if (event.detail?.view !== "informe-gestion") return;
     activarTabInforme("estrategias");
     if (!informeCargado || informeDirty === false) cargarEstrategias();
+    cargarAnexos();
   });
 
   if (informeView && !informeView.hidden) {
     cargarEstrategias();
+    cargarAnexos();
   }
 
   function observeFeedback() {

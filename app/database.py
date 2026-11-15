@@ -43,6 +43,102 @@ def init_db(bind: Engine | None = None) -> None:
 def _table_columns(inspector, table_name: str) -> set[str]:
     return {column["name"] for column in inspector.get_columns(table_name)}
 
+
+def _migrate_informe_gestion_anexos(connection, inspector, columns: set[str]) -> None:
+    """Pasa el esquema antiguo (1 anexo = 1 archivo) a anexos multi-imagen.
+
+    SQLite no permite quitar columnas ni cambiar su nulabilidad de forma
+    sencilla, así que se reconstruye la tabla padre sin ``codigo`` ni los campos
+    del archivo único. Antes de eliminarla se guarda una copia temporal y, una
+    vez creada la tabla nueva, cada archivo heredado se inserta en la tabla hija.
+    """
+    if not columns or "ruta_archivo" not in columns:
+        return
+    child_table = "informe_gestion_anexo_archivos"
+    if not inspector.has_table(child_table):
+        from app.models import InformeGestionAnexoArchivo
+
+        InformeGestionAnexoArchivo.__table__.create(
+            bind=connection, checkfirst=True
+        )
+
+    connection.execute(
+        text("DROP TABLE IF EXISTS _informe_gestion_anexos_legacy")
+    )
+    connection.execute(
+        text(
+            "CREATE TABLE _informe_gestion_anexos_legacy AS "
+            "SELECT id, anio, trimestre, titulo, descripcion, orden, "
+            "created_at, updated_at, nombre_archivo, content_type, "
+            "ruta_archivo, tamano "
+            "FROM informe_gestion_anexos"
+        )
+    )
+    connection.execute(
+        text("DROP TABLE IF EXISTS informe_gestion_anexos_migracion")
+    )
+    connection.execute(
+        text(
+            "CREATE TABLE informe_gestion_anexos_migracion ("
+            "id INTEGER NOT NULL, "
+            "anio INTEGER NOT NULL, "
+            "trimestre VARCHAR(2) NOT NULL, "
+            "titulo VARCHAR(255) NOT NULL, "
+            "descripcion TEXT, "
+            "orden INTEGER NOT NULL, "
+            "created_at DATETIME, "
+            "updated_at DATETIME, "
+            "PRIMARY KEY (id)"
+            ")"
+        )
+    )
+    connection.execute(
+        text(
+            "INSERT INTO informe_gestion_anexos_migracion "
+            "(id, anio, trimestre, titulo, descripcion, orden, "
+            "created_at, updated_at) "
+            "SELECT id, anio, trimestre, titulo, descripcion, "
+            "COALESCE(orden, 0), created_at, updated_at "
+            "FROM _informe_gestion_anexos_legacy"
+        )
+    )
+    connection.execute(text("DROP TABLE informe_gestion_anexos"))
+    connection.execute(
+        text(
+            "ALTER TABLE informe_gestion_anexos_migracion "
+            "RENAME TO informe_gestion_anexos"
+        )
+    )
+    connection.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS ix_informe_gestion_anexos_periodo "
+            "ON informe_gestion_anexos (anio, trimestre, orden)"
+        )
+    )
+    connection.execute(
+        text(
+            "INSERT INTO informe_gestion_anexo_archivos "
+            "(anexo_id, nombre_archivo, content_type, ruta_archivo, tamano, "
+            "orden, created_at, updated_at) "
+            "SELECT legado.id, COALESCE(legado.nombre_archivo, 'imagen'), "
+            "COALESCE(legado.content_type, 'application/octet-stream'), "
+            "legado.ruta_archivo, COALESCE(legado.tamano, 0), 0, "
+            "COALESCE(legado.created_at, CURRENT_TIMESTAMP), "
+            "COALESCE(legado.updated_at, CURRENT_TIMESTAMP) "
+            "FROM _informe_gestion_anexos_legacy AS legado "
+            "WHERE legado.ruta_archivo IS NOT NULL "
+            "AND TRIM(legado.ruta_archivo) <> '' "
+            "AND NOT EXISTS ("
+            "SELECT 1 FROM informe_gestion_anexo_archivos AS existente "
+            "WHERE existente.anexo_id = legado.id "
+            "AND existente.ruta_archivo = legado.ruta_archivo"
+            ")"
+        )
+    )
+    connection.execute(
+        text("DROP TABLE _informe_gestion_anexos_legacy")
+    )
+
 # Esta función privada `_upgrade_sqlite_schema` se encarga de actualizar el esquema de la base de datos SQLite si es necesario. 
 # Verifica si la base de datos es SQLite y luego inspecciona las columnas existentes en las tablas `import_history` y `requirements`. 
 # Si faltan ciertas columnas, ejecuta las sentencias SQL correspondientes para agregarlas. Esto asegura que la base de datos esté actualizada con las columnas necesarias para 
@@ -71,6 +167,11 @@ def _upgrade_sqlite_schema(bind: Engine | None = None) -> None:
     requirement_history_columns = (
         _table_columns(inspector, "requirement_status_history")
         if inspector.has_table("requirement_status_history")
+        else set()
+    )
+    anexos_columns = (
+        _table_columns(inspector, "informe_gestion_anexos")
+        if inspector.has_table("informe_gestion_anexos")
         else set()
     )
     migrations = {
@@ -236,6 +337,7 @@ def _upgrade_sqlite_schema(bind: Engine | None = None) -> None:
         for column, (_, statement, existing_columns) in migrations.items():
             if existing_columns and column not in existing_columns:
                 connection.execute(text(statement))
+        _migrate_informe_gestion_anexos(connection, inspector, anexos_columns)
         # Backfill para bases creadas antes de ``source_type``: el historial
         # guardaba la etiqueta visible del tipo ACTAS completo.
         connection.execute(

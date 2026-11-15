@@ -21,7 +21,9 @@ from pathlib import Path
 from typing import Any
 
 from docx import Document
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.shared import Inches, Pt
 from docx.text.paragraph import Paragraph
 
 from app.services.rich_text import html_to_docx_paragraphs
@@ -603,6 +605,106 @@ def _strip_annex_references(text: str) -> str:
     return re.sub(r"\s{2,}", " ", cleaned).strip()
 
 
+# Referencia dentro del cuerpo de una estrategia: ``ANEXO 1``, ``ANEXO 1.`` o
+# ``ANEXO  1``. El punto final se conserva dentro del hipervínculo para no
+# alterar la redacción guardada por el usuario.
+_ANEXO_REFERENCIA_RE = re.compile(
+    r"(?<![A-Za-z0-9])ANEXO\s+(\d{1,3})(?!\d)\.?",
+    re.IGNORECASE,
+)
+
+
+def _anclas_anexos(anexos: list[dict[str, Any]] | None) -> dict[int, str]:
+    """Marcadores ``anexo-1`` … ``anexo-N`` según el orden del periodo."""
+    return {
+        numero: f"anexo-{numero}"
+        for numero in range(1, len(anexos or []) + 1)
+    }
+
+
+def _clonar_run_con_texto(run, texto: str):
+    """Crea un ``w:r`` con el mismo formato del run y el texto indicado."""
+    nuevo = OxmlElement("w:r")
+    if run._r.rPr is not None:
+        nuevo.append(deepcopy(run._r.rPr))
+    fragmento = OxmlElement("w:t")
+    # Los fragmentos pueden empezar o terminar en espacio; Word los recorta
+    # si no se marca el espacio como significativo.
+    fragmento.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+    fragmento.text = texto
+    nuevo.append(fragmento)
+    return nuevo
+
+
+def _enlazar_referencias_anexo(paragraphs, anclas: dict[int, str]) -> None:
+    """Convierte ``ANEXO N`` del cuerpo de una estrategia en enlace interno.
+
+    El texto visible no cambia. Si el número no existe en el periodo, la
+    referencia queda como texto plano (no se rompe la generación).
+    """
+    if not anclas:
+        return
+    for paragraph in paragraphs:
+        for run in list(paragraph.runs):
+            texto = run.text
+            if not texto or not _ANEXO_REFERENCIA_RE.search(texto):
+                continue
+            piezas: list[tuple[str, int | None]] = []
+            cursor = 0
+            for match in _ANEXO_REFERENCIA_RE.finditer(texto):
+                numero = int(match.group(1))
+                if numero not in anclas:
+                    continue
+                if match.start() > cursor:
+                    piezas.append((texto[cursor : match.start()], None))
+                piezas.append((match.group(0), numero))
+                cursor = match.end()
+            if cursor < len(texto):
+                piezas.append((texto[cursor:], None))
+            if not any(numero is not None for _, numero in piezas):
+                continue
+            parent = run._r.getparent()
+            posicion = list(parent).index(run._r)
+            parent.remove(run._r)
+            insercion = posicion
+            for fragmento, numero in piezas:
+                if not fragmento:
+                    continue
+                nuevo_run = _clonar_run_con_texto(run, fragmento)
+                if numero is None:
+                    elemento = nuevo_run
+                else:
+                    elemento = OxmlElement("w:hyperlink")
+                    elemento.set(qn("w:anchor"), anclas[numero])
+                    elemento.set(qn("w:history"), "1")
+                    elemento.append(nuevo_run)
+                parent.insert(insercion, elemento)
+                insercion += 1
+
+
+# Centinela para los párrafos de ejemplo de la plantilla que la estrategia del
+# periodo reemplaza por completo: se eliminan en lugar de quedar como viñetas o
+# líneas vacías.
+_SUPRIMIR = object()
+
+
+def _remove_paragraph(paragraph) -> bool:
+    """Elimina el párrafo del cuerpo conservando saltos de sección e imágenes."""
+    p = paragraph._p
+    if p.findall(".//" + qn("w:sectPr")):
+        return False
+    if any(
+        p.findall(".//" + qn(tag))
+        for tag in ("w:drawing", "w:pict", "w:object")
+    ):
+        return False
+    parent = p.getparent()
+    if parent is None:
+        return False
+    parent.remove(p)
+    return True
+
+
 ROTULO_ESTRATEGIA = "Estrategia o Actividades llevadas a cabo: "
 
 # Prefijo del párrafo de la plantilla -> (sección, rótulo a anteponer).
@@ -643,12 +745,14 @@ def _update_narrative(
     dataset: dict[str, Any],
     contexto: dict[str, Any],
     estrategias: dict[str, str] | None = None,
+    anclas_anexos: dict[int, str] | None = None,
 ) -> None:
     """Actualiza cifras y lecturas manteniendo la redacción institucional.
 
     Las secciones de estrategia usan el texto guardado para ``(año, trimestre)``.
     Si la sección está vacía se conserva el placeholder institucional. El cuerpo
     se escribe con ``_set_narrative_text`` para no heredar la negrita del rótulo.
+    Las referencias ``ANEXO N`` del cuerpo se enlazan al detalle post-firma.
     """
     for paragraph in doc.paragraphs:
         text = _sanitize_sofia(paragraph.text.strip())
@@ -667,16 +771,17 @@ def _update_narrative(
                 body_properties = _run_properties(
                     _first_meaningful_run(paragraph)
                 )
-            html_to_docx_paragraphs(
+            creados = html_to_docx_paragraphs(
                 paragraph,
                 (estrategias or {}).get(seccion) or "",
                 placeholder=PLACEHOLDER_ESTRATEGIAS,
                 prefix=rotulo,
                 body_properties=body_properties,
             )
+            _enlazar_referencias_anexo(creados, anclas_anexos or {})
             continue
 
-        updated: str | None = None
+        updated: str | object | None = None
         if text.startswith("La Meta Anual asignada"):
             updated = _sentence_superior(dataset, contexto)
         elif re.match(r"En el (primer|segundo|tercer|cuarto) trimestre", text):
@@ -692,11 +797,11 @@ def _update_narrative(
         elif text.startswith("¿Cómo fue la gestión del periodo para el Indicador"):
             updated = _sentence_tecnica(dataset, contexto)
         elif text.startswith("Certificación Técnico Laboral y Otros:"):
-            updated = ""
+            updated = _SUPRIMIR
         elif text.startswith("Se remiten semanalmente actas"):
-            updated = ""
+            updated = _SUPRIMIR
         elif text.startswith("Con el fin de apoyar en aumentar"):
-            updated = ""
+            updated = _SUPRIMIR
         elif text.startswith("El componente de Certificación alcanzó"):
             updated = _sentence_articulacion(dataset, contexto)
         elif (
@@ -707,7 +812,7 @@ def _update_narrative(
         elif text.startswith("Con una meta anual de"):
             updated = _sentence_complementaria(dataset, contexto)
         elif text.startswith("Con el fin de optimizar el proceso de inscripción"):
-            updated = ""
+            updated = _SUPRIMIR
         elif (
             text.startswith("¿Cómo fue la gestión en el periodo")
             and "Certificación TOTAL" in text
@@ -719,13 +824,13 @@ def _update_narrative(
         elif text.startswith("Realizar llamadas") or text.startswith(
             "Trabajar de la mano con el Líder"
         ):
-            updated = ""
+            updated = _SUPRIMIR
         elif text.startswith("Coordinación realización") or text.startswith(
             "Matrículas I Convocatoria"
         ) or text.startswith("Inducción nuevos aprendices"):
-            updated = ""
+            updated = _SUPRIMIR
         elif text.startswith("A continuación, se relacionan soportes"):
-            updated = ""
+            updated = _SUPRIMIR
         elif text.startswith("De igual manera, se verificó"):
             updated = _sentence_conclusion(dataset, contexto)
         elif text.startswith("Fuente:"):
@@ -738,6 +843,11 @@ def _update_narrative(
                 text,
             )
 
+        if updated is _SUPRIMIR:
+            # Ejemplo de la plantilla sustituido por la estrategia del periodo:
+            # se retira para no dejar viñetas ni líneas vacías en el DOCX.
+            _remove_paragraph(paragraph)
+            continue
         if updated is None:
             updated = _strip_annex_references(text)
         elif updated and updated != text:
@@ -747,27 +857,87 @@ def _update_narrative(
             _set_narrative_text(paragraph, updated)
 
 
-def _remove_duplicate_annex_content(doc) -> None:
-    """Conserva el listado y la firma; elimina el contenido de anexos de ejemplo.
-
-    La plantilla original trae dos bloques llamados ANEXOS: el primero es el
-    listado oficial y el segundo contiene pantallazos/evidencias del trimestre
-    de ejemplo. Como aún no se generan anexos reales, se conserva el listado y
-    se retira el segundo bloque para no publicar evidencias de otro periodo.
-    """
+def _annex_heading_indexes(doc) -> list[int]:
+    """Posiciones de los párrafos cuyo texto es exactamente ``ANEXOS``."""
     body = doc._element.body
-    children = list(body)
-    annex_positions = []
-    for index, child in enumerate(children):
+    indexes: list[int] = []
+    for index, child in enumerate(list(body)):
         if child.tag != qn("w:p"):
             continue
         if Paragraph(child, doc._body).text.strip().upper() == "ANEXOS":
-            annex_positions.append(index)
-    if len(annex_positions) < 2:
-        return
-    for child in children[annex_positions[1] :]:
+            indexes.append(index)
+    return indexes
+
+
+def _prepare_annex_detail(doc, *, incluir: bool):
+    """Deja el bloque ``ANEXOS`` posterior a la firma listo para el detalle.
+
+    La plantilla original trae dos bloques llamados ANEXOS: el primero es el
+    índice de §5 (antes de la firma) y el segundo contiene pantallazos de
+    ejemplo (después de la firma). Aquí se retira el contenido de ejemplo del
+    segundo bloque y se conserva su encabezado cuando hay anexos reales.
+
+    Devuelve el párrafo ``ANEXOS`` post-firma o ``None`` si no se usa.
+    """
+    positions = _annex_heading_indexes(doc)
+    if len(positions) < 2:
+        if not incluir:
+            return None
+        # Plantilla sin segundo bloque: se agrega el detalle al final, después
+        # de la firma, en lugar de perder los anexos del periodo.
+        try:
+            return doc.add_paragraph("ANEXOS", style="Heading 1")
+        except KeyError:
+            return doc.add_paragraph("ANEXOS")
+
+    body = doc._element.body
+    children = list(body)
+    heading_index = positions[1]
+    heading_element = children[heading_index]
+
+    # El bloque de ejemplo se extiende hasta el sectPr final del cuerpo.
+    for child in children[heading_index + 1 :]:
         if child.tag != qn("w:sectPr"):
             body.remove(child)
+
+    if not incluir:
+        body.remove(heading_element)
+        return None
+
+    # Retira los párrafos vacíos que separan el salto de sección de la firma
+    # del encabezado ANEXOS. Nunca se elimina el párrafo que lleva el sectPr,
+    # porque es el que inicia el detalle en una página nueva.
+    previous = heading_element.getprevious()
+    while previous is not None and previous.tag == qn("w:p"):
+        if previous.findall(".//" + qn("w:sectPr")):
+            break
+        paragraph = Paragraph(previous, doc._body)
+        if paragraph.text.strip() or paragraph._p.findall(
+            ".//" + qn("w:drawing")
+        ):
+            break
+        before = previous.getprevious()
+        body.remove(previous)
+        previous = before
+
+    return Paragraph(heading_element, doc._body)
+
+
+def _remove_empty_list_paragraphs(doc) -> None:
+    """Retira viñetas o numeraciones sin texto de todo el cuerpo.
+
+    Word dibuja un ``•`` suelto cuando un párrafo conserva ``w:numPr`` pero no
+    tiene contenido. Las estrategias y la sección 3.2 reemplazan ejemplos
+    numerados de la plantilla, así que cualquier resto vacío se elimina antes
+    de guardar: el DOCX nunca debe mostrar puntos que el usuario no escribió.
+    """
+    for paragraph in list(doc.paragraphs):
+        p = paragraph._p
+        if p.find(".//" + qn("w:numPr")) is None:
+            continue
+        if paragraph.text.strip():
+            continue
+        _remove_paragraph(paragraph)
 
 
 def _trim_trailing_empty_paragraphs(doc) -> None:
@@ -801,12 +971,294 @@ def _trim_trailing_empty_paragraphs(doc) -> None:
             body.remove(child)
 
 
+# Ancho máximo de las imágenes insertadas en la sección 5. Se reduce además al
+# ancho útil real de la página (ancho - márgenes) para no desbordar el DOCX.
+ANCHO_MAXIMO_IMAGEN = Inches(6.0)
+# Tope de alto: una captura muy vertical se escala manteniendo proporción para
+# no empujar la firma fuera de la página.
+ALTO_MAXIMO_IMAGEN = Inches(7.0)
+
+
+def _ancho_util(doc):
+    """Ancho disponible para una imagen dentro de los márgenes de la página."""
+    try:
+        section = doc.sections[0]
+        disponible = (
+            section.page_width - section.left_margin - section.right_margin
+        )
+    except (AttributeError, TypeError):
+        return ANCHO_MAXIMO_IMAGEN
+    if disponible and disponible > 0:
+        return min(disponible, ANCHO_MAXIMO_IMAGEN)
+    return ANCHO_MAXIMO_IMAGEN
+
+
+def _listado_anexos(doc):
+    """Devuelve ``(párrafos del listado, párrafo ancla)`` del primer ANEXOS.
+
+    La plantilla trae un ``Heading 1`` "ANEXOS" seguido del listado oficial
+    (ANEXO 1..15) y, más abajo, la firma. El ancla es el primer párrafo que ya
+    no es un ítem del listado; ahí se insertan los anexos reales para que el
+    bloque quede antes de la firma.
+    """
+    paragraphs = doc.paragraphs
+    heading = None
+    for index, paragraph in enumerate(paragraphs):
+        if paragraph.text.strip().upper() == "ANEXOS":
+            heading = index
+            break
+    if heading is None:
+        return [], None
+
+    listado = []
+    for paragraph in paragraphs[heading + 1 :]:
+        if paragraph.text.strip().upper().startswith("ANEXO"):
+            listado.append(paragraph)
+            continue
+        if listado:
+            return listado, paragraph
+    return listado, None
+
+
+def _insertar_parrafo_lista(anchor, texto: str, propiedades):
+    """Inserta un párrafo antes del ancla conservando el formato del listado."""
+    paragraph = anchor.insert_paragraph_before()
+    if propiedades is not None:
+        paragraph._p.insert(0, deepcopy(propiedades))
+    paragraph.add_run(texto)
+    return paragraph
+
+
+# Prefijo que el rotulador de §5 agrega por su cuenta: no debe repetirse en el
+# título (evita "ANEXO 1. ANEXO 1. Actas…").
+_PREFIJO_ANEXO_RE = re.compile(
+    r"^\s*anexo\s*(?:n[°º.]?\s*)?\d{1,3}\s*[.):\-–—]*\s*",
+    re.IGNORECASE,
+)
+def _titulo_anexo(value: Any) -> str:
+    """Título sin prefijo ``ANEXO N`` (defensa para filas antiguas)."""
+    titulo = re.sub(r"\s+", " ", str(value or "")).strip()
+    for _ in range(3):
+        limpio = _PREFIJO_ANEXO_RE.sub("", titulo).strip()
+        if limpio == titulo:
+            break
+        titulo = limpio
+    return titulo
+
+
+def _dimensiones_imagen(ancho: int, ancho_px: int, alto_px: int, alto=None):
+    """Escala una imagen al ancho útil sin superar el alto máximo."""
+    if not ancho_px or not alto_px:
+        return int(ancho), int(alto or ALTO_MAXIMO_IMAGEN)
+    ancho_final = int(ancho)
+    alto_final = int(ancho_final * alto_px / ancho_px)
+    limite_alto = int(alto or ALTO_MAXIMO_IMAGEN)
+    if alto_final > limite_alto:
+        alto_final = limite_alto
+        ancho_final = int(alto_final * ancho_px / alto_px)
+    return ancho_final, alto_final
+
+
+def _insertar_imagen(anchor, ruta: Any, ancho, alto=None) -> None:
+    """Inserta una imagen del anexo sin romper el DOCX si no es legible.
+
+    python-docx no interpreta WEBP, así que, si falla la lectura directa, se
+    convierte a PNG en memoria con Pillow (cuando está disponible). Un archivo
+    corrupto se omite: el anexo conserva al menos su título y descripción.
+
+    Cada imagen deja un espacio pequeño después para que dos capturas del mismo
+    anexo no queden pegadas; la separación amplia entre anexos la agrega
+    ``_write_annex_detail`` al cerrar el grupo.
+    """
+    if not ruta:
+        return
+    path = Path(str(ruta))
+    if not path.is_file():
+        return
+    paragraph = anchor.insert_paragraph_before()
+    paragraph.paragraph_format.space_before = Pt(0)
+    paragraph.paragraph_format.space_after = Pt(6)
+    try:
+        from docx.image.image import Image as DocxImage
+        from docx.shared import Emu
+
+        imagen = DocxImage.from_file(str(path))
+        ancho_final, alto_final = _dimensiones_imagen(
+            ancho, imagen.width, imagen.height, alto
+        )
+        paragraph.add_run().add_picture(
+            str(path), width=Emu(ancho_final), height=Emu(alto_final)
+        )
+        return
+    except Exception:
+        pass
+
+    try:
+        from io import BytesIO
+
+        from docx.shared import Emu
+        from PIL import Image as PILImage
+
+        with PILImage.open(path) as original:
+            ancho_px, alto_px = original.size
+            if original.mode not in ("RGB", "RGBA"):
+                original = original.convert("RGBA")
+            buffer = BytesIO()
+            original.save(buffer, format="PNG")
+        buffer.seek(0)
+        ancho_final, alto_final = _dimensiones_imagen(
+            ancho, ancho_px, alto_px, alto
+        )
+        paragraph.add_run().add_picture(
+            buffer, width=Emu(ancho_final), height=Emu(alto_final)
+        )
+    except Exception:
+        parent = paragraph._p.getparent()
+        if parent is not None:
+            parent.remove(paragraph._p)
+
+
+def _next_bookmark_id(doc) -> int:
+    """Siguiente ``w:id`` libre para los marcadores del detalle de anexos."""
+    ids: list[int] = []
+    for bookmark in doc.element.body.iter(qn("w:bookmarkStart")):
+        try:
+            ids.append(int(bookmark.get(qn("w:id")) or 0))
+        except (TypeError, ValueError):
+            continue
+    return max(ids, default=0) + 1
+
+
+def _add_bookmark(paragraph, name: str, bookmark_id: int) -> None:
+    """Envuelve el párrafo con ``bookmarkStart`` / ``bookmarkEnd``."""
+    start = OxmlElement("w:bookmarkStart")
+    start.set(qn("w:id"), str(bookmark_id))
+    start.set(qn("w:name"), name)
+    end = OxmlElement("w:bookmarkEnd")
+    end.set(qn("w:id"), str(bookmark_id))
+    p = paragraph._p
+    p.insert(1 if p.pPr is not None else 0, start)
+    p.append(end)
+
+
+def _write_annex_index(
+    doc, anexos: list[dict[str, Any]] | None = None
+) -> None:
+    """Escribe el índice de §5 antes de la firma: solo ``ANEXO N. título``.
+
+    No inserta descripciones ni imágenes: el detalle completo vive después de
+    la firma. Sin anexos cargados se conserva el listado institucional de la
+    plantilla para no romper la generación ni inventar un listado vacío.
+    """
+    if not anexos:
+        return
+    listado, anchor = _listado_anexos(doc)
+    if anchor is None:
+        return
+
+    propiedades = (
+        deepcopy(listado[0]._p.pPr)
+        if listado and listado[0]._p.pPr is not None
+        else None
+    )
+    for paragraph in listado:
+        parent = paragraph._p.getparent()
+        if parent is not None:
+            parent.remove(paragraph._p)
+
+    for index, anexo in enumerate(anexos, start=1):
+        rotulo = f"ANEXO {index}"
+        titulo = _titulo_anexo(anexo.get("titulo"))
+        _insertar_parrafo_lista(
+            anchor,
+            f"{rotulo}. {titulo}" if titulo else rotulo,
+            propiedades,
+        )
+
+
+def _write_annex_detail(
+    doc,
+    anexos: list[dict[str, Any]] | None = None,
+    heading=None,
+) -> None:
+    """Escribe el detalle post-firma con título, descripción e imágenes.
+
+    Cada encabezado ``ANEXO {n}. {título}`` lleva el marcador ``anexo-{n}`` que
+    usan los hipervínculos internos de las estrategias. La numeración sigue la
+    posición 1..N del periodo, igual que el índice de §5.
+    """
+    if not anexos or heading is None:
+        return
+
+    # Párrafo centinela después del encabezado: los bloques se insertan antes
+    # de él para conservar el orden y luego se retira.
+    sentinel = OxmlElement("w:p")
+    heading._p.addnext(sentinel)
+    anchor = Paragraph(sentinel, heading._parent)
+    ancho = _ancho_util(doc)
+    bookmark_id = _next_bookmark_id(doc)
+
+    for index, anexo in enumerate(anexos, start=1):
+        rotulo = f"ANEXO {index}"
+        titulo = _titulo_anexo(anexo.get("titulo"))
+        texto = f"{rotulo}. {titulo}" if titulo else rotulo
+        try:
+            detalle = anchor.insert_paragraph_before(texto, style="Heading 1")
+        except KeyError:
+            detalle = anchor.insert_paragraph_before(texto)
+        _add_bookmark(detalle, f"anexo-{index}", bookmark_id)
+        bookmark_id += 1
+
+        descripcion = str(anexo.get("descripcion") or "").strip()
+        if descripcion:
+            # La descripción acepta el mismo HTML restringido que las
+            # estrategias: negrita, cursiva, listas y saltos de línea.
+            try:
+                parrafo_descripcion = anchor.insert_paragraph_before(
+                    style="Body Text"
+                )
+            except KeyError:
+                parrafo_descripcion = anchor.insert_paragraph_before()
+            html_to_docx_paragraphs(
+                parrafo_descripcion,
+                descripcion,
+                placeholder="",
+                layout="body",
+            )
+
+        archivos = anexo.get("archivos")
+        if not archivos and anexo.get("ruta"):
+            archivos = [
+                {
+                    "ruta": anexo.get("ruta"),
+                    "content_type": anexo.get("content_type"),
+                }
+            ]
+        for archivo in archivos or []:
+            if str(archivo.get("content_type") or "").startswith("image/"):
+                _insertar_imagen(anchor, archivo.get("ruta"), ancho)
+
+        # Separación entre anexos: después del grupo completo (descripción e
+        # imágenes) se deja una línea en blanco para que la última captura no
+        # quede pegada al título del anexo siguiente. El último anexo no la
+        # necesita.
+        if index < len(anexos):
+            separador = anchor.insert_paragraph_before()
+            separador.paragraph_format.space_before = Pt(0)
+            separador.paragraph_format.space_after = Pt(0)
+
+    parent = sentinel.getparent()
+    if parent is not None:
+        parent.remove(sentinel)
+
+
 def generate_report_docx(
     dataset: dict[str, Any],
     year: int | None = None,
     quarter: int | None = None,
     cutoff: date | None = None,
     estrategias: dict[str, str] | None = None,
+    anexos: list[dict[str, Any]] | None = None,
 ) -> bytes:
     if not TEMPLATE_PATH.exists():
         raise FileNotFoundError(f"Plantilla no encontrada: {TEMPLATE_PATH}")
@@ -818,10 +1270,17 @@ def generate_report_docx(
         contexto["fin"] = cutoff
         contexto["fecha_corte"] = _format_date(cutoff)
 
+    anclas = _anclas_anexos(anexos)
     _replace_periodo(doc, contexto, year)
     _write_indicator_table(doc, dataset)
-    _update_narrative(doc, dataset, contexto, estrategias)
-    _remove_duplicate_annex_content(doc)
+    _update_narrative(doc, dataset, contexto, estrategias, anclas)
+    # §5. ANEXOS (pre-firma): índice con solo rótulo y título.
+    _write_annex_index(doc, anexos)
+    # Post-firma: detalle con descripción, imágenes y marcadores anexo-N.
+    detalle = _prepare_annex_detail(doc, incluir=bool(anexos))
+    _write_annex_detail(doc, anexos, detalle)
+    # Ninguna viñeta de plantilla debe quedar sin texto en el documento final.
+    _remove_empty_list_paragraphs(doc)
     _trim_trailing_empty_paragraphs(doc)
 
     buffer = io.BytesIO()

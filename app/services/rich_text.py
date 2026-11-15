@@ -666,8 +666,10 @@ def _write_block(
     *,
     properties,
     base_left_indent,
+    right_indent: int | None = _STRATEGY_RIGHT_TWIPS,
 ) -> None:
-    paragraph.paragraph_format.right_indent = Twips(_STRATEGY_RIGHT_TWIPS)
+    if right_indent is not None:
+        paragraph.paragraph_format.right_indent = Twips(right_indent)
     if block.kind in {"bullet", "number"}:
         marker = "• " if block.kind == "bullet" else f"{block.number}. "
         if base_left_indent is None:
@@ -712,12 +714,21 @@ def html_to_docx_paragraphs(
     placeholder: str,
     prefix: str | None = None,
     body_properties=None,
+    layout: str = "strategy",
 ) -> list[Paragraph]:
     """Reemplaza ``paragraph`` por el contenido rico y devuelve los párrafos.
 
     ``prefix`` se usa para el rótulo "Estrategia o Actividades llevadas a cabo:"
     de las secciones que lo llevan en la plantilla. Los textos planos históricos
     se insertan como párrafos normales.
+
+    ``layout`` controla el formato del párrafo:
+
+    * ``"strategy"`` (por defecto): normaliza sangrías y ancho del cuerpo de las
+      estrategias, como en el bloque 3 del informe.
+    * ``"body"``: conserva el estilo y la sangría del párrafo recibido (por
+      ejemplo, ``Body Text``) y solo agrega el formato en línea y las listas.
+      Se usa para descripciones de anexos.
     """
     blocks = html_to_blocks(value)
     if not blocks:
@@ -729,8 +740,19 @@ def html_to_docx_paragraphs(
         else:
             blocks.insert(0, RichBlock("paragraph", [RichRun(prefix, bold=True)]))
 
-    base_pPr = _normalize_strategy_pPr(paragraph)
-    base_left_indent = _STRATEGY_BASE_LEFT
+    preserve_layout = layout == "body"
+    if preserve_layout:
+        base_pPr = (
+            deepcopy(paragraph._p.pPr)
+            if paragraph._p.pPr is not None
+            else OxmlElement("w:pPr")
+        )
+        base_left_indent = paragraph.paragraph_format.left_indent
+        right_indent = None
+    else:
+        base_pPr = _normalize_strategy_pPr(paragraph)
+        base_left_indent = _STRATEGY_BASE_LEFT
+        right_indent = _STRATEGY_RIGHT_TWIPS
 
     created: list[Paragraph] = []
     previous_element = paragraph._p
@@ -754,6 +776,7 @@ def html_to_docx_paragraphs(
             block,
             properties=body_properties,
             base_left_indent=base_left_indent,
+            right_indent=right_indent,
         )
         created.append(target)
         previous_element = target._p
