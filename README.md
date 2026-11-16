@@ -283,8 +283,8 @@ El ejecutable queda en
 `dist\SENACertificacion\SENACertificacion.exe`. Para presentarlo, entrega la
 carpeta completa `dist\SENACertificacion` y ejecuta el `.exe`; la aplicación se
 abre en una **ventana de escritorio** propia (pywebview) y también deja un icono
-en la bandeja del sistema con las opciones **Abrir**, **Sincronizar ahora** y
-**Salir**.
+en la bandeja del sistema con las opciones **Abrir**, **Sincronizar ahora**,
+**Buscar actualizaciones** y **Salir**.
 
 - Cerrar la ventana (X) la oculta: la aplicación sigue activa en la bandeja.
 - **Salir** en la bandeja termina la aplicación por completo.
@@ -309,23 +309,26 @@ que permite elegir la carpeta de instalacion y crear un acceso directo en el
 escritorio. Sin Inno Setup, el ejecutable portable queda disponible en
 `dist\SENACertificacion\`.
 
-### Publicación automática con tags (GitHub Actions)
+### Publicación automática (GitHub Actions)
 
-El workflow `.github/workflows/release.yml` se dispara al subir un tag
-`vX.Y.Z` y publica un GitHub Release con la aplicación compilada. La versión
-del instalador y de `version.json` se toma siempre del tag; el `.iss` recibe
-la versión con `/DMyAppVersion` para no quedar fijado a una sola versión.
+Hay dos caminos para publicar un release:
 
-Para publicar:
+1. **Al fusionar `desarrollo` en `main`**:
+   `.github/workflows/release-on-main.yml` lee `APP_VERSION` de
+   `app/version.py`. Si el tag `vX.Y.Z` todavía no existe, lo crea y lanza
+   `release.yml`. Si la versión no cambió, el merge no publica nada (evita
+   releases duplicados).
+2. **Manualmente con un tag**: subir un tag `vX.Y.Z` o ejecutar
+   `release.yml` con **Run workflow** indicando un tag existente.
 
 ```powershell
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
-El tag debe coincidir con `APP_VERSION` en `app/version.py` (el workflow avisa
-si no coincide, pero usa la versión del tag). También se puede ejecutar
-manualmente con **Run workflow** indicando un tag existente.
+Antes de fusionar, actualiza `APP_VERSION` en `app/version.py`. El workflow
+avisa si no coincide con el tag, pero el instalador y `version.json` usan
+siempre la versión del tag.
 
 Pasos del pipeline:
 
@@ -343,17 +346,42 @@ Si el build o el instalador fallan, el Release no se publica. Re-ejecutar el
 workflow para el mismo tag actualiza los activos del Release. El workflow usa
 el `GITHUB_TOKEN` con `contents: write`; no requiere secretos adicionales.
 
-`version.json` queda listo para un futuro sistema de actualizaciones:
+`version.json` alimenta el actualizador de la aplicación:
 
 ```json
 {
-  "version": "0.2.0",
-  "published_at": "2026-11-16T12:00:00Z",
-  "setup_url": "https://github.com/Louis-Du/sena-certificacion-app/releases/download/v0.2.0/SENACertificacion-Setup-0.2.0.exe",
+  "version": "0.3.0",
+  "published_at": "2026-11-17T12:00:00Z",
+  "setup_url": "https://github.com/Louis-Du/sena-certificacion-app/releases/download/v0.3.0/SENACertificacion-Setup-0.3.0.exe",
   "notes": "- feat: ...\n- fix: ...",
   "sha256": "..."
 }
 ```
+
+### Actualizaciones desde la app
+
+La app consulta `https://github.com/Louis-Du/sena-certificacion-app/releases/latest/download/version.json`
+(con la API de GitHub como respaldo) al arrancar, cuando la ventana recupera el
+foco y cada 6 horas. Si hay una versión nueva:
+
+- muestra un toast nativo y abre un modal con las novedades del release;
+- el botón **Actualizar ahora** descarga el instalador, verifica su SHA-256, lo
+  ejecuta y cierra la app para que Inno Setup complete la instalación;
+- **Más tarde** silencia esa versión hasta el siguiente release;
+- el botón de versión del menú lateral y la opción **Buscar actualizaciones**
+  de la bandeja permiten forzar la consulta.
+
+No hay notificaciones push: el release se publica en GitHub y la app lo detecta
+en la siguiente consulta. Endpoints implicados:
+
+- `GET /api/updates/check?force=1`
+- `POST /api/updates/dismiss` con `{ "version": "X.Y.Z" }`
+- `POST /api/updates/apply`
+
+El diálogo para elegir el destino de los informes usa el guardado nativo de
+Windows a través de pywebview (`save_file`). Así no depende de la activación de
+usuario que exige `window.showSaveFilePicker`, que fallaba cuando la generación
+del informe tardaba unos segundos.
 
 ### Pruebas realizadas
 

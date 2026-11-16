@@ -7,7 +7,7 @@ from datetime import date
 from typing import Any
 
 # Importamos varias clases y funciones de FastAPI para crear la aplicación web, manejar dependencias, recibir archivos y formularios, y manejar excepciones HTTP.
-from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, UploadFile 
+from fastapi import Body, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile 
 # Importamos la clase FileResponse de fastapi.responses para enviar archivos como respuesta HTTP.
 from fastapi.responses import FileResponse, Response
 # Importamos la clase StaticFiles de fastapi.staticfiles para servir archivos estáticos desde un directorio específico.
@@ -171,6 +171,9 @@ class SheetSyncResolveRequest(BaseModel):
 class SheetSyncNotifiedRequest(BaseModel):
     fingerprint: str | None = None
 
+class UpdateDismissRequest(BaseModel):
+    version: str
+
 # Esta ruta devuelve el archivo index.html ubicado en el directorio static cuando se accede a la raíz del sitio web. Se utiliza FileResponse para enviar el archivo como respuesta HTTP.
 @app.get("/", include_in_schema=False)
 async def index() -> FileResponse:
@@ -194,6 +197,53 @@ async def desktop_show_window() -> dict:
     from app.desktop import request_show
 
     return {"shown": await asyncio.to_thread(request_show)}
+
+
+@app.get("/api/updates/check")
+async def updates_check(force: bool = Query(default=False)) -> dict:
+    """Consulta el último release y lo compara con la versión instalada."""
+    from app.services import updates
+
+    return await asyncio.to_thread(updates.check_for_update, force)
+
+
+@app.post("/api/updates/dismiss")
+async def updates_dismiss(request: UpdateDismissRequest) -> dict:
+    """Silencia una versión hasta que se publique otra."""
+    from app.services import updates
+
+    await asyncio.to_thread(updates.dismiss_version, request.version)
+    return {"dismissed": True, "version": request.version.strip().lstrip("vV")}
+
+
+@app.post("/api/updates/apply")
+async def updates_apply(request: Request) -> dict:
+    """Descarga, verifica e inicia el instalador de la nueva versión."""
+    from app.services import updates
+
+    # Cabecera personalizada para que una página externa no pueda provocar la
+    # ejecución del instalador con un POST simple contra localhost.
+    if request.headers.get("x-requested-with") != "SENACertificacion":
+        raise HTTPException(status_code=403, detail="Solicitud no autorizada.")
+
+    try:
+        result = await asyncio.to_thread(updates.apply_update)
+    except updates.UpdateError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    if result.get("launched"):
+        async def _quit_when_installer_starts() -> None:
+            # El instalador necesita que la app libere sus archivos. Se deja un
+            # margen para que la respuesta HTTP llegue y la UI muestre el aviso.
+            await asyncio.sleep(2.5)
+            from app.desktop import request_quit
+
+            await asyncio.to_thread(request_quit)
+
+        asyncio.create_task(_quit_when_installer_starts())
+
+    result.pop("update", None)
+    return result
 
 # Esta ruta devuelve una lista de tipos de informacion y las categorias simplificadas para la carga de archivos.
 @app.get("/api/information-types")

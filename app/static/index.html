@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SENA Certificación</title>
   <link rel="icon" href="/static/icon.png">
-  <link href="/static/styles.css?v=20261112-v23" rel="stylesheet">
+  <link href="/static/styles.css?v=20261117-v24" rel="stylesheet">
 </head>
 
 <body>
@@ -58,7 +58,7 @@
             <span class="nav-label">Informe de gestión</span>
           </a>
         </div>
-        <div class="sidebar-version" id="app-version" aria-label="Versión de la aplicación">v0.0.0</div>
+        <button class="sidebar-version" id="app-version" type="button" aria-label="Versión de la aplicación. Buscar actualizaciones." title="Buscar actualizaciones">v0.0.0</button>
       </nav>
 
       <section class="page-content">
@@ -1109,6 +1109,34 @@
       </div>
     </div>
   </div>
+  <div id="update-modal" class="modal-root update-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="update-modal-title">
+    <div class="modal-backdrop" data-close-update-modal></div>
+    <div class="modal-dialog update-dialog" tabindex="-1">
+      <button id="update-modal-close" class="modal-close" type="button" aria-label="Cerrar actualización">×</button>
+      <div class="report-modal-header">
+        <span class="report-modal-icon update-modal-icon" aria-hidden="true">↑</span>
+        <div>
+          <p class="eyebrow">Actualización disponible</p>
+          <h2 id="update-modal-title">Nueva versión de SENA Certificación</h2>
+          <p>Revisa las novedades y actualiza sin salir de la aplicación.</p>
+        </div>
+      </div>
+      <div class="update-version-row" aria-live="polite">
+        <span class="update-version-pill">Actual <strong id="update-current-version">—</strong></span>
+        <span class="update-version-arrow" aria-hidden="true">→</span>
+        <span class="update-version-pill is-new">Nueva <strong id="update-latest-version">—</strong></span>
+      </div>
+      <p id="update-meta" class="update-meta"></p>
+      <h3 class="update-notes-title">Novedades</h3>
+      <ul id="update-notes" class="update-notes"></ul>
+      <p id="update-status" class="report-modal-feedback" role="status"></p>
+      <div class="report-modal-actions update-modal-actions">
+        <button id="update-release-link" class="cancel-button" type="button" hidden>Ver en GitHub</button>
+        <button id="update-modal-later" class="cancel-button" type="button">Más tarde</button>
+        <button id="update-apply" class="primary-button" type="button" hidden>Actualizar ahora</button>
+      </div>
+    </div>
+  </div>
   <div id="informe-anexo-modal" class="modal-root" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="informe-anexo-modal-title">
     <div class="modal-backdrop" data-close-anexo-modal></div>
     <div class="modal-dialog informe-anexo-modal-dialog" tabindex="-1">
@@ -1202,7 +1230,8 @@
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
   <script src="/static/vendor/chart.umd.min.js"></script>
   <script src="/static/app.js?v=20261112-v24"></script>
-  <script src="/static/ui-enhancements.js?v=20261112-v13"></script>
+  <script src="/static/ui-enhancements.js?v=20261117-v14"></script>
+  <script src="/static/updates.js?v=20261117-v1"></script>
   <script>
     fetch("/api/version").then(function (r) { return r.json(); }).then(function (d) {
       var el = document.getElementById("app-version");

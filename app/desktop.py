@@ -15,20 +15,23 @@ from typing import Callable
 _lock = threading.Lock()
 _show_handler: Callable[[], bool] | None = None
 _quit_handler: Callable[[], None] | None = None
+_eval_handler: Callable[[str], bool] | None = None
 
 
 def register_handlers(
     show: Callable[[], bool] | None,
     quit: Callable[[], None] | None = None,
+    evaluate: Callable[[str], bool] | None = None,
 ) -> None:
-    global _show_handler, _quit_handler
+    global _show_handler, _quit_handler, _eval_handler
     with _lock:
         _show_handler = show
         _quit_handler = quit
+        _eval_handler = evaluate
 
 
 def unregister_handlers() -> None:
-    register_handlers(None, None)
+    register_handlers(None, None, None)
 
 
 def request_show() -> bool:
@@ -56,5 +59,17 @@ def request_quit() -> bool:
     try:
         handler()
         return True
+    except Exception:
+        return False
+
+
+def request_eval(script: str) -> bool:
+    """Ejecuta JavaScript en la ventana nativa (por ejemplo, abrir un modal)."""
+    with _lock:
+        handler = _eval_handler
+    if handler is None or not script:
+        return False
+    try:
+        return bool(handler(script))
     except Exception:
         return False
