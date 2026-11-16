@@ -1,3 +1,8 @@
+param(
+    [string]$Version = "",
+    [switch]$RequireInstaller
+)
+
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -35,7 +40,6 @@ if ($needVenv) {
 $Python = $VenvPython
 
 $ErrorActionPreference = "Continue"
-$ErrorActionPreference = "Continue"
 & $Python -c "import PyInstaller, pystray" 2>$null | Out-Null
 $depsMissing = ($LASTEXITCODE -ne 0)
 $ErrorActionPreference = "Stop"
@@ -46,8 +50,13 @@ if ($depsMissing) {
     if ($LASTEXITCODE -ne 0) { throw "La instalacion de dependencias fallo." }
 }
 
-$Version = (& $Python -c "from app.version import APP_VERSION; print(APP_VERSION)").Trim()
-if (-not $Version) { $Version = "0.0.0" }
+if (-not $Version) {
+    $Version = (& $Python -c "from app.version import APP_VERSION; print(APP_VERSION)").Trim()
+}
+if (-not $Version) { throw "No se pudo determinar la version de la aplicacion." }
+if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+    throw "Version invalida: '$Version'. Se espera el formato X.Y.Z."
+}
 
 # Cerrar instancias en ejecucion que bloquean archivos.
 Get-Process -Name "SENACertificacion" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -61,8 +70,11 @@ foreach ($relative in @("build\SENACertificacion", "dist\SENACertificacion")) {
     }
 }
 
-Write-Host "Compilando $Version ..."
-& $Python -m PyInstaller --clean --noconfirm (Join-Path $Root "SenaCertificacionDemo.spec")
+$Spec = Get-ChildItem -Path $Root -Filter "*.spec" -File | Select-Object -First 1
+if (-not $Spec) { throw "No se encontro el archivo .spec del proyecto." }
+
+Write-Host "Compilando $Version con $($Spec.Name) ..."
+& $Python -m PyInstaller --clean --noconfirm $Spec.FullName
 if ($LASTEXITCODE -ne 0) { throw "La compilacion con PyInstaller fallo." }
 
 $DistDir = Join-Path $Root "dist\SENACertificacion"
@@ -77,7 +89,11 @@ if (Test-Path $SmokeData) { Remove-Item -Recurse -Force $SmokeData }
 $env:SENA_SMOKE_TEST = "1"
 $env:SENA_DATA_DIR = $SmokeData
 try {
-    $proc = Start-Process -FilePath $Exe -PassThru -Wait
+    $proc = Start-Process -FilePath $Exe -PassThru
+    if (-not $proc.WaitForExit(120000)) {
+        try { $proc.Kill(); $proc.WaitForExit(10000) | Out-Null } catch { }
+        throw "La prueba de arranque del .exe excedio 120 segundos."
+    }
     if ($proc.ExitCode -ne 0) { throw "La prueba de arranque del .exe fallo (codigo $($proc.ExitCode))." }
 } finally {
     Remove-Item Env:SENA_SMOKE_TEST -ErrorAction SilentlyContinue
@@ -101,10 +117,12 @@ if ($iscc) {
     & $iscc "/DMyAppVersion=$Version" (Join-Path $Root "installer\SENACertificacion.iss")
     if ($LASTEXITCODE -ne 0) { throw "La generacion del instalador fallo." }
     $Installer = Join-Path $Root "dist\installer\SENACertificacion-Setup-$Version.exe"
+    if (-not (Test-Path $Installer)) { throw "No se genero el instalador esperado: $Installer" }
     Write-Host "  Instalador: $Installer"
 } else {
     Write-Host "Inno Setup no encontrado. El script .iss esta en installer\SENACertificacion.iss."
     Write-Host "  Descargue Inno Setup 6 (https://jrsoftware.org/isdl.php) para generar el instalador."
+    if ($RequireInstaller) { throw "Inno Setup no encontrado y se requiere generar el instalador." }
 }
 
 Write-Host ""

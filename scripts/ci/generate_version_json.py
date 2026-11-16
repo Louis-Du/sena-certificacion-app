@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Genera version.json y las notas del release a partir del build actual.
 
-La versión se toma de app/version.py (X.Y.Z) y el instalador se publica en
-GitHub Releases. Las notas se construyen con los commits no-merge desde el
-release anterior.
+La versión (X.Y.Z) y el tag se reciben como argumentos desde el workflow, y el
+instalador se publica en GitHub Releases. Las notas se construyen con los
+commits no-merge desde el release anterior.
 
 Uso:
     python scripts/ci/generate_version_json.py \
@@ -107,16 +107,16 @@ def main() -> int:
     if not installer.is_file():
         raise SystemExit(f"No existe el instalador: {installer}")
 
-    url = f"https://github.com/{args.repository}/releases/download/{args.tag}/{installer.name}"
+    setup_url = f"https://github.com/{args.repository}/releases/download/{args.tag}/{installer.name}"
     digest = sha256_of(installer)
     subjects = commit_subjects(previous_release_tag(args.tag))
     notes = "\n".join(f"- {subject}" for subject in subjects) or "- Sin cambios registrados."
-    pub_date = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    published_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
     metadata = {
         "version": args.version,
-        "pub_date": pub_date,
-        "url": url,
+        "published_at": published_at,
+        "setup_url": setup_url,
         "notes": notes,
         "sha256": digest,
     }
@@ -131,7 +131,7 @@ def main() -> int:
         f"## SENA Certificación {args.version}\n\n"
         "### Cambios\n\n"
         f"{notes}\n\n"
-        f"**Instalador:** [{installer.name}]({url})\n\n"
+        f"**Instalador:** [{installer.name}]({setup_url})\n\n"
         f"**SHA-256:** `{digest}`\n"
     )
     args.notes_output.parent.mkdir(parents=True, exist_ok=True)
@@ -139,7 +139,7 @@ def main() -> int:
 
     print(f"version.json: {args.output}")
     print(f"notas:        {args.notes_output}")
-    print(f"url:          {url}")
+    print(f"setup_url:    {setup_url}")
     return 0
 
 
