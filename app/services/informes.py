@@ -392,6 +392,7 @@ def export_report_docx(
     )
     if not dataset.get("datos_suficientes"):
         raise ValueError("No hay datos para exportar.")
+    from app.services.informe_gestion_anexos import anexos_para_docx
     from app.services.informe_gestion_estrategias import (
         estrategias_para_docx,
         normalizar_anio,
@@ -411,12 +412,20 @@ def export_report_docx(
         anio=periodo_anio,
         trimestre=periodo_trimestre,
     )
+    # Los anexos siguen la misma clave (año, trimestre). No son obligatorios:
+    # sin registros el DOCX conserva el listado institucional de la plantilla.
+    anexos = anexos_para_docx(
+        session,
+        anio=periodo_anio,
+        trimestre=periodo_trimestre,
+    )
 
     return generate_report_docx(
         dataset,
         year=year,
         cutoff=cutoff,
         estrategias=estrategias,
+        anexos=anexos,
     )
 
 
