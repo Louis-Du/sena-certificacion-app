@@ -56,4 +56,4 @@ jobs:
       - name: Ejecutar E2E
         env:
           DATABASE_URL: "sqlite:///:memory:"
-        run: pytest tests/e2e -m e2e -q --tb=short
+        run: pytest tests/e2e -q --tb=short
