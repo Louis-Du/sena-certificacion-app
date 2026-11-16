@@ -281,12 +281,20 @@ powershell -ExecutionPolicy Bypass -File .\build_demo.ps1
 
 El ejecutable queda en
 `dist\SENACertificacion\SENACertificacion.exe`. Para presentarlo, entrega la
-carpeta completa `dist\SENACertificacion` y ejecuta el `.exe`; luego abre
-`http://127.0.0.1:8000` en el navegador. El lanzador intenta abrir esa direccion
-automaticamente. La consola permanece visible para mostrar el estado del servidor y
-se cierra al terminar la aplicacion. Si el inicio falla, la consola queda abierta
-para mostrar el error. Si el puerto 8000 ya esta ocupado, el lanzador selecciona
-automaticamente otro puerto local disponible y abre el navegador en esa direccion.
+carpeta completa `dist\SENACertificacion` y ejecuta el `.exe`; la aplicación se
+abre en una **ventana de escritorio** propia (pywebview) y también deja un icono
+en la bandeja del sistema con las opciones **Abrir**, **Sincronizar ahora** y
+**Salir**.
+
+- Cerrar la ventana (X) la oculta: la aplicación sigue activa en la bandeja.
+- **Salir** en la bandeja termina la aplicación por completo.
+- Si se vuelve a ejecutar el `.exe` con la aplicación abierta, no se lanza una
+  segunda copia: se muestra y enfoca la ventana existente.
+- `SENACertificacion.exe --background` inicia solo el servidor y la bandeja (lo
+  usa el inicio automático con Windows). No hay consola: los mensajes se
+  registran en `data\sena_certificacion.log`.
+- Si el puerto 8000 ya está ocupado, el lanzador selecciona automáticamente otro
+  puerto local disponible y guarda la elección en `data\port.txt`.
 
 La version de la aplicación se guarda en `dist\SENACertificacion\version.txt` y
 también se expone en `GET /api/version` y en la interfaz. El build ejecuta una

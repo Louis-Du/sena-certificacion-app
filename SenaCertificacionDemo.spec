@@ -23,6 +23,7 @@ a = Analysis(
     pathex=[str(ROOT)],
     datas=datas,
     hiddenimports=[
+        "app.desktop",
         "uvicorn.logging",
         "uvicorn.lifespan.on",
         "uvicorn.loops.auto",

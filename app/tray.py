@@ -34,9 +34,12 @@ def run_tray(port: int, on_exit) -> None:
     url = f"http://127.0.0.1:{port}"
 
     def open_app(icon, item):
-        import webbrowser
+        from app.desktop import request_show
 
-        webbrowser.open(url)
+        # La ventana vive en este mismo proceso: mostrarla es instantáneo y no
+        # abre el navegador ni arranca una segunda instancia.
+        if not request_show():
+            webbrowser.open(url)
 
     def sync_now(icon, item):
         try:
