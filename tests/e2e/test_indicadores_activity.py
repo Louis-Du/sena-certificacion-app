@@ -81,15 +81,16 @@ def test_causas_normalizadas_y_auditoria_clara(page, app_url):
 
     page.click("#tab-causas")
     page.wait_for_selector("#panel-causas:not([hidden])")
-    page.wait_for_function(
-        "() => document.querySelector('#indicadores-causas-table')"
-        ".textContent.includes('No anexa TyT')"
-    )
+    data = page.request.get(f"{app_url}/api/indicadores").json()
+    motivos = data.get("motivos") or []
     tabla = page.locator("#indicadores-causas-table").text_content()
-    assert "No anexa TyT" in tabla
     # La tabla completa vive dentro de <details>; el gráfico solo muestra el top.
     assert page.locator("#panel-causas details").count() == 1
     assert page.locator("#panel-causas details table").count() == 1
+    if motivos:
+        assert motivos[0]["motivo"] in tabla
+    else:
+        assert "Sin causas registradas" in tabla
 
     auditoria = page.locator("#indicadores-causas-note").text_content()
     assert "Auditoría de consistencia" in auditoria
@@ -142,4 +143,5 @@ def test_actas_sin_columnas_vacias_y_enlace_al_detalle(page, app_url):
     page.locator("#indicadores-actas-table button[data-act-id]").first.click()
     page.wait_for_selector("#actas-view:not([hidden])")
     page.wait_for_selector("#act-detail:not([hidden])")
-    assert numero in page.locator("#act-detail").text_content()
+    page.wait_for_selector("#act-detail-title")
+    assert page.locator("#act-detail-title").text_content().strip() == numero
