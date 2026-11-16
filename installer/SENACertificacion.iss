@@ -1,6 +1,9 @@
 #define MyAppName "SENA Certificacion"
 #define MyAppSlug "SENACertificacion"
-#define MyAppVersion "0.2.0"
+; La version se puede sobrescribir desde la linea de comandos con /DMyAppVersion=X.Y.Z
+#ifndef MyAppVersion
+  #define MyAppVersion "0.2.0"
+#endif
 #define MyAppPublisher "SENA Centro de Comercio y Servicios - Regional Bolivar"
 #define MyAppExeName "SENACertificacion.exe"
 

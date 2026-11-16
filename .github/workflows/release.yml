@@ -1,0 +1,264 @@
+name: Release Windows
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.12"
+  RELEASE_SOURCE_BRANCH: desarrollo
+
+jobs:
+  guard:
+    name: Verificar origen del release
+    runs-on: windows-latest
+    timeout-minutes: 10
+    outputs:
+      should_release: ${{ steps.origin.outputs.should_release }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Validar que el push a main provenga de desarrollo
+        id: origin
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          should_release=false
+          source_branch="${RELEASE_SOURCE_BRANCH}"
+
+          if ! git fetch --no-tags origin "+refs/heads/${source_branch}:refs/remotes/origin/${source_branch}"; then
+            echo "::warning::No se pudo obtener origin/${source_branch}; se intentará validar el PR asociado."
+          fi
+
+          # Un merge commit tiene dos padres: el segundo es la punta de la rama fusionada.
+          parents_line="$(git rev-list --parents -n 1 "${GITHUB_SHA}")"
+          parents_line="${parents_line//$'\r'/}"
+          read -r -a parents <<< "${parents_line}"
+          if [ "${#parents[@]}" -ge 3 ]; then
+            merged_tip="${parents[2]}"
+            if git merge-base --is-ancestor "${merged_tip}" "origin/${source_branch}"; then
+              echo "Merge commit detectado; ${merged_tip} pertenece a origin/${source_branch}."
+              should_release=true
+            fi
+          fi
+
+          # Los squash merge no conservan el segundo padre: se consulta el PR asociado.
+          if [ "${should_release}" != "true" ]; then
+            pr_head="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+              --jq '.[0] | "\(.head.repo.full_name // "")|\(.head.ref // "")"' 2>/dev/null || true)"
+            pr_head="${pr_head%$'\r'}"
+            if [ "${pr_head}" = "${GITHUB_REPOSITORY}|${source_branch}" ]; then
+              echo "Squash merge detectado desde ${source_branch}."
+              should_release=true
+            fi
+          fi
+
+          echo "should_release=${should_release}" >> "${GITHUB_OUTPUT}"
+          if [ "${should_release}" != "true" ]; then
+            echo "::notice::El push a main no proviene de ${source_branch}; no se publica release."
+          fi
+
+  release:
+    name: Compilar y publicar
+    needs: guard
+    if: needs.guard.outputs.should_release == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Leer versión desde app/version.py
+        id: version
+        run: |
+          $version = (& python -c "from app.version import APP_VERSION; print(APP_VERSION)").Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "APP_VERSION no es una versión X.Y.Z válida: '$version'"
+          }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "tag=v$version"
+          Write-Host "Versión detectada: $version"
+
+      - name: Validar disponibilidad del tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git fetch --tags --force
+          $tag = "v$env:VERSION"
+          $head = (git rev-parse HEAD).Trim()
+          $existing = (git tag --list $tag).Trim()
+          if ($existing) {
+            $tagCommit = (git rev-list -n 1 $tag).Trim()
+            if ($tagCommit -ne $head) {
+              throw "El tag $tag ya existe y apunta a $tagCommit. Actualice APP_VERSION en app/version.py antes de fusionar a main."
+            }
+            Write-Host "::warning::El tag $tag ya apunta a este commit; se actualizarán los activos del release."
+          }
+
+      - name: Crear entorno virtual e instalar dependencias
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+      - name: Pruebas unitarias (sin E2E)
+        env:
+          DATABASE_URL: "sqlite:///:memory:"
+        run: .\.venv\Scripts\python.exe -m pytest -m "not e2e" -q
+
+      - name: Compilar con PyInstaller
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $spec = Get-ChildItem -Path . -Filter "*.spec" -File | Select-Object -First 1
+          if (-not $spec) {
+            throw "No se encontró ningún archivo .spec en la raíz del repositorio."
+          }
+          Write-Host "Usando spec: $($spec.Name)"
+          & .\.venv\Scripts\python.exe -m PyInstaller --clean --noconfirm $spec.FullName
+          if ($LASTEXITCODE -ne 0) {
+            throw "PyInstaller falló con código $LASTEXITCODE."
+          }
+
+          $exe = "dist\SENACertificacion\SENACertificacion.exe"
+          if (-not (Test-Path $exe)) {
+            throw "No se generó el ejecutable esperado: $exe"
+          }
+          Set-Content -Path "dist\SENACertificacion\version.txt" -Value $env:VERSION -Encoding utf8
+
+      - name: Prueba de arranque del ejecutable
+        run: |
+          $exe = (Resolve-Path "dist\SENACertificacion\SENACertificacion.exe").Path
+          $dataDir = Join-Path $env:RUNNER_TEMP "sena-certificacion-smoke-data"
+          if (Test-Path $dataDir) { Remove-Item -Recurse -Force $dataDir }
+
+          $env:SENA_SMOKE_TEST = "1"
+          $env:SENA_DATA_DIR = $dataDir
+          try {
+            $proc = Start-Process -FilePath $exe -PassThru
+            if (-not $proc.WaitForExit(120000)) {
+              try { $proc.Kill(); $proc.WaitForExit(10000) | Out-Null } catch { }
+              throw "La prueba de arranque excedió 120 segundos."
+            }
+            if ($proc.ExitCode -ne 0) {
+              throw "La prueba de arranque falló con código $($proc.ExitCode)."
+            }
+            Write-Host "Prueba de arranque OK."
+          } finally {
+            Remove-Item Env:SENA_SMOKE_TEST -ErrorAction SilentlyContinue
+            Remove-Item Env:SENA_DATA_DIR -ErrorAction SilentlyContinue
+            if (Test-Path $dataDir) { Remove-Item -Recurse -Force $dataDir }
+          }
+
+      - name: Instalar Inno Setup
+        run: |
+          if (-not (Get-Command ISCC.exe -ErrorAction SilentlyContinue)) {
+            choco install innosetup --no-progress -y
+            if ($LASTEXITCODE -ne 0) {
+              throw "No fue posible instalar Inno Setup."
+            }
+          }
+
+      - name: Generar instalador con Inno Setup
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $candidates = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 7\ISCC.exe",
+            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
+            "$env:LOCALAPPDATA\Programs\Inno Setup 7\ISCC.exe"
+          )
+          $iscc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
+          }
+          if (-not $iscc) {
+            throw "No se encontró ISCC.exe (Inno Setup)."
+          }
+
+          Write-Host "Usando ISCC: $iscc"
+          & $iscc "/DMyAppVersion=$env:VERSION" (Join-Path $PWD "installer\SENACertificacion.iss")
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno Setup falló con código $LASTEXITCODE."
+          }
+
+          $installer = "dist\installer\SENACertificacion-Setup-$env:VERSION.exe"
+          if (-not (Test-Path $installer)) {
+            throw "No se generó el instalador esperado: $installer"
+          }
+
+      - name: Crear paquete portable
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $zip = "dist\installer\SENACertificacion-$env:VERSION-portable.zip"
+          Compress-Archive -Path "dist\SENACertificacion" -DestinationPath $zip -CompressionLevel Optimal -Force
+          if (-not (Test-Path $zip)) {
+            throw "No se generó el paquete portable: $zip"
+          }
+
+      - name: Generar version.json y notas del release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          & .\.venv\Scripts\python.exe scripts\ci\generate_version_json.py `
+            --version $env:VERSION `
+            --tag $env:TAG `
+            --repository $env:REPOSITORY `
+            --installer "dist\installer\SENACertificacion-Setup-$env:VERSION.exe" `
+            --output "dist\installer\version.json" `
+            --notes-output "dist\installer\release_notes.md"
+          if ($LASTEXITCODE -ne 0) {
+            throw "La generación de version.json falló."
+          }
+
+      - name: Publicar GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: SENA Certificación ${{ steps.version.outputs.version }}
+          body_path: dist/installer/release_notes.md
+          files: |
+            dist/installer/SENACertificacion-Setup-${{ steps.version.outputs.version }}.exe
+            dist/installer/version.json
+            dist/installer/SENACertificacion-${{ steps.version.outputs.version }}-portable.zip
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false

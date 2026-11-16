@@ -98,7 +98,7 @@ if ($iscc) {
     Get-Process -Name "SENACertificacion" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 500
     Write-Host "Generando instalador con Inno Setup..."
-    & $iscc (Join-Path $Root "installer\SENACertificacion.iss")
+    & $iscc "/DMyAppVersion=$Version" (Join-Path $Root "installer\SENACertificacion.iss")
     if ($LASTEXITCODE -ne 0) { throw "La generacion del instalador fallo." }
     $Installer = Join-Path $Root "dist\installer\SENACertificacion-Setup-$Version.exe"
     Write-Host "  Instalador: $Installer"

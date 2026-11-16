@@ -304,10 +304,54 @@ y verifica `/`, `/api/version` y `/api/learners`.
 ### Instalador (opcional)
 
 Si se instala **Inno Setup 6 o superior** (https://jrsoftware.org/isdl.php), el mismo script
-genera ademas un instalador en `dist\installer\SENACertificacion-Setup-0.2.0.exe`
+genera ademas un instalador en `dist\installer\SENACertificacion-Setup-X.Y.Z.exe`
 que permite elegir la carpeta de instalacion y crear un acceso directo en el
 escritorio. Sin Inno Setup, el ejecutable portable queda disponible en
 `dist\SENACertificacion\`.
+
+### Publicación automática (GitHub Actions)
+
+El workflow `.github/workflows/release.yml` compila y publica la aplicación
+cuando se fusiona `desarrollo` en `main`. También se dispara con cualquier push
+a `main`, pero el job de validación omite la publicación si el commit no
+proviene de `desarrollo` (merge commit o squash merge asociado a un PR de esa
+rama).
+
+Pasos del pipeline:
+
+1. Comprueba el origen del push y omite el release si no viene de `desarrollo`.
+2. Crea un venv con Python 3.12 e instala `requirements.txt`.
+3. Lee la versión de `app/version.py`, valida que sea `X.Y.Z` y que el tag
+   `vX.Y.Z` no exista (o apunte al mismo commit, en una re-ejecución).
+4. Ejecuta las pruebas unitarias (sin E2E) y compila con PyInstaller usando el
+   `.spec` del repositorio.
+5. Ejecuta una prueba de arranque del `.exe` y genera el instalador con Inno
+   Setup (se instala automáticamente en el runner).
+6. Publica el GitHub Release con estos activos:
+   - `SENACertificacion-Setup-X.Y.Z.exe`
+   - `SENACertificacion-X.Y.Z-portable.zip`
+   - `version.json`
+
+El workflow usa el `GITHUB_TOKEN` con `contents: write`; no requiere secretos
+adicionales.
+
+Para publicar una versión nueva actualiza `APP_VERSION` en `app/version.py`,
+fusiona `desarrollo` en `main` mediante un pull request y espera a que el
+workflow termine. Si el tag ya existe para otro commit, el workflow falla para
+evitar publicar dos builds con la misma versión.
+
+`version.json` se genera con los metadatos que consume el sistema de
+actualizaciones:
+
+```json
+{
+  "version": "0.2.0",
+  "pub_date": "2026-11-15T12:00:00Z",
+  "url": "https://github.com/Louis-Du/sena-certificacion-app/releases/download/v0.2.0/SENACertificacion-Setup-0.2.0.exe",
+  "notes": "- feat: ...\n- fix: ...",
+  "sha256": "..."
+}
+```
 
 ### Pruebas realizadas
 
