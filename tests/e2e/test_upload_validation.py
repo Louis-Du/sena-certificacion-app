@@ -49,7 +49,7 @@ def test_validation_does_not_persist_to_history(page, app_url, tmp_path):
     page.set_input_files("#file-input", str(file_path))
     page.click("#validate-button")
     page.wait_for_selector("#validation-panel:not([hidden])")
-    assert page.locator("#history-list").text_content() == "Aun no hay importaciones."
+    assert page.locator("#history-list").text_content() == "Aún no hay importaciones."
 
 
 def test_validation_shows_warning_for_duplicate_rows(page, app_url, tmp_path):

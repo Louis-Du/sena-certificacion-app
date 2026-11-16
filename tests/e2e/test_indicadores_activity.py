@@ -18,7 +18,19 @@ def _importar_actas(page, app_url):
     page.set_input_files("#file-input", str(CORRECTOS / "ACTAS_2026_correcto.xlsx"))
     page.click("#validate-button")
     page.wait_for_selector("#confirmation-panel:not([hidden])")
+    missing_complementaria = page.locator("#accept-missing-complementaria")
+    if missing_complementaria.is_visible():
+        missing_complementaria.check()
+    conflicts = page.locator("#coherence-conflicts")
+    if conflicts.is_visible():
+        page.click("#open-conflict-resolution")
+        page.click("#conflict-tab-requirement")
+        page.click("#requirement-batch-suggest")
+        page.click("#conflict-continue")
     page.click("#modal-confirm-button")
+    conflict_confirm = page.locator("#conflict-confirm-modal")
+    if conflict_confirm.is_visible():
+        page.click("#conflict-confirm-accept")
     page.wait_for_selector("#import-success-banner:not([hidden])")
 
 
@@ -34,9 +46,9 @@ def test_certificados_por_mes_usa_la_fuente_del_consolidado(page, app_url):
 
     page.get_by_role("button", name="Exportar informe").click()
     page.wait_for_selector("#report-modal.is-open")
-    assert page.get_by_text("Informe general de indicadores").is_visible()
-    assert page.get_by_text("PDF · XLSX · CSV").first.is_visible()
-    assert page.get_by_role("link", name="Generar informe").is_visible()
+    assert page.get_by_text("Informe consolidado de certificación").is_visible()
+    assert page.get_by_text("PDF · XLSX · DOCX").first.is_visible()
+    assert page.get_by_role("button", name="Generar informe").is_visible()
     page.get_by_role("button", name="Cancelar").last.click()
     page.wait_for_selector("#report-modal[aria-hidden='true']", state="attached")
     assert page.locator("#activity-tab-heatmap").count() == 0

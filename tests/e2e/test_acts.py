@@ -30,8 +30,8 @@ def test_act_detail_and_learner_link_unlink(page, app_url, tmp_path):
     page.set_input_files("#file-input", str(csv_path))
     page.click("#validate-button")
     page.wait_for_selector("#confirmation-panel:not([hidden])")
-    page.click("#confirm-button")
-    page.wait_for_selector("#confirm-button", state="hidden")
+    page.click("#modal-confirm-button")
+    page.wait_for_selector("#import-modal", state="hidden")
 
     _go_to_acts(page, app_url)
     page.click("#acts-list .detail-button")
@@ -74,8 +74,8 @@ def test_acta_file_import_creates_act_entity(page, app_url):
     page.set_input_files("#file-input", str(correctos / "Acta_certificacion_correcto.pdf"))
     page.click("#validate-button")
     page.wait_for_selector("#confirmation-panel:not([hidden])")
-    page.click("#confirm-button")
-    page.wait_for_selector("#confirm-button", state="hidden")
+    page.click("#modal-confirm-button")
+    page.wait_for_selector("#import-modal", state="hidden")
 
     page.click('a[data-view="actas"]')
     page.wait_for_selector("#acts-list")

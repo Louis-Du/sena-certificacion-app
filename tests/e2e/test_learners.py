@@ -16,8 +16,8 @@ def _import_learners(page, app_url, tmp_path, content: bytes) -> None:
     page.set_input_files("#file-input", str(file_path))
     page.click("#validate-button")
     page.wait_for_selector("#confirmation-panel:not([hidden])")
-    page.click("#confirm-button")
-    page.wait_for_selector("#confirm-button", state="hidden")
+    page.click("#modal-confirm-button")
+    page.wait_for_selector("#import-modal", state="hidden")
 
 
 def test_learners_table_loads_after_import(page, app_url, tmp_path):

@@ -19,7 +19,19 @@ def _importar_actas(page, app_url):
     page.set_input_files("#file-input", str(CORRECTOS / "ACTAS_2026_correcto.xlsx"))
     page.click("#validate-button")
     page.wait_for_selector("#confirmation-panel:not([hidden])")
+    missing_complementaria = page.locator("#accept-missing-complementaria")
+    if missing_complementaria.is_visible():
+        missing_complementaria.check()
+    conflicts = page.locator("#coherence-conflicts")
+    if conflicts.is_visible():
+        page.click("#open-conflict-resolution")
+        page.click("#conflict-tab-requirement")
+        page.click("#requirement-batch-suggest")
+        page.click("#conflict-continue")
     page.click("#modal-confirm-button")
+    conflict_confirm = page.locator("#conflict-confirm-modal")
+    if conflict_confirm.is_visible():
+        page.click("#conflict-confirm-accept")
     page.wait_for_selector("#import-success-banner:not([hidden])")
 
 
