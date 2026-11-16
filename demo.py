@@ -215,10 +215,56 @@ def run_desktop_window(url: str) -> None:
     webview.start()
 
 
+def _acquire_instance(port: int) -> bool:
+    """Devuelve False si ya hay otra instancia en ejecucion."""
+    if not getattr(sys, "frozen", False) and os.getenv("SENA_SINGLE_INSTANCE", "1") != "1":
+        return True
+    try:
+        import ctypes
+
+        mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "SENA_Certificacion_App_Mutex")
+        if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            return False
+        # Guardar el handle para que no se libere.
+        globals()["_instance_mutex"] = mutex
+    except Exception:
+        pass
+    return True
+
+
+def _write_port_file(port: int) -> None:
+    try:
+        from app.runtime import data_dir
+
+        (data_dir() / "port.txt").write_text(str(port), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _read_port_file() -> int | None:
+    try:
+        from app.runtime import data_dir
+
+        text = (data_dir() / "port.txt").read_text(encoding="utf-8").strip()
+        return int(text)
+    except Exception:
+        return None
+
+
 if __name__ == "__main__":
     from app.version import APP_NAME, APP_VERSION
 
     smoke_test = "--smoke-test" in sys.argv or os.getenv("SENA_SMOKE_TEST") == "1"
+    background = "--background" in sys.argv or os.getenv("SENA_BACKGROUND") == "1"
+
+    # Si ya hay una instancia, abrir el navegador y salir.
+    if not smoke_test and not _acquire_instance(0):
+        existing_port = _read_port_file() or 8000
+        import webbrowser
+
+        webbrowser.open(f"http://127.0.0.1:{existing_port}")
+        sys.exit(0)
+
     port = available_port(int(os.getenv("PORT", "8000")))
     url = f"http://127.0.0.1:{port}"
     server = uvicorn.Server(
@@ -229,6 +275,7 @@ if __name__ == "__main__":
     try:
         if not server_is_ready(port, timeout=30.0):
             raise RuntimeError(f"El servidor local no respondió en {url}")
+        _write_port_file(port)
         if smoke_test:
             import urllib.request
 
@@ -237,6 +284,13 @@ if __name__ == "__main__":
                 with urllib.request.urlopen(f"{url}{path}", timeout=10) as response:
                     print(f"  {path} -> HTTP {response.status}")
             print("SMOKE_OK")
+        elif background:
+            from app.tray import run_tray
+
+            def _stop():
+                server.should_exit = True
+
+            run_tray(port, _stop)
         else:
             run_desktop_window(url)
     except Exception as error:  # noqa: BLE001

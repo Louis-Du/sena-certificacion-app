@@ -33,6 +33,7 @@ a = Analysis(
         "webview.platforms.edgechromium",
         "webview.platforms.win32",
         "webview.platforms.mshtml",
+        "pystray",
         "clr",
         "clr_loader",
         "pythonnet",
