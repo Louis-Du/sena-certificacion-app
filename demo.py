@@ -284,15 +284,20 @@ if __name__ == "__main__":
                 with urllib.request.urlopen(f"{url}{path}", timeout=10) as response:
                     print(f"  {path} -> HTTP {response.status}")
             print("SMOKE_OK")
-        elif background:
-            from app.tray import run_tray
+        else:
+            from app.tray import start_tray_thread
+
+            stop_event = threading.Event()
 
             def _stop():
+                stop_event.set()
                 server.should_exit = True
 
-            run_tray(port, _stop)
-        else:
-            run_desktop_window(url)
+            start_tray_thread(port, _stop)
+            if background:
+                stop_event.wait()
+            else:
+                run_desktop_window(url)
     except Exception as error:  # noqa: BLE001
         import traceback
 

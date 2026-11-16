@@ -35,10 +35,11 @@ if ($needVenv) {
 $Python = $VenvPython
 
 $ErrorActionPreference = "Continue"
-& $Python -c "import PyInstaller" 2>$null | Out-Null
-$pyinstallerMissing = ($LASTEXITCODE -ne 0)
+$ErrorActionPreference = "Continue"
+& $Python -c "import PyInstaller, pystray" 2>$null | Out-Null
+$depsMissing = ($LASTEXITCODE -ne 0)
 $ErrorActionPreference = "Stop"
-if ($pyinstallerMissing) {
+if ($depsMissing) {
     Write-Host "Instalando dependencias..."
     & $Python -m pip install --upgrade pip
     & $Python -m pip install -r (Join-Path $Root "requirements.txt")

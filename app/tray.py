@@ -6,20 +6,22 @@ import threading
 import webbrowser
 from pathlib import Path
 
-import requests
-
 from app.runtime import resource_root
 
 
 def _load_icon():
     from PIL import Image
 
-    icon_path = resource_root() / "assets" / "SENACertificacion.ico"
-    if icon_path.is_file():
-        try:
-            return Image.open(icon_path)
-        except Exception:
-            pass
+    candidates = [
+        resource_root() / "SENACertificacion.ico",
+        resource_root() / "assets" / "SENACertificacion.ico",
+    ]
+    for icon_path in candidates:
+        if icon_path.is_file():
+            try:
+                return Image.open(icon_path)
+            except Exception:
+                continue
     # Icono de respaldo simple.
     img = Image.new("RGB", (64, 64), color=(30, 41, 59))
     return img
@@ -36,7 +38,10 @@ def run_tray(port: int, on_exit) -> None:
 
     def sync_now(icon, item):
         try:
-            requests.post(f"{url}/api/sheets/sync/run", timeout=30)
+            import urllib.request
+
+            req = urllib.request.Request(f"{url}/api/sheets/sync/run", method="POST")
+            urllib.request.urlopen(req, timeout=30)
         except Exception:
             pass
 
@@ -56,7 +61,16 @@ def run_tray(port: int, on_exit) -> None:
             pystray.MenuItem("Salir", exit_app),
         ),
     )
-    icon.run()
+    try:
+        icon.run()
+    except Exception as error:
+        try:
+            from app.runtime import data_dir
+
+            with open(data_dir() / "sena_certificacion.log", "a", encoding="utf-8") as fh:
+                fh.write(f"[tray] {error}\n")
+        except Exception:
+            pass
 
 
 def start_tray_thread(port: int, on_exit) -> threading.Thread:
