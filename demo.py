@@ -11,6 +11,16 @@ from pathlib import Path
 if getattr(sys, "frozen", False):
     os.chdir(Path(sys.executable).resolve().parent)
     (Path.cwd() / "data").mkdir(parents=True, exist_ok=True)
+    try:
+        from app.runtime import data_dir
+
+        _log_file = open(data_dir() / "sena_certificacion.log", "a", encoding="utf-8")
+        if sys.stdout is None:
+            sys.stdout = _log_file
+        if sys.stderr is None:
+            sys.stderr = _log_file
+    except Exception:
+        pass
 
 from app.main import app
 import uvicorn
@@ -198,7 +208,7 @@ def run_desktop_window(url: str) -> None:
         width=1440,
         height=900,
         min_size=(1024, 700),
-        confirm_close=True,
+        confirm_close=False,
         js_api=bridge,
     )
     bridge.attach(window)
@@ -206,6 +216,9 @@ def run_desktop_window(url: str) -> None:
 
 
 if __name__ == "__main__":
+    from app.version import APP_NAME, APP_VERSION
+
+    smoke_test = "--smoke-test" in sys.argv or os.getenv("SENA_SMOKE_TEST") == "1"
     port = available_port(int(os.getenv("PORT", "8000")))
     url = f"http://127.0.0.1:{port}"
     server = uvicorn.Server(
@@ -214,12 +227,30 @@ if __name__ == "__main__":
     server_thread = threading.Thread(target=server.run, daemon=True)
     server_thread.start()
     try:
-        if not server_is_ready(port):
+        if not server_is_ready(port, timeout=30.0):
             raise RuntimeError(f"El servidor local no respondió en {url}")
-        run_desktop_window(url)
-    except (OSError, SystemExit) as error:
-        print(f"No fue posible iniciar la aplicacion en {url}:\n{error}")
-        input("Presiona Enter para cerrar...")
+        if smoke_test:
+            import urllib.request
+
+            print(f"{APP_NAME} {APP_VERSION} - prueba de arranque")
+            for path in ("/", "/api/version", "/api/learners"):
+                with urllib.request.urlopen(f"{url}{path}", timeout=10) as response:
+                    print(f"  {path} -> HTTP {response.status}")
+            print("SMOKE_OK")
+        else:
+            run_desktop_window(url)
+    except Exception as error:  # noqa: BLE001
+        import traceback
+
+        traceback.print_exc()
+        print(f"No fue posible iniciar la aplicación en {url}:\n{error}")
+        if getattr(sys, "frozen", False) or smoke_test is False:
+            try:
+                input("Presiona Enter para cerrar...")
+            except EOFError:
+                pass
     finally:
         server.should_exit = True
         server_thread.join(timeout=5)
+        if smoke_test:
+            sys.exit(0)

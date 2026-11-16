@@ -19,6 +19,8 @@ from sqlalchemy.orm import Session
 
 # Importamos varias funciones y clases de nuestro propio módulo app para manejar la base de datos, modelos, servicios y validaciones.
 from app.database import SessionLocal, get_db, init_db
+from app.runtime import resource_root
+from app.version import APP_VERSION
 from app.models import Act
 from app.services.imports import (
     confirm_import,
@@ -54,7 +56,7 @@ from app.services.requirements import (
 from app.services.validation import TYPE_LABELS
 
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = resource_root() / "app"
 
 
 @asynccontextmanager
@@ -77,7 +79,7 @@ async def lifespan(_: FastAPI):
         pass
 
 
-app = FastAPI(title="Sena Certificacion App", version="0.1.0", lifespan=lifespan) # El parámetro lifespan se establece en la función lifespan definida anteriormente el cual inicializa la base de datos al iniciar la aplicación.
+app = FastAPI(title="SENA Certificación", version=APP_VERSION, lifespan=lifespan) # El parámetro lifespan se establece en la función lifespan definida anteriormente el cual inicializa la base de datos al iniciar la aplicación.
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static") # Montamos un directorio de archivos estáticos en la ruta /static para servir archivos como imágenes, CSS o JavaScript. 
 
 # Definimos varios modelos de datos usando Pydantic para validar y documentar las solicitudes y respuestas de la API.
@@ -171,6 +173,17 @@ class SheetSyncNotifiedRequest(BaseModel):
 @app.get("/", include_in_schema=False)
 async def index() -> FileResponse:
     return FileResponse(BASE_DIR / "static" / "index.html")
+
+
+@app.get("/api/version")
+async def app_version() -> dict:
+    from app.version import APP_NAME, APP_PUBLISHER, APP_VERSION
+
+    return {
+        "name": APP_NAME,
+        "version": APP_VERSION,
+        "publisher": APP_PUBLISHER,
+    }
 
 # Esta ruta devuelve una lista de tipos de informacion y las categorias simplificadas para la carga de archivos.
 @app.get("/api/information-types")

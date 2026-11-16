@@ -188,7 +188,7 @@ confirmacion limpia el estado pendiente.
 ## Ejecutar en desarrollo
 
 ```powershell
-py -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 uvicorn app.main:app --reload
@@ -280,13 +280,26 @@ powershell -ExecutionPolicy Bypass -File .\build_demo.ps1
 ```
 
 El ejecutable queda en
-`dist\SenaCertificacionDemo\SenaCertificacionDemo.exe`. Para presentarlo, entrega la
-carpeta completa `dist\SenaCertificacionDemo` y ejecuta el `.exe`; luego abre
+`dist\SENACertificacion\SENACertificacion.exe`. Para presentarlo, entrega la
+carpeta completa `dist\SENACertificacion` y ejecuta el `.exe`; luego abre
 `http://127.0.0.1:8000` en el navegador. El lanzador intenta abrir esa direccion
 automaticamente. La consola permanece visible para mostrar el estado del servidor y
 se cierra al terminar la aplicacion. Si el inicio falla, la consola queda abierta
 para mostrar el error. Si el puerto 8000 ya esta ocupado, el lanzador selecciona
 automaticamente otro puerto local disponible y abre el navegador en esa direccion.
+
+La version de la aplicación se guarda en `dist\SENACertificacion\version.txt` y
+también se expone en `GET /api/version` y en la interfaz. El build ejecuta una
+prueba de arranque automática (`--smoke-test`) que crea una base SQLite temporal
+y verifica `/`, `/api/version` y `/api/learners`.
+
+### Instalador (opcional)
+
+Si se instala **Inno Setup 6 o superior** (https://jrsoftware.org/isdl.php), el mismo script
+genera ademas un instalador en `dist\installer\SENACertificacion-Setup-0.2.0.exe`
+que permite elegir la carpeta de instalacion y crear un acceso directo en el
+escritorio. Sin Inno Setup, el ejecutable portable queda disponible en
+`dist\SENACertificacion\`.
 
 ### Pruebas realizadas
 

@@ -49,3 +49,11 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
+data/
+*.log
+
+# Builds y ejecutables
+build/
+dist/
+*.exe
+*.msi

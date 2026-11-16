@@ -164,6 +164,14 @@ a {
   display: none;
 }
 
+.sidebar-version {
+  margin-top: 8px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: rgba(248, 250, 252, 0.55);
+  letter-spacing: 0.04em;
+}
+
 .sidebar-link {
   position: relative;
   display: flex;
