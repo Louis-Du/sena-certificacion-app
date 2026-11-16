@@ -21,6 +21,8 @@ from sqlalchemy.orm import Session
 
 # Importamos varias funciones y clases de nuestro propio módulo app para manejar la base de datos, modelos, servicios y validaciones.
 from app.database import SessionLocal, get_db, init_db
+from app.runtime import resource_root
+from app.version import APP_VERSION
 from app.models import Act
 from app.services.imports import (
     confirm_import,
@@ -56,7 +58,7 @@ from app.services.requirements import (
 from app.services.validation import TYPE_LABELS
 
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = resource_root() / "app"
 
 
 @asynccontextmanager
@@ -79,7 +81,7 @@ async def lifespan(_: FastAPI):
         pass
 
 
-app = FastAPI(title="Sena Certificacion App", version="0.1.0", lifespan=lifespan) # El parámetro lifespan se establece en la función lifespan definida anteriormente el cual inicializa la base de datos al iniciar la aplicación.
+app = FastAPI(title="SENA Certificación", version=APP_VERSION, lifespan=lifespan) # El parámetro lifespan se establece en la función lifespan definida anteriormente el cual inicializa la base de datos al iniciar la aplicación.
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static") # Montamos un directorio de archivos estáticos en la ruta /static para servir archivos como imágenes, CSS o JavaScript. 
 
 # Definimos varios modelos de datos usando Pydantic para validar y documentar las solicitudes y respuestas de la API.
@@ -174,6 +176,25 @@ class SheetSyncNotifiedRequest(BaseModel):
 async def index() -> FileResponse:
     return FileResponse(BASE_DIR / "static" / "index.html")
 
+
+@app.get("/api/version")
+async def app_version() -> dict:
+    from app.version import APP_NAME, APP_PUBLISHER, APP_VERSION
+
+    return {
+        "name": APP_NAME,
+        "version": APP_VERSION,
+        "publisher": APP_PUBLISHER,
+    }
+
+
+@app.post("/api/desktop/show")
+async def desktop_show_window() -> dict:
+    """Muestra la ventana nativa cuando se vuelve a abrir la aplicación."""
+    from app.desktop import request_show
+
+    return {"shown": await asyncio.to_thread(request_show)}
+
 # Esta ruta devuelve una lista de tipos de informacion y las categorias simplificadas para la carga de archivos.
 @app.get("/api/information-types")
 async def information_types() -> dict[str, Any]:
@@ -220,11 +241,11 @@ async def information_types() -> dict[str, Any]:
 
 # Esta ruta permite subir un archivo y validarlo según el tipo de información especificado. Se recibe el tipo de información como un formulario y el archivo como un archivo cargado. Se llama a la función stage_file para procesar el archivo y se devuelve un diccionario con los resultados de la validación y un ID de validación.
 @app.post("/api/files/validate")
-async def validate_upload(
+def validate_upload(
     information_type: str = Form(...),
     file: UploadFile = File(...),
 ) -> dict:
-    content = await file.read()
+    content = file.file.read()
     staged = stage_file(file.filename or "archivo", content, information_type)
     response = staged.result.as_dict()
     response["validation_id"] = staged.validation_id
@@ -232,7 +253,7 @@ async def validate_upload(
 
 # Esta ruta devuelve una vista previa de la importación de un archivo previamente validado. Se recibe un ID de validación como parámetro y se busca el archivo en estado "staged". Si el archivo no está disponible o tiene errores, se devuelve un error HTTP. Si todo está bien, se llama a la función import_preview para preparar la importación y se devuelve un diccionario con los datos a importar.
 @app.get("/api/imports/{validation_id}/preview")
-async def import_preview_endpoint(
+def import_preview_endpoint(
     validation_id: str,
     session: Session = Depends(get_db),
 ) -> dict:
@@ -248,7 +269,7 @@ async def import_preview_endpoint(
 
 # Esta ruta confirma la importación de un archivo previamente validado y preparado. Se recibe un ID de validación como parámetro y se llama a la función confirm_import para realizar la importación en la base de datos. Si ocurre algún error, se devuelve un error HTTP con el mensaje correspondiente.
 @app.post("/api/imports/{validation_id}/confirm")
-async def confirm_import_endpoint(
+def confirm_import_endpoint(
     validation_id: str,
     request: ConfirmImportRequest | None = None,
     session: Session = Depends(get_db),
@@ -580,7 +601,7 @@ async def informes_consolidado_resumen_endpoint(
 
 
 @app.get("/api/informes/export")
-async def informes_export_endpoint(
+def informes_export_endpoint(
     report_type: str = Query(default="consolidado", alias="type"),
     format: str = Query(default="xlsx", pattern="^(pdf|xlsx|csv|docx)$"),
     year: int | None = Query(default=None, ge=2000, le=2100),
@@ -1042,7 +1063,7 @@ async def informe_gestion_anexos_download(
 
 
 @app.get("/api/informes/word")
-async def informes_word_endpoint(
+def informes_word_endpoint(
     year: int | None = Query(default=None, ge=2000, le=2100),
     anio: int | None = Query(
         default=None,
@@ -1114,7 +1135,7 @@ async def sheets_sync_pending_conflicts_endpoint(
 
 
 @app.post("/api/sheets/sync/resolve")
-async def sheets_sync_resolve_endpoint(
+def sheets_sync_resolve_endpoint(
     request: SheetSyncResolveRequest,
     session: Session = Depends(get_db),
 ) -> dict:
@@ -1185,7 +1206,7 @@ async def sheets_sync_patch_endpoint(
 
 
 @app.post("/api/sheets/sync/run")
-async def sheets_sync_run_endpoint(session: Session = Depends(get_db)) -> dict:
+def sheets_sync_run_endpoint(session: Session = Depends(get_db)) -> dict:
     from app.services.sheets_sync import run_sync, get_config, config_to_status
 
     config = get_config(session)
@@ -1212,7 +1233,7 @@ async def sheets_sync_run_endpoint(session: Session = Depends(get_db)) -> dict:
 
 
 @app.post("/api/sheets/sync/preview")
-async def sheets_sync_preview_endpoint(
+def sheets_sync_preview_endpoint(
     request: SheetSyncPreviewRequest,
     session: Session = Depends(get_db),
 ) -> dict:
@@ -1230,7 +1251,7 @@ async def sheets_sync_preview_endpoint(
 
 
 @app.post("/api/sheets/sync/confirm")
-async def sheets_sync_confirm_endpoint(
+def sheets_sync_confirm_endpoint(
     request: SheetSyncConfirmRequest,
     session: Session = Depends(get_db),
 ) -> dict:

@@ -11,6 +11,16 @@ from pathlib import Path
 if getattr(sys, "frozen", False):
     os.chdir(Path(sys.executable).resolve().parent)
     (Path.cwd() / "data").mkdir(parents=True, exist_ok=True)
+    try:
+        from app.runtime import data_dir
+
+        _log_file = open(data_dir() / "sena_certificacion.log", "a", encoding="utf-8")
+        if sys.stdout is None:
+            sys.stdout = _log_file
+        if sys.stderr is None:
+            sys.stderr = _log_file
+    except Exception:
+        pass
 
 from app.main import app
 import uvicorn
@@ -54,7 +64,15 @@ class DesktopNotificationBridge:
         self._lock = threading.Lock()
         self._toaster = None
 
-    def attach(self, window) -> None:
+    def _attach(self, window) -> None:
+        # pywebview recorre con dir()/getattr() todos los atributos públicos del
+        # js_api para exponerlos a JavaScript. Sin esta marca se mete en el
+        # objeto nativo de la ventana y en los objetos COM de WebView2, lo que
+        # provoca recursion infinita ("AccessibilityObject...") y congela la UI.
+        try:
+            window._serializable = False
+        except Exception:
+            pass
         self.window = window
 
     def _focus_window(self) -> None:
@@ -67,12 +85,6 @@ class DesktopNotificationBridge:
             pass
         try:
             window.restore()
-        except Exception:
-            pass
-        try:
-            window.on_top = True
-            time.sleep(0.15)
-            window.on_top = False
         except Exception:
             pass
 
@@ -176,8 +188,13 @@ class DesktopNotificationBridge:
             }
 
 
-def run_desktop_window(url: str) -> None:
-    """Abre la aplicación en una ventana nativa de escritorio."""
+def run_desktop_window(url: str, background: bool = False) -> None:
+    """Abre la aplicación en una ventana nativa de escritorio.
+
+    La ventana se crea siempre en este proceso (el principal) y queda oculta
+    cuando la aplicación arranca en segundo plano. La bandeja del sistema puede
+    mostrarla después sin lanzar otra instancia.
+    """
     try:
         import webview
     except ImportError:
@@ -191,21 +208,153 @@ def run_desktop_window(url: str) -> None:
             "SENA_USE_BROWSER=1 para usar el navegador externo."
         )
 
+    from app.desktop import register_handlers, unregister_handlers
+
     bridge = DesktopNotificationBridge(url)
-    window = webview.create_window(
-        "SENA Certificación",
-        url,
-        width=1440,
-        height=900,
-        min_size=(1024, 700),
-        confirm_close=True,
-        js_api=bridge,
-    )
-    bridge.attach(window)
-    webview.start()
+    state: dict[str, object] = {"window": None, "quitting": False}
+
+    def create_window() -> None:
+        window = webview.create_window(
+            "SENA Certificación",
+            url,
+            width=1440,
+            height=900,
+            min_size=(1024, 700),
+            confirm_close=False,
+            js_api=bridge,
+            hidden=background,
+        )
+        bridge._attach(window)
+
+        def on_closing() -> bool:
+            if state["quitting"]:
+                return True
+            # Cerrar la ventana la oculta: la aplicación sigue disponible en la
+            # bandeja y "Salir" es la forma explícita de terminarla.
+            try:
+                window.hide()
+            except Exception:
+                pass
+            return False
+
+        try:
+            window.events.closing += on_closing
+        except Exception:
+            pass
+        state["window"] = window
+
+    def show_window() -> bool:
+        window = state.get("window")
+        if window is None:
+            return False
+        try:
+            window.show()
+        except Exception:
+            return False
+        try:
+            window.restore()
+        except Exception:
+            pass
+        return True
+
+    def quit_app() -> None:
+        state["quitting"] = True
+        window = state.get("window")
+        if window is None:
+            return
+        try:
+            window.destroy()
+        except Exception:
+            pass
+
+    create_window()
+    register_handlers(show_window, quit_app)
+    try:
+        webview.start()
+    finally:
+        unregister_handlers()
+
+
+def _acquire_instance(port: int) -> bool:
+    """Devuelve False si ya hay otra instancia en ejecucion."""
+    if not getattr(sys, "frozen", False) and os.getenv("SENA_SINGLE_INSTANCE", "1") != "1":
+        return True
+    try:
+        import ctypes
+
+        mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "SENA_Certificacion_App_Mutex")
+        if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+            return False
+        # Guardar el handle para que no se libere.
+        globals()["_instance_mutex"] = mutex
+    except Exception:
+        pass
+    return True
+
+
+def _write_port_file(port: int) -> None:
+    try:
+        from app.runtime import data_dir
+
+        (data_dir() / "port.txt").write_text(str(port), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _read_port_file() -> int | None:
+    try:
+        from app.runtime import data_dir
+
+        text = (data_dir() / "port.txt").read_text(encoding="utf-8").strip()
+        return int(text)
+    except Exception:
+        return None
+
+
+def _open_existing_instance(timeout: float = 25.0) -> None:
+    """Pide a la instancia activa que muestre su ventana (no abre el navegador)."""
+    import json
+    import urllib.error
+    import urllib.request
+    import webbrowser
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        port = _read_port_file()
+        if port:
+            try:
+                request = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/api/desktop/show",
+                    method="POST",
+                    data=b"",
+                )
+                with urllib.request.urlopen(request, timeout=5) as response:
+                    payload = json.loads(response.read() or b"{}")
+                if payload.get("shown"):
+                    return
+                break
+            except urllib.error.HTTPError:
+                # Instancia antigua sin el endpoint: se usa el navegador.
+                break
+            except Exception:
+                pass
+        time.sleep(0.4)
+
+    port = _read_port_file() or 8000
+    webbrowser.open(f"http://127.0.0.1:{port}")
 
 
 if __name__ == "__main__":
+    from app.version import APP_NAME, APP_VERSION
+
+    smoke_test = "--smoke-test" in sys.argv or os.getenv("SENA_SMOKE_TEST") == "1"
+    background = "--background" in sys.argv or os.getenv("SENA_BACKGROUND") == "1"
+
+    # Si ya hay una instancia, pedirle que muestre su ventana y salir.
+    if not smoke_test and not _acquire_instance(0):
+        _open_existing_instance()
+        sys.exit(0)
+
     port = available_port(int(os.getenv("PORT", "8000")))
     url = f"http://127.0.0.1:{port}"
     server = uvicorn.Server(
@@ -214,12 +363,40 @@ if __name__ == "__main__":
     server_thread = threading.Thread(target=server.run, daemon=True)
     server_thread.start()
     try:
-        if not server_is_ready(port):
+        if not server_is_ready(port, timeout=30.0):
             raise RuntimeError(f"El servidor local no respondió en {url}")
-        run_desktop_window(url)
-    except (OSError, SystemExit) as error:
-        print(f"No fue posible iniciar la aplicacion en {url}:\n{error}")
-        input("Presiona Enter para cerrar...")
+        _write_port_file(port)
+        if smoke_test:
+            import urllib.request
+
+            print(f"{APP_NAME} {APP_VERSION} - prueba de arranque")
+            for path in ("/", "/api/version", "/api/learners"):
+                with urllib.request.urlopen(f"{url}{path}", timeout=10) as response:
+                    print(f"  {path} -> HTTP {response.status}")
+            print("SMOKE_OK")
+        else:
+            from app.desktop import request_quit
+            from app.tray import start_tray_thread
+
+            def _stop():
+                server.should_exit = True
+                request_quit()
+
+            start_tray_thread(port, _stop)
+            run_desktop_window(url, background=background)
+
+    except Exception as error:  # noqa: BLE001
+        import traceback
+
+        traceback.print_exc()
+        print(f"No fue posible iniciar la aplicación en {url}:\n{error}")
+        if getattr(sys, "frozen", False) or smoke_test is False:
+            try:
+                input("Presiona Enter para cerrar...")
+            except EOFError:
+                pass
     finally:
         server.should_exit = True
         server_thread.join(timeout=5)
+        if smoke_test:
+            sys.exit(0)

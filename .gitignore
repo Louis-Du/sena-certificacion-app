@@ -49,6 +49,11 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
+data/
+*.log
 
-# Binarios cargados por la aplicación (anexos del informe de gestión)
-data/informe_gestion_anexos/
+# Builds y ejecutables
+build/
+dist/
+*.exe
+*.msi

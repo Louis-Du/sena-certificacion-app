@@ -9,6 +9,33 @@
 (function () {
   "use strict";
 
+  async function saveBlobWithPicker(blob, suggestedName) {
+    if (typeof window.showSaveFilePicker === "function") {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: suggestedName,
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        return true;
+      } catch (error) {
+        if (error && error.name === "AbortError") {
+          return false;
+        }
+      }
+    }
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = suggestedName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    return true;
+  }
+
   /* ---------------- Toasts ---------------- */
   function getToastContainer() {
     let el = document.getElementById("toast-container");
@@ -215,16 +242,14 @@
         throw new Error(message);
       }
       const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
       const disposition = response.headers.get("Content-Disposition") || "";
       const match = disposition.match(/filename="?([^"]+)"?/i);
-      link.download = match ? match[1] : `informe_${selectedReportType}.${format}`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      const fileName = match ? match[1] : `informe_${selectedReportType}.${format}`;
+      const saved = await saveBlobWithPicker(blob, fileName);
+      if (!saved) {
+        setStatus("Descarga cancelada.", "info");
+        return;
+      }
       setStatus("Informe generado y descargado correctamente.", "success");
       showToast("Informe generado correctamente.", "success");
       window.setTimeout(closeReportModal, 900);
@@ -2749,18 +2774,16 @@
         throw new Error(message);
       }
       const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
       const disposition = response.headers.get("Content-Disposition") || "";
       const match = disposition.match(/filename="?([^"]+)"?/i);
-      link.download =
+      const fileName =
         match?.[1] ||
         `informe_gestion_${periodo.anio}_${periodo.trimestre}_${modo}.docx`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      const saved = await saveBlobWithPicker(blob, fileName);
+      if (!saved) {
+        setInformeStatus(informeExportStatus, "Descarga cancelada.", "info");
+        return;
+      }
       setInformeStatus(
         informeExportStatus,
         `Informe de ${etiquetaPeriodo(periodo)} generado y descargado.`,

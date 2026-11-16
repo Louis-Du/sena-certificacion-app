@@ -4,7 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>SENA Certificación</title>
-  <link href="/static/styles.css?v=20261115-v27" rel="stylesheet">
+  <link rel="icon" href="/static/icon.png">
+  <link href="/static/styles.css?v=20261112-v23" rel="stylesheet">
 </head>
 
 <body>
@@ -57,6 +58,7 @@
             <span class="nav-label">Informe de gestión</span>
           </a>
         </div>
+        <div class="sidebar-version" id="app-version" aria-label="Versión de la aplicación">v0.0.0</div>
       </nav>
 
       <section class="page-content">
@@ -1199,7 +1201,13 @@
 
   <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
   <script src="/static/vendor/chart.umd.min.js"></script>
-  <script src="/static/app.js?v=20261114-v25"></script>
-  <script src="/static/ui-enhancements.js?v=20261115-v19"></script>
+  <script src="/static/app.js?v=20261112-v24"></script>
+  <script src="/static/ui-enhancements.js?v=20261112-v13"></script>
+  <script>
+    fetch("/api/version").then(function (r) { return r.json(); }).then(function (d) {
+      var el = document.getElementById("app-version");
+      if (el && d && d.version) el.textContent = "v" + d.version;
+    }).catch(function () {});
+  </script>
 </body>
 </html>

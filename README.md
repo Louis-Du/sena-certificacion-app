@@ -188,7 +188,7 @@ confirmacion limpia el estado pendiente.
 ## Ejecutar en desarrollo
 
 ```powershell
-py -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 uvicorn app.main:app --reload
@@ -280,13 +280,80 @@ powershell -ExecutionPolicy Bypass -File .\build_demo.ps1
 ```
 
 El ejecutable queda en
-`dist\SenaCertificacionDemo\SenaCertificacionDemo.exe`. Para presentarlo, entrega la
-carpeta completa `dist\SenaCertificacionDemo` y ejecuta el `.exe`; luego abre
-`http://127.0.0.1:8000` en el navegador. El lanzador intenta abrir esa direccion
-automaticamente. La consola permanece visible para mostrar el estado del servidor y
-se cierra al terminar la aplicacion. Si el inicio falla, la consola queda abierta
-para mostrar el error. Si el puerto 8000 ya esta ocupado, el lanzador selecciona
-automaticamente otro puerto local disponible y abre el navegador en esa direccion.
+`dist\SENACertificacion\SENACertificacion.exe`. Para presentarlo, entrega la
+carpeta completa `dist\SENACertificacion` y ejecuta el `.exe`; la aplicación se
+abre en una **ventana de escritorio** propia (pywebview) y también deja un icono
+en la bandeja del sistema con las opciones **Abrir**, **Sincronizar ahora** y
+**Salir**.
+
+- Cerrar la ventana (X) la oculta: la aplicación sigue activa en la bandeja.
+- **Salir** en la bandeja termina la aplicación por completo.
+- Si se vuelve a ejecutar el `.exe` con la aplicación abierta, no se lanza una
+  segunda copia: se muestra y enfoca la ventana existente.
+- `SENACertificacion.exe --background` inicia solo el servidor y la bandeja (lo
+  usa el inicio automático con Windows). No hay consola: los mensajes se
+  registran en `data\sena_certificacion.log`.
+- Si el puerto 8000 ya está ocupado, el lanzador selecciona automáticamente otro
+  puerto local disponible y guarda la elección en `data\port.txt`.
+
+La version de la aplicación se guarda en `dist\SENACertificacion\version.txt` y
+también se expone en `GET /api/version` y en la interfaz. El build ejecuta una
+prueba de arranque automática (`--smoke-test`) que crea una base SQLite temporal
+y verifica `/`, `/api/version` y `/api/learners`.
+
+### Instalador (opcional)
+
+Si se instala **Inno Setup 6 o superior** (https://jrsoftware.org/isdl.php), el mismo script
+genera ademas un instalador en `dist\installer\SENACertificacion-Setup-X.Y.Z.exe`
+que permite elegir la carpeta de instalacion y crear un acceso directo en el
+escritorio. Sin Inno Setup, el ejecutable portable queda disponible en
+`dist\SENACertificacion\`.
+
+### Publicación automática con tags (GitHub Actions)
+
+El workflow `.github/workflows/release.yml` se dispara al subir un tag
+`vX.Y.Z` y publica un GitHub Release con la aplicación compilada. La versión
+del instalador y de `version.json` se toma siempre del tag; el `.iss` recibe
+la versión con `/DMyAppVersion` para no quedar fijado a una sola versión.
+
+Para publicar:
+
+```powershell
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+El tag debe coincidir con `APP_VERSION` en `app/version.py` (el workflow avisa
+si no coincide, pero usa la versión del tag). También se puede ejecutar
+manualmente con **Run workflow** indicando un tag existente.
+
+Pasos del pipeline:
+
+1. Checkout del tag, Python 3.12, venv y `requirements.txt`.
+2. Pruebas unitarias (sin E2E).
+3. `build_demo.ps1 -Version <version>` compila con PyInstaller, ejecuta la
+   prueba de arranque y genera el instalador con Inno Setup (se instala
+   automáticamente en el runner).
+4. Publica el Release del tag con:
+   - `SENACertificacion-Setup-X.Y.Z.exe`
+   - `SENACertificacion-X.Y.Z-portable.zip`
+   - `version.json`
+
+Si el build o el instalador fallan, el Release no se publica. Re-ejecutar el
+workflow para el mismo tag actualiza los activos del Release. El workflow usa
+el `GITHUB_TOKEN` con `contents: write`; no requiere secretos adicionales.
+
+`version.json` queda listo para un futuro sistema de actualizaciones:
+
+```json
+{
+  "version": "0.2.0",
+  "published_at": "2026-11-16T12:00:00Z",
+  "setup_url": "https://github.com/Louis-Du/sena-certificacion-app/releases/download/v0.2.0/SENACertificacion-Setup-0.2.0.exe",
+  "notes": "- feat: ...\n- fix: ...",
+  "sha256": "..."
+}
+```
 
 ### Pruebas realizadas
 

@@ -28,7 +28,9 @@ from docx.text.paragraph import Paragraph
 
 from app.services.rich_text import html_to_docx_paragraphs
 
-TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "templates" / "informe_gestion_administrativa.docx"
+from app.runtime import resource_root
+
+TEMPLATE_PATH = resource_root() / "app" / "templates" / "informe_gestion_administrativa.docx"
 MONTHS_ES = (
     "enero",
     "febrero",

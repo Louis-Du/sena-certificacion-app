@@ -1,0 +1,161 @@
+name: Release Windows
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag existente a publicar (formato vX.Y.Z)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-windows
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  release:
+    name: Compilar y publicar
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Leer versión del tag
+        id: version
+        run: |
+          $tag = if ("${{ github.event_name }}" -eq "workflow_dispatch") { "${{ inputs.tag }}" } else { "${{ github.ref_name }}" }
+          $tag = $tag.Trim()
+          if ($tag -notmatch '^v(\d+)\.(\d+)\.(\d+)$') {
+            throw "El tag '$tag' no tiene el formato vX.Y.Z."
+          }
+          $version = "$($Matches[1]).$($Matches[2]).$($Matches[3])"
+
+          if (-not (git tag --list $tag)) {
+            throw "El tag $tag no existe en el repositorio."
+          }
+
+          $sha = (git rev-parse "$tag^{commit}").Trim()
+          if (-not $sha) {
+            throw "No fue posible resolver el commit del tag $tag."
+          }
+
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "tag=$tag"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version"
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "sha=$sha"
+
+          $appVersion = (& python -c "from app.version import APP_VERSION; print(APP_VERSION)").Trim()
+          if ($appVersion -ne $version) {
+            Write-Host "::warning::APP_VERSION=$appVersion no coincide con el tag $tag; el instalador y version.json usaran $version."
+          }
+          Write-Host "Tag: $tag | Versión: $version"
+
+      - name: Crear entorno virtual e instalar dependencias
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+      - name: Pruebas unitarias (sin E2E)
+        env:
+          DATABASE_URL: "sqlite:///:memory:"
+        run: .\.venv\Scripts\python.exe -m pytest -m "not e2e" -q
+
+      - name: Instalar Inno Setup
+        run: |
+          $iscc = @(
+            "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+            "C:\Program Files\Inno Setup 6\ISCC.exe",
+            "C:\Program Files (x86)\Inno Setup 7\ISCC.exe",
+            "C:\Program Files\Inno Setup 7\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+          if (-not $iscc) {
+            choco install innosetup --no-progress -y
+            if ($LASTEXITCODE -ne 0) {
+              throw "No fue posible instalar Inno Setup."
+            }
+          }
+
+      - name: Compilar ejecutable e instalador
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          & .\build_demo.ps1 -Version $env:VERSION -RequireInstaller
+          if (-not $?) {
+            throw "El build fallo."
+          }
+
+          $exe = "dist\SENACertificacion\SENACertificacion.exe"
+          $installer = "dist\installer\SENACertificacion-Setup-$env:VERSION.exe"
+          foreach ($path in @($exe, $installer)) {
+            if (-not (Test-Path $path)) {
+              throw "No se generó el artefacto esperado: $path"
+            }
+          }
+
+      - name: Crear paquete portable
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $zip = "dist\installer\SENACertificacion-$env:VERSION-portable.zip"
+          Compress-Archive -Path "dist\SENACertificacion" -DestinationPath $zip -CompressionLevel Optimal -Force
+          if (-not (Test-Path $zip)) {
+            throw "No se generó el paquete portable: $zip"
+          }
+
+      - name: Generar version.json y notas del release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          & .\.venv\Scripts\python.exe scripts\ci\generate_version_json.py `
+            --version $env:VERSION `
+            --tag $env:TAG `
+            --repository $env:REPOSITORY `
+            --installer "dist\installer\SENACertificacion-Setup-$env:VERSION.exe" `
+            --output "dist\installer\version.json" `
+            --notes-output "dist\installer\release_notes.md"
+          if ($LASTEXITCODE -ne 0) {
+            throw "La generación de version.json falló."
+          }
+
+      - name: Publicar GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ steps.version.outputs.sha }}
+          name: SENA Certificación ${{ steps.version.outputs.version }}
+          body_path: dist/installer/release_notes.md
+          files: |
+            dist/installer/SENACertificacion-Setup-${{ steps.version.outputs.version }}.exe
+            dist/installer/version.json
+            dist/installer/SENACertificacion-${{ steps.version.outputs.version }}-portable.zip
+          fail_on_unmatched_files: true
+          overwrite_files: true
+          draft: false
+          prerelease: false

@@ -8,11 +8,9 @@ from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/sena_certificacion.db")
+from app.runtime import default_database_url
 
-if DATABASE_URL == "sqlite:///./data/sena_certificacion.db":
-    (BASE_DIR / "data").mkdir(parents=True, exist_ok=True)
+DATABASE_URL = os.getenv("DATABASE_URL") or default_database_url()
 
 connect_args = (
     {"check_same_thread": False, "timeout": 30}
