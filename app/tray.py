@@ -34,19 +34,9 @@ def run_tray(port: int, on_exit) -> None:
     url = f"http://127.0.0.1:{port}"
 
     def open_app(icon, item):
-        try:
-            import subprocess
-            import sys
-            from pathlib import Path
+        import webbrowser
 
-            if getattr(sys, "frozen", False):
-                subprocess.Popen([sys.executable])
-            else:
-                subprocess.Popen([sys.executable, str(Path(__file__).resolve().parents[1] / "demo.py")])
-        except Exception:
-            import webbrowser
-
-            webbrowser.open(url)
+        webbrowser.open(url)
 
     def sync_now(icon, item):
         try:

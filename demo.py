@@ -260,8 +260,9 @@ if __name__ == "__main__":
     # Si ya hay una instancia, abrir el navegador y salir.
     if not smoke_test and not _acquire_instance(0):
         existing_port = _read_port_file() or 8000
-        existing_url = f"http://127.0.0.1:{existing_port}"
-        run_desktop_window(existing_url)
+        import webbrowser
+
+        webbrowser.open(f"http://127.0.0.1:{existing_port}")
         sys.exit(0)
 
     port = available_port(int(os.getenv("PORT", "8000")))
