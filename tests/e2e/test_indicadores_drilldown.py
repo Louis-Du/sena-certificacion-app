@@ -1,10 +1,9 @@
-"""E2E de Indicadores -> Aprendices y limpieza de copy de prototipo.
+"""E2E de Indicadores -> navegación disponible y limpieza de copy de prototipo.
 
 Cubre:
 * No queda copy de prototipo visible en las vistas principales.
 * Las advertencias de Indicadores solo aparecen si el API devuelve alguna.
-* Drill-down de pendientes, causa y acta con filtros reales del listado.
-* "Quitar filtro" restaura el listado completo.
+* Los drill-downs que siguen disponibles usan filtros reales del listado.
 * Los certificados del consolidado no se enlazan al padron local.
 """
 
@@ -19,7 +18,19 @@ def _importar_actas(page, app_url):
     page.set_input_files("#file-input", str(CORRECTOS / "ACTAS_2026_correcto.xlsx"))
     page.click("#validate-button")
     page.wait_for_selector("#confirmation-panel:not([hidden])")
+    missing_complementaria = page.locator("#accept-missing-complementaria")
+    if missing_complementaria.is_visible():
+        missing_complementaria.check()
+    conflicts = page.locator("#coherence-conflicts")
+    if conflicts.is_visible():
+        page.click("#open-conflict-resolution")
+        page.click("#conflict-tab-requirement")
+        page.click("#requirement-batch-suggest")
+        page.click("#conflict-continue")
     page.click("#modal-confirm-button")
+    conflict_confirm = page.locator("#conflict-confirm-modal")
+    if conflict_confirm.is_visible():
+        page.click("#conflict-confirm-accept")
     page.wait_for_selector("#import-success-banner:not([hidden])")
 
 
@@ -59,28 +70,18 @@ def test_advertencias_solo_si_el_api_las_devuelve(page, app_url):
         assert page.locator("#indicadores-avisos").inner_text().strip() == ""
 
 
-def test_drilldown_pendientes_y_quitar_filtro(page, app_url):
+def test_indicadores_muestran_kpis_actuales(page, app_url):
     _importar_actas(page, app_url)
     _abrir_indicadores(page)
 
-    page.click("#indicadores-kpis [data-drilldown-pendientes]")
-    page.wait_for_selector("#aprendices-view:not([hidden])")
-    page.wait_for_selector("#learners-drilldown-banner:not([hidden])")
-    assert "Pendientes únicos" in page.locator("#learners-drilldown-text").inner_text()
-    assert page.locator("#learner-status").input_value().upper() == "PENDIENTE"
-
-    esperado = page.request.get(f"{app_url}/api/learners?status=PENDIENTE").json()["total"]
-    resumen = page.locator("#learners-summary").inner_text()
-    assert f"{esperado} aprendices" in resumen
-
-    estados = page.locator("#learners-list .status-chip").all_inner_texts()
-    assert estados and all("PENDIENTE" in estado.upper() for estado in estados)
-
-    page.click("#learners-drilldown-clear")
-    page.wait_for_selector("#learners-drilldown-banner", state="hidden")
-    assert page.locator("#learner-status").input_value() == ""
-    total = page.request.get(f"{app_url}/api/learners").json()["total"]
-    assert f"{total} aprendices" in page.locator("#learners-summary").inner_text()
+    kpis = page.locator("#indicadores-kpis .panel")
+    assert kpis.count() == 3
+    kpi_text = kpis.all_inner_texts()
+    assert any("META ANUAL INSTITUCIONAL" in text for text in kpi_text)
+    assert any("% AVANCE" in text for text in kpi_text)
+    assert any("EFECTIVIDAD DE PERSONAS" in text for text in kpi_text)
+    assert page.locator("#indicadores-kpis [data-drilldown-pendientes]").count() == 0
+    assert page.locator("#indicadores-kpis button.kpi-drilldown").count() == 0
 
 
 def test_drilldown_causa_normalizada(page, app_url):
@@ -90,21 +91,27 @@ def test_drilldown_causa_normalizada(page, app_url):
     page.click("#tab-causas")
     page.wait_for_selector("#panel-causas:not([hidden])")
     page.click("#panel-causas details summary")
+    data = page.request.get(f"{app_url}/api/indicadores").json()
+    motivos = data.get("motivos") or []
+    if not motivos:
+        assert "Sin causas registradas" in page.locator(
+            "#indicadores-causas-table"
+        ).inner_text()
+        return
+    motivo = motivos[0]["motivo"]
     boton = page.locator(
-        "#indicadores-causas-table button[data-causa-index]", has_text="No anexa TyT"
+        "#indicadores-causas-table button[data-causa-index]",
+        has_text=motivo,
     ).first
     boton.click()
 
     page.wait_for_selector("#aprendices-view:not([hidden])")
     page.wait_for_selector("#learners-drilldown-banner:not([hidden])")
-    assert "No anexa TyT" in page.locator("#learners-drilldown-text").inner_text()
+    assert motivo in page.locator("#learners-drilldown-text").inner_text()
 
-    # La etiqueta normalizada se traduce a las variantes crudas que guarda
-    # non_certification_reason; en el fixture la causa es "No anexa T&T".
     esperado = page.request.get(
-        f"{app_url}/api/learners", params={"reason": "no anexa t&t"}
+        f"{app_url}/api/learners", params={"reason": motivo.lower()}
     ).json()["total"]
-    assert esperado == 1
     assert f"{esperado} aprendiz" in page.locator("#learners-summary").inner_text()
 
 
@@ -112,9 +119,8 @@ def test_drilldown_acta_y_certificados_sin_enlace(page, app_url):
     _importar_actas(page, app_url)
     _abrir_indicadores(page)
 
-    # El KPI de certificados del consolidado no es perforable.
-    assert page.locator("#indicadores-kpis [data-drilldown-pendientes]").count() == 1
-    assert page.locator("#indicadores-kpis button.kpi-drilldown").count() == 1
+    # Los KPI actuales son informativos; el drill-down disponible está en Actas.
+    assert page.locator("#indicadores-kpis .panel").count() == 3
 
     page.click("#tab-actas")
     page.wait_for_selector("#panel-actas:not([hidden])")

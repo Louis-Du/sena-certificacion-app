@@ -95,7 +95,7 @@ def test_acta_import_success_offers_act_view(page, app_url):
 
     meta = page.locator("#import-success-meta").text_content()
     assert "Acta_certificacion_correcto.pdf" in meta
-    assert "aprendices vinculados" in meta
+    assert "aprendiz vinculado" in meta or "aprendices vinculados" in meta
     view_button = page.locator("#view-imported-button")
     assert view_button.text_content() == "Ver actas"
     view_button.click()

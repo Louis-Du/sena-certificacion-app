@@ -86,13 +86,17 @@ def test_list_and_detail_prioritize_pending_requirements(page, app_url, seed_df1
     # La tarjeta de resumen bajo el nombre se elimino: los conteos quedan en el
     # subtitulo del panel de requisitos.
     assert page.locator("#learner-requirements-summary").count() == 0
+    page.click("#toggle-requirements")
+    page.wait_for_selector("#learner-requirements-expanded:not([hidden])")
     subtitle = page.locator("#learner-requirements-subtitle")
     subtitle_text = subtitle.text_content()
     assert "4 pendientes" in subtitle_text
     assert "1 cumplido" in subtitle_text
     assert "0 no aplica" in subtitle_text
 
-    first_form = page.locator("#learner-requirements .requirement-editor").first
+    first_form = page.locator(
+        "#learner-requirements .requirement-editor", has_text="Saber TyT"
+    )
     assert "is-pending" in (first_form.get_attribute("class") or "")
     assert "Saber TyT" in first_form.text_content()
 
@@ -109,7 +113,7 @@ def test_list_and_detail_prioritize_pending_requirements(page, app_url, seed_df1
 
     # Tras guardar, los pendientes siguen primero y el requisito cumplido baja.
     forms = page.locator("#learner-requirements .requirement-editor")
-    first_form = forms.first
+    first_form = forms.filter(has_text="Inscripción APE")
     assert "Inscripción APE" in first_form.text_content()
     assert "is-pending" in (first_form.get_attribute("class") or "")
     saber_tyt = page.locator(

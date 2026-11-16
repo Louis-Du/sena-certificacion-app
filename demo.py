@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import base64
 import os
 import socket
 import sys
 import threading
 import time
 from pathlib import Path
+from typing import Callable
 
 
 if getattr(sys, "frozen", False):
@@ -47,22 +49,47 @@ def server_is_ready(port: int, timeout: float = 10.0) -> bool:
     return False
 
 
+_FILE_TYPE_LABELS = {
+    ".pdf": "Documento PDF",
+    ".xlsx": "Libro de Excel",
+    ".docx": "Documento de Word",
+    ".csv": "Archivo CSV",
+}
+
+
+def _file_types_for_suffix(suffix: str) -> tuple[str, ...]:
+    """Filtros válidos para el diálogo nativo de Windows."""
+    suffix = (suffix or "").lower()
+    if suffix:
+        label = _FILE_TYPE_LABELS.get(suffix, "Archivo")
+        return (f"{label} (*{suffix})", "Todos los archivos (*.*)")
+    return ("Todos los archivos (*.*)",)
+
+
 class DesktopNotificationBridge:
-    """Puente JS -> Python para notificaciones nativas y foco de ventana.
+    """Puente JS -> Python para notificaciones, archivos y foco de ventana.
 
     ``notify_conflict`` se invoca desde el frontend cuando el polling detecta
     ``conflict_pending``. La marca ``notified_at`` del backend garantiza una
     sola notificación por conjunto de documentos, incluso si la ventana se
     recarga. En Windows se usa ``windows-toasts`` porque permite manejar el
     clic del toast; si no está disponible se cae a ``plyer``.
+
+    ``save_file`` usa el diálogo nativo de guardado. La File System Access API
+    del navegador exige una activación de usuario reciente y WebView2 la pierde
+    cuando la generación del informe tarda unos segundos; por eso la descarga
+    terminaba en la carpeta predeterminada sin mostrar el explorador.
     """
 
     def __init__(self, url: str) -> None:
         self.url = url
         self.window = None
         self._notified_fingerprints: set[str] = set()
+        self._notified_updates: set[str] = set()
         self._lock = threading.Lock()
         self._toaster = None
+        self._update_monitor_stop = threading.Event()
+        self._update_monitor_thread: threading.Thread | None = None
 
     def _attach(self, window) -> None:
         # pywebview recorre con dir()/getattr() todos los atributos públicos del
@@ -112,7 +139,27 @@ class DesktopNotificationBridge:
         self._focus_window()
         return self._open_resolution_js()
 
-    def _notify_windows_toast(self, title: str, body: str, fingerprint: str) -> bool:
+    def _open_updates_js(self) -> bool:
+        window = self.window
+        if window is None:
+            return False
+        script = (
+            "window.SenaUpdates && "
+            "window.SenaUpdates.open && "
+            "window.SenaUpdates.open();"
+        )
+        try:
+            window.evaluate_js(script)
+            return True
+        except Exception:
+            return False
+
+    def _notify_windows_toast(
+        self,
+        title: str,
+        body: str,
+        on_click: Callable[[], None] | None = None,
+    ) -> bool:
         try:
             from windows_toasts import InteractableWindowsToaster, Toast
         except Exception:
@@ -123,18 +170,125 @@ class DesktopNotificationBridge:
                 # cuerpo del toast sin depender de botones de accion.
                 self._toaster = InteractableWindowsToaster("SENA Certificacion")
             toast = Toast(text_fields=[title, body])
-            try:
-                toast.on_activated = lambda _args: self.open_conflict_resolution(
-                    fingerprint
-                )
-            except Exception:
-                # Algunas versiones no exponen el callback de activacion; el
-                # toast sigue siendo util aunque el clic no abra el modal.
-                pass
+            if on_click is not None:
+                try:
+                    toast.on_activated = lambda _args: on_click()
+                except Exception:
+                    # Algunas versiones no exponen el callback de activacion; el
+                    # toast sigue siendo util aunque el clic no abra el modal.
+                    pass
             self._toaster.show_toast(toast)
             return True
         except Exception:
             return False
+
+    def save_file(self, filename: str = "", content_base64: str = "") -> dict:
+        """Guarda un archivo en la ruta que el usuario elija.
+
+        El diálogo nativo no depende de la activación de usuario que exige
+        ``window.showSaveFilePicker``. Así el explorador de Windows aparece
+        incluso cuando el informe tarda en generarse.
+        """
+        window = self.window
+        if window is None:
+            return {"saved": False, "cancelled": False, "error": "window-unavailable"}
+
+        raw = str(content_base64 or "")
+        if raw.startswith("data:"):
+            raw = raw.split(",", 1)[-1]
+        try:
+            payload = base64.b64decode(raw, validate=True)
+        except Exception:
+            return {"saved": False, "cancelled": False, "error": "invalid-content"}
+
+        safe_name = Path(str(filename or "")).name.strip() or "archivo"
+        suffix = Path(safe_name).suffix
+        try:
+            import webview
+
+            dialog = getattr(webview, "FileDialog", None)
+            dialog_type = dialog.SAVE if dialog is not None else webview.SAVE_DIALOG
+            result = window.create_file_dialog(
+                dialog_type,
+                directory=str(Path.home()),
+                save_filename=safe_name,
+                file_types=_file_types_for_suffix(suffix),
+            )
+        except Exception as error:
+            return {"saved": False, "cancelled": False, "error": str(error)}
+
+        if not result:
+            return {"saved": False, "cancelled": True}
+
+        selected_path = result[0] if isinstance(result, (tuple, list)) else result
+        target = Path(str(selected_path))
+        if suffix and not target.suffix:
+            target = target.with_suffix(suffix)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(payload)
+        except Exception as error:
+            return {"saved": False, "cancelled": False, "error": str(error)}
+
+        return {
+            "saved": True,
+            "cancelled": False,
+            "path": str(target),
+        }
+
+    def start_update_monitor(self, interval_seconds: int = 15 * 60) -> None:
+        """Consulta releases aunque la ventana esté oculta en la bandeja."""
+        if self._update_monitor_thread and self._update_monitor_thread.is_alive():
+            return
+
+        self._update_monitor_stop.clear()
+
+        def monitor() -> None:
+            while not self._update_monitor_stop.wait(interval_seconds):
+                try:
+                    from app.services.updates import check_for_update
+
+                    info = check_for_update(force=True)
+                    if not info.get("update_available") or info.get("error"):
+                        continue
+                    version = str(info.get("latest_version") or "")
+                    notes = (info.get("notes_items") or [])[:3]
+                    self.notify_update(
+                        version,
+                        f"SENA Certificación v{version} disponible",
+                        " · ".join(notes)
+                        or "Abre la aplicación para ver las novedades e instalar la actualización.",
+                    )
+                except Exception:
+                    # Un fallo de red no debe cerrar ni bloquear la aplicación.
+                    continue
+
+        self._update_monitor_thread = threading.Thread(
+            target=monitor,
+            name="sena-update-monitor",
+            daemon=True,
+        )
+        self._update_monitor_thread.start()
+
+    def stop_update_monitor(self) -> None:
+        """Detiene la comprobación de releases al cerrar la ventana."""
+        self._update_monitor_stop.set()
+        thread = self._update_monitor_thread
+        if thread and thread is not threading.current_thread():
+            thread.join(timeout=2)
+        self._update_monitor_thread = None
+
+    def open_external(self, url: str = "") -> dict:
+        """Abre un enlace externo en el navegador predeterminado."""
+        url = str(url or "").strip()
+        if not url.startswith(("https://", "http://")):
+            return {"opened": False, "error": "invalid-url"}
+        try:
+            import webbrowser
+
+            return {"opened": bool(webbrowser.open(url))}
+        except Exception as error:
+            return {"opened": False, "error": str(error)}
 
     def _notify_plyer(self, title: str, body: str) -> bool:
         try:
@@ -174,7 +328,11 @@ class DesktopNotificationBridge:
             if fingerprint and fingerprint in self._notified_fingerprints:
                 return {"delivered": True, "method": "deduped", "fingerprint": fingerprint}
 
-            delivered = self._notify_windows_toast(title, body, fingerprint)
+            delivered = self._notify_windows_toast(
+                title,
+                body,
+                lambda: self.open_conflict_resolution(fingerprint),
+            )
             method = "windows-toasts" if delivered else None
             if not delivered:
                 delivered = self._notify_plyer(title, body)
@@ -185,6 +343,40 @@ class DesktopNotificationBridge:
                 "delivered": bool(delivered),
                 "method": method,
                 "fingerprint": fingerprint,
+            }
+
+    def notify_update(self, version: str = "", title: str = "", body: str = "") -> dict:
+        """Muestra un toast con las novedades de la nueva versión."""
+        version = str(version or "").strip()
+        if not version:
+            return {"delivered": False, "method": None, "version": version}
+        title = title or f"Nueva versión {version} disponible"
+        body = body or (
+            "Abre SENA Certificación para ver las novedades e instalar "
+            "la actualización."
+        )
+        with self._lock:
+            if version in self._notified_updates:
+                return {
+                    "delivered": True,
+                    "method": "deduped",
+                    "version": version,
+                }
+            delivered = self._notify_windows_toast(
+                title,
+                body,
+                self._open_updates_js,
+            )
+            method = "windows-toasts" if delivered else None
+            if not delivered:
+                delivered = self._notify_plyer(title, body)
+                method = "plyer" if delivered else None
+            if delivered:
+                self._notified_updates.add(version)
+            return {
+                "delivered": bool(delivered),
+                "method": method,
+                "version": version,
             }
 
 
@@ -267,11 +459,23 @@ def run_desktop_window(url: str, background: bool = False) -> None:
         except Exception:
             pass
 
+    def evaluate_window(script: str) -> bool:
+        window = state.get("window")
+        if window is None:
+            return False
+        try:
+            window.evaluate_js(script)
+            return True
+        except Exception:
+            return False
+
     create_window()
-    register_handlers(show_window, quit_app)
+    register_handlers(show_window, quit_app, evaluate_window)
+    bridge.start_update_monitor()
     try:
         webview.start()
     finally:
+        bridge.stop_update_monitor()
         unregister_handlers()
 
 

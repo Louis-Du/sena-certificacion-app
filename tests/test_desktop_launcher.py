@@ -1,3 +1,4 @@
+import base64
 import importlib.util
 from pathlib import Path
 
@@ -24,9 +25,92 @@ def test_desktop_launcher_exposes_notification_bridge():
 
     assert "class DesktopNotificationBridge" in source
     assert "def notify_conflict" in source
+    assert "def notify_update" in source
     assert "def open_conflict_resolution" in source
+    assert "def save_file" in source
+    assert "def open_external" in source
+    assert "def start_update_monitor" in source
+    assert "def stop_update_monitor" in source
     assert "js_api=bridge" in source
     assert "SenaConflictBanner" in source
+    assert "SenaUpdates" in source
+
+
+def test_save_file_uses_native_dialog_and_writes_bytes(tmp_path):
+    import demo
+
+    class FakeWindow:
+        def __init__(self, result):
+            self.result = result
+            self.calls = []
+
+        def create_file_dialog(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+            return self.result
+
+    destination = tmp_path / "informe.pdf"
+    window = FakeWindow((str(destination),))
+    bridge = demo.DesktopNotificationBridge("http://127.0.0.1:8000")
+    bridge.window = window
+
+    result = bridge.save_file(
+        "informe.pdf",
+        base64.b64encode(b"%PDF-1.4 contenido").decode("ascii"),
+    )
+
+    assert result["saved"] is True
+    assert destination.read_bytes() == b"%PDF-1.4 contenido"
+    assert window.calls
+    assert window.calls[0][1]["save_filename"] == "informe.pdf"
+
+
+def test_save_file_reports_cancellation(tmp_path):
+    import demo
+
+    class FakeWindow:
+        def create_file_dialog(self, *args, **kwargs):
+            return None
+
+    bridge = demo.DesktopNotificationBridge("http://127.0.0.1:8000")
+    bridge.window = FakeWindow()
+
+    result = bridge.save_file("informe.xlsx", base64.b64encode(b"data").decode("ascii"))
+
+    assert result == {"saved": False, "cancelled": True}
+
+
+def test_save_file_accepts_a_string_dialog_result(tmp_path):
+    import demo
+
+    destination = tmp_path / "informe.csv"
+
+    class FakeWindow:
+        def create_file_dialog(self, *args, **kwargs):
+            return str(destination)
+
+    bridge = demo.DesktopNotificationBridge("http://127.0.0.1:8000")
+    bridge.window = FakeWindow()
+
+    result = bridge.save_file("informe.csv", base64.b64encode(b"a,b").decode("ascii"))
+
+    assert result["saved"] is True
+    assert destination.read_bytes() == b"a,b"
+
+
+def test_save_file_rejects_invalid_base64():
+    import demo
+
+    class FakeWindow:
+        def create_file_dialog(self, *args, **kwargs):
+            raise AssertionError("no debe abrir el diálogo con contenido inválido")
+
+    bridge = demo.DesktopNotificationBridge("http://127.0.0.1:8000")
+    bridge.window = FakeWindow()
+
+    result = bridge.save_file("informe.pdf", "no-es-base64!!")
+
+    assert result["saved"] is False
+    assert result["error"] == "invalid-content"
 
 
 def test_notification_bridge_dedupes_by_fingerprint(monkeypatch):

@@ -22,8 +22,8 @@ def test_confirm_import_persists_data(page, app_url, tmp_path):
     _validate_csv(
         page, app_url, tmp_path, csv_bytes("identificacion,nombre,FICHA\n1001,Ana,3001\n")
     )
-    page.click("#confirm-button")
-    page.wait_for_selector("#confirm-button", state="hidden")
+    page.click("#modal-confirm-button")
+    page.wait_for_selector("#import-modal", state="hidden")
     assert "IMPORTACION COMPLETA" in page.locator("#file-status").text_content()
     history_items = page.locator("#history-list .history-item")
     assert history_items.count() >= 1
@@ -37,9 +37,9 @@ def test_cancel_import_does_not_persist(page, app_url, tmp_path):
     _validate_csv(
         page, app_url, tmp_path, csv_bytes("identificacion,nombre,FICHA\n2001,Bruno,3001\n")
     )
-    page.click("#cancel-button")
+    page.click("#modal-cancel-button")
     page.wait_for_selector("#file-panel", state="hidden")
-    assert page.locator("#history-list").text_content() == "Aun no hay importaciones."
+    assert page.locator("#history-list").text_content() == "Aún no hay importaciones."
     page.click('a[data-view="aprendices"]')
     page.wait_for_selector("#learners-list")
-    assert "Aun no hay aprendices" in page.locator("#learners-list").text_content()
+    assert "Aún no hay aprendices" in page.locator("#learners-list").text_content()

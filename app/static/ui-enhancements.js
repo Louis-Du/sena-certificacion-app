@@ -9,7 +9,51 @@
 (function () {
   "use strict";
 
+  function desktopBridge() {
+    return window.pywebview && window.pywebview.api
+      ? window.pywebview.api
+      : null;
+  }
+
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || "");
+        const comma = result.indexOf(",");
+        resolve(comma >= 0 ? result.slice(comma + 1) : result);
+      };
+      reader.onerror = () => reject(reader.error || new Error("No se pudo leer el archivo."));
+      reader.readAsDataURL(blob);
+    });
+  }
+
   async function saveBlobWithPicker(blob, suggestedName) {
+    // En la app de escritorio se usa el diálogo nativo de Windows a través de
+    // pywebview. La File System Access API requiere una activación de usuario
+    // reciente: si generar el informe tarda más de unos segundos, WebView2 la
+    // rechaza y el archivo se descargaba sin mostrar el explorador.
+    const bridge = desktopBridge();
+    if (bridge && typeof bridge.save_file === "function") {
+      try {
+        const content = await blobToBase64(blob);
+        const result = await bridge.save_file(suggestedName, content);
+        if (result && result.saved) return true;
+        if (result && result.cancelled) return false;
+        if (result && result.error) {
+          throw new Error(`No se pudo abrir el explorador: ${result.error}`);
+        }
+      } catch (error) {
+        if (typeof window.showToast === "function") {
+          window.showToast(
+            error.message || "No se pudo abrir el explorador para guardar el informe.",
+            "error",
+          );
+        }
+        return false;
+      }
+    }
+
     if (typeof window.showSaveFilePicker === "function") {
       try {
         const handle = await window.showSaveFilePicker({

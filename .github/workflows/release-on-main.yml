@@ -1,0 +1,69 @@
+name: Release al integrar en main
+
+# Al fusionar desarrollo en main, si APP_VERSION cambió y todavía no existe el
+# tag vX.Y.Z, se crea el tag y se lanza el workflow de release. Si la versión no
+# cambió no se publica nada: así los merges normales no generan releases
+# duplicados ni recompilan la aplicación.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: release-on-main
+  cancel-in-progress: false
+
+jobs:
+  release-if-version-bumped:
+    name: Detectar versión y publicar
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Leer APP_VERSION
+        id: version
+        run: |
+          version=$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          text = Path("app/version.py").read_text(encoding="utf-8")
+          match = re.search(r'APP_VERSION\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"', text)
+          if not match:
+              raise SystemExit("No se encontró APP_VERSION con formato X.Y.Z en app/version.py")
+          print(match.group(1))
+          PY
+          )
+          tag="v${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "El tag $tag ya existe; no se publica un release nuevo."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Se publicará $tag desde $GITHUB_SHA."
+          fi
+
+      - name: Crear tag y lanzar release
+        if: steps.version.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "SENA Certificación $VERSION"
+          git push origin "$TAG"
+          gh workflow run release.yml --ref main -f tag="$TAG"
+          echo "Workflow de release lanzado para $TAG."

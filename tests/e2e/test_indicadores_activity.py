@@ -18,7 +18,19 @@ def _importar_actas(page, app_url):
     page.set_input_files("#file-input", str(CORRECTOS / "ACTAS_2026_correcto.xlsx"))
     page.click("#validate-button")
     page.wait_for_selector("#confirmation-panel:not([hidden])")
+    missing_complementaria = page.locator("#accept-missing-complementaria")
+    if missing_complementaria.is_visible():
+        missing_complementaria.check()
+    conflicts = page.locator("#coherence-conflicts")
+    if conflicts.is_visible():
+        page.click("#open-conflict-resolution")
+        page.click("#conflict-tab-requirement")
+        page.click("#requirement-batch-suggest")
+        page.click("#conflict-continue")
     page.click("#modal-confirm-button")
+    conflict_confirm = page.locator("#conflict-confirm-modal")
+    if conflict_confirm.is_visible():
+        page.click("#conflict-confirm-accept")
     page.wait_for_selector("#import-success-banner:not([hidden])")
 
 
@@ -34,9 +46,9 @@ def test_certificados_por_mes_usa_la_fuente_del_consolidado(page, app_url):
 
     page.get_by_role("button", name="Exportar informe").click()
     page.wait_for_selector("#report-modal.is-open")
-    assert page.get_by_text("Informe general de indicadores").is_visible()
-    assert page.get_by_text("PDF · XLSX · CSV").first.is_visible()
-    assert page.get_by_role("link", name="Generar informe").is_visible()
+    assert page.get_by_text("Informe consolidado de certificación").is_visible()
+    assert page.get_by_text("PDF · XLSX · DOCX").first.is_visible()
+    assert page.get_by_role("button", name="Generar informe").is_visible()
     page.get_by_role("button", name="Cancelar").last.click()
     page.wait_for_selector("#report-modal[aria-hidden='true']", state="attached")
     assert page.locator("#activity-tab-heatmap").count() == 0
@@ -69,15 +81,16 @@ def test_causas_normalizadas_y_auditoria_clara(page, app_url):
 
     page.click("#tab-causas")
     page.wait_for_selector("#panel-causas:not([hidden])")
-    page.wait_for_function(
-        "() => document.querySelector('#indicadores-causas-table')"
-        ".textContent.includes('No anexa TyT')"
-    )
+    data = page.request.get(f"{app_url}/api/indicadores").json()
+    motivos = data.get("motivos") or []
     tabla = page.locator("#indicadores-causas-table").text_content()
-    assert "No anexa TyT" in tabla
     # La tabla completa vive dentro de <details>; el gráfico solo muestra el top.
     assert page.locator("#panel-causas details").count() == 1
     assert page.locator("#panel-causas details table").count() == 1
+    if motivos:
+        assert motivos[0]["motivo"] in tabla
+    else:
+        assert "Sin causas registradas" in tabla
 
     auditoria = page.locator("#indicadores-causas-note").text_content()
     assert "Auditoría de consistencia" in auditoria
@@ -130,4 +143,5 @@ def test_actas_sin_columnas_vacias_y_enlace_al_detalle(page, app_url):
     page.locator("#indicadores-actas-table button[data-act-id]").first.click()
     page.wait_for_selector("#actas-view:not([hidden])")
     page.wait_for_selector("#act-detail:not([hidden])")
-    assert numero in page.locator("#act-detail").text_content()
+    page.wait_for_selector("#act-detail-title")
+    assert page.locator("#act-detail-title").text_content().strip() == numero

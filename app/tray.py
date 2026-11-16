@@ -50,6 +50,22 @@ def run_tray(port: int, on_exit) -> None:
         except Exception:
             pass
 
+    def check_updates(icon, item):
+        try:
+            import urllib.request
+
+            req = urllib.request.Request(
+                f"{url}/api/updates/check?force=1",
+                method="GET",
+            )
+            urllib.request.urlopen(req, timeout=20)
+        except Exception:
+            pass
+        from app.desktop import request_eval, request_show
+
+        request_show()
+        request_eval("window.SenaUpdates && window.SenaUpdates.open();")
+
     def exit_app(icon, item):
         icon.stop()
         if on_exit:
@@ -62,6 +78,7 @@ def run_tray(port: int, on_exit) -> None:
         menu=pystray.Menu(
             pystray.MenuItem("Abrir", open_app, default=True),
             pystray.MenuItem("Sincronizar ahora", sync_now),
+            pystray.MenuItem("Buscar actualizaciones", check_updates),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Salir", exit_app),
         ),
